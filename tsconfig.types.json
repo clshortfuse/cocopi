@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "noEmit": false,
+    "outDir": "types"
+  },
+  "include": ["data/vscode-dts/**/*.d.ts", "extension.js", "data/**/*.js", "lib/**/*.js"],
+  "exclude": ["node_modules", "types", "out", "dist"]
+}

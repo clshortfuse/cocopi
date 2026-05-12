@@ -1,0 +1,387 @@
+{
+  "author": "Carlos Lopez Jr. <clshortfuse@gmail.com> (https://shortfuse.org/)",
+  "bugs": {
+    "url": "https://github.com/clshortfuse/cocopi/issues"
+  },
+  "contributes": {
+    "chatParticipants": [
+      {
+        "description": "Ask remote Codex through Cocopi.",
+        "fullName": "Cocopi",
+        "id": "cocopi.chat",
+        "isSticky": true,
+        "name": "cocopi"
+      }
+    ],
+    "commands": [
+      {
+        "command": "cocopi.manage",
+        "title": "Manage Cocopi"
+      },
+      {
+        "command": "cocopi.showDiagnostics",
+        "title": "Cocopi: Show Diagnostics"
+      },
+      {
+        "command": "cocopi.showTokenTracker",
+        "title": "Cocopi: Show Token Tracker"
+      },
+      {
+        "command": "cocopi.signIn",
+        "title": "Cocopi: Sign In"
+      },
+      {
+        "command": "cocopi.selectModel",
+        "title": "Cocopi: Set Fallback Model"
+      },
+      {
+        "command": "cocopi.status",
+        "title": "Cocopi: Show Status"
+      },
+      {
+        "command": "cocopi.signOut",
+        "title": "Cocopi: Sign Out"
+      }
+    ],
+    "iconFonts": [
+      {
+        "id": "cocopi-font",
+        "src": [
+          {
+            "format": "woff",
+            "path": "media/cocopi.woff"
+          }
+        ]
+      }
+    ],
+    "icons": {
+      "cocopi-logo": {
+        "default": {
+          "fontCharacter": "\\ea01",
+          "fontPath": "media/cocopi.woff"
+        },
+        "description": "Single-color Cocopi coconut-slice silhouette."
+      }
+    },
+    "configuration": {
+      "properties": {
+        "cocopi.apiBaseUrl": {
+          "default": "https://chatgpt.com/backend-api/codex",
+          "description": "Base URL for the ChatGPT Codex backend API.",
+          "type": "string"
+        },
+        "cocopi.authMode": {
+          "default": "secretStorage",
+          "description": "Credential source for extension runtime requests.",
+          "enum": [
+            "secretStorage"
+          ],
+          "type": "string"
+        },
+        "cocopi.chatInstructions": {
+          "default": "",
+          "description": "Additional instructions to apply to Cocopi chat requests. Combine with the configured mode in cocopi.chatInstructionsMode.",
+          "type": "string"
+        },
+        "cocopi.chatInstructionsMode": {
+          "default": "optional",
+          "description": "How to merge cocopi.chatInstructions with built-in chat instructions.",
+          "enum": [
+            "optional",
+            "replace",
+            "append",
+            "regex"
+          ],
+          "enumDescriptions": [
+            "Do not send configured instructions unless explicitly replacing the default instructions.",
+            "Replace the default instructions entirely with chatInstructions.",
+            "Append chatInstructions to the default instructions.",
+            "Apply chatInstructionsRegexPattern/Replacement to default instructions before sending."
+          ],
+          "type": "string"
+        },
+        "cocopi.chatInstructionsRegexFlags": {
+          "default": "g",
+          "description": "Regex flags to use for cocopi.chatInstructionsRegexPattern when mode is regex.",
+          "type": "string"
+        },
+        "cocopi.chatInstructionsRegexPattern": {
+          "default": "",
+          "description": "When cocopi.chatInstructionsMode is regex, the pattern to match in instructions.",
+          "type": "string"
+        },
+        "cocopi.chatInstructionsRegexReplacement": {
+          "default": "",
+          "description": "When cocopi.chatInstructionsMode is regex, the replacement text for matched instruction content.",
+          "type": "string"
+        },
+        "cocopi.chatParticipantModelSource": {
+          "default": "selected",
+          "description": "Model source for @cocopi chat participant requests.",
+          "enum": [
+            "selected",
+            "configured"
+          ],
+          "enumDescriptions": [
+            "Use VS Code's currently selected Cocopi chat model for @cocopi requests, falling back to cocopi.model when the selected model is not from Cocopi.",
+            "Always use the cocopi.model setting for @cocopi requests."
+          ],
+          "type": "string"
+        },
+        "cocopi.compactionFallbackStrategy": {
+          "default": "ninety-percent",
+          "description": "Compaction threshold to use when no model-provided limit is available, or when model-provided limits are disabled.",
+          "enum": [
+            "ninety-percent",
+            "full"
+          ],
+          "enumDescriptions": [
+            "Use 90% of the usable input budget after reserving max output tokens.",
+            "Use the model context window minus max output tokens, delaying VS Code compaction until near the hard limit."
+          ],
+          "type": "string"
+        },
+        "cocopi.debugLevel": {
+          "default": "off",
+          "description": "Controls privacy-safe Cocopi output-channel diagnostics for Codex response handling.",
+          "enum": [
+            "off",
+            "metadata",
+            "events",
+            "payloads"
+          ],
+          "enumDescriptions": [
+            "Do not write response debug diagnostics.",
+            "Write response completion metadata, usage/cache counters when present, and unknown response keys.",
+            "Also write each Responses stream event type. Does not log prompts, output text, tokens, or account ids.",
+            "Write full request, wire request, stream event, and failure payload JSON. This can include prompt and output text; auth tokens are still redacted."
+          ],
+          "type": "string"
+        },
+        "cocopi.issueTracking": {
+          "default": true,
+          "description": "Enable private Cocopi diagnostic entries for runtime anomalies and cache diagnostics.",
+          "type": "boolean"
+        },
+        "cocopi.model": {
+          "default": "gpt-5.5",
+          "description": "Codex model id to request by default.",
+          "type": "string"
+        },
+        "cocopi.reasoningEffort": {
+          "default": "default",
+          "description": "Reasoning effort for Cocopi requests. Request-specific model options still override this setting.",
+          "enum": [
+            "default",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "enumDescriptions": [
+            "Use the model catalog default when available.",
+            "No reasoning.",
+            "Minimal reasoning.",
+            "Fast responses with lighter reasoning.",
+            "Balances speed and reasoning depth for everyday tasks.",
+            "Greater reasoning depth for complex problems.",
+            "Extra high reasoning depth for complex problems."
+          ],
+          "enumItemLabels": [
+            "Model Default",
+            "None",
+            "Minimal",
+            "Low",
+            "Medium",
+            "High",
+            "Extra High"
+          ],
+          "type": "string"
+        },
+        "cocopi.reasoningSummary": {
+          "default": "default",
+          "description": "Reasoning summary behavior for Cocopi requests. Request-specific model options still override this setting.",
+          "enum": [
+            "default",
+            "auto",
+            "off",
+            "concise",
+            "detailed"
+          ],
+          "enumDescriptions": [
+            "Use the model catalog default when available.",
+            "Let Codex choose the reasoning summary behavior.",
+            "Do not show reasoning summaries.",
+            "Show concise reasoning summaries.",
+            "Show detailed reasoning summaries."
+          ],
+          "enumItemLabels": [
+            "Model Default",
+            "Auto",
+            "Off",
+            "Concise",
+            "Detailed"
+          ],
+          "type": "string"
+        },
+        "cocopi.serviceTier": {
+          "default": "auto",
+          "description": "Advanced processing tier override for Cocopi requests.",
+          "enum": [
+            "auto",
+            "flex",
+            "priority"
+          ],
+          "enumDescriptions": [
+            "Standard processing.",
+            "Flexible processing when available.",
+            "Priority processing when available."
+          ],
+          "enumItemLabels": [
+            "Default",
+            "Flex",
+            "Priority"
+          ],
+          "type": "string"
+        },
+        "cocopi.streamIdleTimeoutMs": {
+          "default": 120000,
+          "description": "Milliseconds to wait for Responses stream activity before timing out. Set to 0 to disable the idle timeout.",
+          "minimum": 0,
+          "type": "number"
+        },
+        "cocopi.tokenTracking": {
+          "default": true,
+          "description": "Enable Cocopi Token Tracker entries for token usage and prompt-cache behavior.",
+          "type": "boolean"
+        },
+        "cocopi.toolStrict": {
+          "default": true,
+          "description": "Send VS Code tool schemas to Codex with strict structured-output validation enabled. Request-specific tool options can override this setting.",
+          "type": "boolean"
+        },
+        "cocopi.transport": {
+          "default": "websocket",
+          "description": "Responses transport used for Codex requests.",
+          "enum": [
+            "sse",
+            "websocket"
+          ],
+          "enumDescriptions": [
+            "Use the HTTP/SSE Responses transport.",
+            "Use the Responses WebSocket transport."
+          ],
+          "type": "string"
+        },
+        "cocopi.useModelDefaultCompactionLimit": {
+          "default": true,
+          "description": "Use the model-provided auto_compact_token_limit as VS Code's compaction threshold when available.",
+          "type": "boolean"
+        }
+      },
+      "title": "Cocopi"
+    },
+    "languageModelChatProviders": [
+      {
+        "displayName": "Cocopi",
+        "vendor": "cocopi"
+      }
+    ]
+  },
+  "description": "VS Code extension that bridges VS Code Chat with Codex backend servers.",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.19.17",
+    "@types/vscode": "^1.116.0",
+    "eslint": "^10.2.1",
+    "eslint-plugin-jsdoc": "^62.9.0",
+    "eslint-plugin-unicorn": "^64.0.0",
+    "globals": "^17.5.0",
+    "typescript": "^6.0.3"
+  },
+  "displayName": "Cocopi",
+  "enabledApiProposals": [
+    "chatProvider",
+    "languageModelThinkingPart"
+  ],
+  "engines": {
+    "node": ">=22",
+    "vscode": "^1.119.0"
+  },
+  "exports": {
+    ".": {
+      "import": "./extension.js",
+      "types": "./types/extension.d.ts"
+    },
+    "./data/*.js": {
+      "import": "./data/*.js",
+      "types": "./types/data/*.d.ts"
+    },
+    "./lib/*.js": {
+      "import": "./lib/*.js",
+      "types": "./types/lib/*.d.ts"
+    },
+    "./lib/*/*.js": {
+      "import": "./lib/*/*.js",
+      "types": "./types/lib/*/*.d.ts"
+    }
+  },
+  "files": [
+    ".env.example",
+    "README.md",
+    "data",
+    "extension.js",
+    "lib",
+    "media",
+    "types"
+  ],
+  "galleryBanner": {
+    "color": "#6B3F1D",
+    "theme": "dark"
+  },
+  "homepage": "https://github.com/clshortfuse/cocopi",
+  "icon": "media/icon.png",
+  "keywords": [
+    "vscode",
+    "chat",
+    "codex"
+  ],
+  "license": "UNLICENSED",
+  "main": "./extension.js",
+  "name": "cocopi",
+  "private": true,
+  "publisher": "shortfuse",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clshortfuse/cocopi.git"
+  },
+  "scripts": {
+    "assets:render": "npm run assets:status-font && npx --yes @resvg/resvg-js-cli --fit-width 128 media/icon.svg media/icon.png && npx --yes @resvg/resvg-js-cli media/promo.svg media/promo.png",
+    "assets:status-font": "npx --yes svgtofont --sources media/status-icons --output out/status-font --fontName cocopi && node -e \"fs.copyFileSync('out/status-font/cocopi.woff', 'media/cocopi.woff')\"",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "codex:bench:tools": "node scripts/codex-tool-stream-benchmark.js",
+    "codex:models": "node scripts/codex-models.js",
+    "codex:stream": "node scripts/codex-stream.js",
+    "coverage": "node --test --experimental-test-coverage --test-coverage-include=lib/**/*.js --test-coverage-lines=90 --test-coverage-branches=75 --test-coverage-functions=90 test/*.test.js",
+    "lint": "eslint .",
+    "package:check": "npm run types && node scripts/check-package.js && npm pack --dry-run",
+    "package:vsix": "npm run types && node scripts/check-package.js && node scripts/package-vsix.js",
+    "setup:codex-login": "node scripts/setup-codex-login.js",
+    "test": "node --test test/*.test.js",
+    "test:live": "node --test test/codex-live.test.js",
+    "types": "node -e \"fs.rmSync('types', { recursive: true, force: true })\" && tsc -p tsconfig.types.json",
+    "validate": "npm run check && npm run lint && npm run package:check && npm run coverage"
+  },
+  "type": "module",
+  "types": "./types/extension.d.ts",
+  "typesVersions": {
+    "*": {
+      "*": [
+        "types/*"
+      ]
+    }
+  },
+  "version": "0.0.1"
+}

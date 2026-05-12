@@ -1,0 +1,27 @@
+# Private credentials and local test configuration.
+.env
+.env.*
+!.env.example
+
+# Local agent/debug transcripts and scratch reports.
+*_logs.json
+*.log
+
+# Development-only files.
+docs/
+scripts/
+test/
+eslint.config.js
+tsconfig.json
+
+# Build and generated output.
+types/
+out/
+dist/
+coverage/
+.vscode-test/
+
+# Editor and OS noise.
+.DS_Store
+Thumbs.db
+.vscode/settings.json

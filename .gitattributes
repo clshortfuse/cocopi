@@ -1,0 +1,5 @@
+* text=auto eol=lf
+
+# Binary assets.
+*.png binary
+*.woff binary

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Cocopi coconut icon</title>
+  <desc id="desc">Three concentric colored circles representing a coconut slice.</desc>
+  <circle cx="64" cy="64" r="52" fill="#3F2412"/>
+  <circle cx="64" cy="64" r="48" fill="#FFFFFF"/>
+  <circle cx="64" cy="64" r="34" fill="#A8A8A8"/>
+</svg>
