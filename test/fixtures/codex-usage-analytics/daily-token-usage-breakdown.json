@@ -1,0 +1,132 @@
+{
+  "data": [
+    {
+      "date": "2026-05-06",
+      "product_surface_usage_values": {
+        "cli": 0,
+        "vscode": 4,
+        "web": 0,
+        "slack": 0,
+        "linear": 0,
+        "jetbrains": 0,
+        "sdk": 0,
+        "exec": 0,
+        "github": 0,
+        "desktop_app": 6,
+        "github_code_review": 0,
+        "agent_identity": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "date": "2026-05-07",
+      "product_surface_usage_values": {
+        "cli": 0,
+        "vscode": 77,
+        "web": 0,
+        "slack": 0,
+        "linear": 0,
+        "jetbrains": 0,
+        "sdk": 0,
+        "exec": 0,
+        "github": 0,
+        "desktop_app": 9,
+        "github_code_review": 0,
+        "agent_identity": 0,
+        "unknown": 15
+      }
+    },
+    {
+      "date": "2026-05-08",
+      "product_surface_usage_values": {
+        "cli": 0,
+        "vscode": 0,
+        "web": 0,
+        "slack": 0,
+        "linear": 0,
+        "jetbrains": 0,
+        "sdk": 0,
+        "exec": 0,
+        "github": 0,
+        "desktop_app": 0,
+        "github_code_review": 0,
+        "agent_identity": 0,
+        "unknown": 58
+      }
+    },
+    {
+      "date": "2026-05-09",
+      "product_surface_usage_values": {
+        "cli": 0,
+        "vscode": 0,
+        "web": 0,
+        "slack": 0,
+        "linear": 0,
+        "jetbrains": 0,
+        "sdk": 0,
+        "exec": 0,
+        "github": 0,
+        "desktop_app": 0,
+        "github_code_review": 0,
+        "agent_identity": 0,
+        "unknown": 23
+      }
+    },
+    {
+      "date": "2026-05-10",
+      "product_surface_usage_values": {
+        "cli": 0,
+        "vscode": 0,
+        "web": 0,
+        "slack": 0,
+        "linear": 0,
+        "jetbrains": 0,
+        "sdk": 0,
+        "exec": 0,
+        "github": 0,
+        "desktop_app": 5,
+        "github_code_review": 0,
+        "agent_identity": 0,
+        "unknown": 10
+      }
+    },
+    {
+      "date": "2026-05-11",
+      "product_surface_usage_values": {
+        "cli": 0,
+        "vscode": 0,
+        "web": 0,
+        "slack": 0,
+        "linear": 0,
+        "jetbrains": 0,
+        "sdk": 0,
+        "exec": 0,
+        "github": 0,
+        "desktop_app": 4,
+        "github_code_review": 0,
+        "agent_identity": 0,
+        "unknown": 28
+      }
+    },
+    {
+      "date": "2026-05-12",
+      "product_surface_usage_values": {
+        "cli": 0,
+        "vscode": 0,
+        "web": 0,
+        "slack": 0,
+        "linear": 0,
+        "jetbrains": 0,
+        "sdk": 0,
+        "exec": 0,
+        "github": 0,
+        "desktop_app": 1,
+        "github_code_review": 0,
+        "agent_identity": 0,
+        "unknown": 21
+      }
+    }
+  ],
+  "units": "percent",
+  "group_by": "day"
+}

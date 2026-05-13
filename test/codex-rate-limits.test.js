@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import { fetchCodexRateLimits, fetchCodexUsageAnalytics, parseCodexDailyTokenUsageBreakdownResponse, parseCodexRateLimitEvent, parseCodexUsageResponse, parseCodexWorkspaceUsageCountsResponse } from "../lib/codex-api/rate-limits.js";
+
+const chatgptProUsageFixture = JSON.parse(await readFile(new URL("fixtures/codex-rate-limits/chatgpt-pro-usage.json", import.meta.url), "utf8"));
+const dailyTokenUsageFixture = JSON.parse(await readFile(new URL("fixtures/codex-usage-analytics/daily-token-usage-breakdown.json", import.meta.url), "utf8"));
+const dailyWorkspaceUsageFixture = JSON.parse(await readFile(new URL("fixtures/codex-usage-analytics/daily-workspace-usage-counts.json", import.meta.url), "utf8"));
 
 test("parseCodexUsageResponse maps primary and additional rate limits", () => {
   const snapshots = parseCodexUsageResponse({
@@ -83,6 +88,28 @@ test("parseCodexRateLimitEvent maps stream event window data", () => {
   assert.equal(snapshot?.secondary?.usedPercent, 40);
   assert.equal(snapshot?.credits?.unlimited, true);
   assert.equal(snapshot?.planType, "plus");
+});
+
+test("parseCodexUsageResponse accepts sanitized live ChatGPT Pro usage fixture", () => {
+  const snapshots = parseCodexUsageResponse(chatgptProUsageFixture);
+
+  assert.ok(snapshots.length > 0, "expected at least one usage snapshot");
+  assert.equal(snapshots[0]?.limitId, "codex");
+  assert.equal(snapshots[0]?.planType, "pro");
+  assert.equal(typeof snapshots[0]?.primary?.usedPercent, "number");
+  assert.equal(typeof snapshots[0]?.secondary?.usedPercent, "number");
+  assert.ok(snapshots.some((snapshot) => snapshot.limitId === "codex_bengalfox"), "expected additional model-specific limit");
+});
+
+test("parse Codex account analytics sanitized live fixtures", () => {
+  const tokenUsage = parseCodexDailyTokenUsageBreakdownResponse(dailyTokenUsageFixture);
+  const workspaceUsage = parseCodexWorkspaceUsageCountsResponse(dailyWorkspaceUsageFixture);
+
+  assert.equal(tokenUsage.groupBy, "day");
+  assert.equal(tokenUsage.units, "percent");
+  assert.ok(tokenUsage.data.some((entry) => "vscode" in entry.productSurfaceUsageValues));
+  assert.equal(workspaceUsage.groupBy, "day");
+  assert.ok(workspaceUsage.data.some((entry) => entry.clients.some((client) => client.clientId === "CODEX_IDE_VSCODE")));
 });
 
 test("fetchCodexRateLimits falls back to upstream wham usage endpoint", async () => {

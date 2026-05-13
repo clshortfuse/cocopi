@@ -1,0 +1,66 @@
+{
+  "user_id": "user-fixture",
+  "account_id": "account-fixture",
+  "email": "fixture@example.invalid",
+  "plan_type": "pro",
+  "rate_limit": {
+    "allowed": true,
+    "limit_reached": false,
+    "primary_window": {
+      "used_percent": 4,
+      "limit_window_seconds": 1234,
+      "reset_after_seconds": 1234,
+      "reset_at": 1778544000
+    },
+    "secondary_window": {
+      "used_percent": 24,
+      "limit_window_seconds": 1234,
+      "reset_after_seconds": 1234,
+      "reset_at": 1778544000
+    }
+  },
+  "code_review_rate_limit": null,
+  "additional_rate_limits": [
+    {
+      "limit_name": "GPT-5.3-Codex-Spark",
+      "metered_feature": "codex_bengalfox",
+      "rate_limit": {
+        "allowed": true,
+        "limit_reached": false,
+        "primary_window": {
+          "used_percent": 1,
+          "limit_window_seconds": 1234,
+          "reset_after_seconds": 123,
+          "reset_at": 1778544000
+        },
+        "secondary_window": {
+          "used_percent": 3,
+          "limit_window_seconds": 1234,
+          "reset_after_seconds": 1234,
+          "reset_at": 1778544000
+        }
+      }
+    }
+  ],
+  "credits": {
+    "has_credits": false,
+    "unlimited": false,
+    "overage_limit_reached": false,
+    "balance": "1.23",
+    "approx_local_messages": [
+      0,
+      0
+    ],
+    "approx_cloud_messages": [
+      0,
+      0
+    ]
+  },
+  "spend_control": {
+    "reached": false,
+    "individual_limit": null
+  },
+  "rate_limit_reached_type": null,
+  "promo": null,
+  "referral_beacon": null
+}

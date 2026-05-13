@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import { CODEX_ORIGINATOR } from "../lib/auth/oauth.js";
 import { buildTextResponseBody } from "../lib/codex-api/response-body.js";
@@ -9,6 +10,8 @@ import {
   collectCodexResponseFromEvents,
   fetchCodexResponseStream
 } from "../lib/codex-api/responses.js";
+
+const reasoningStreamEventsFixture = /** @type {CodexResponseStreamEvent[]} */ (JSON.parse(await readFile(new URL("fixtures/codex-responses/reasoning-stream-events.json", import.meta.url), "utf8")));
 
 /** @typedef {import("../data/Codex.js").CodexResponse} CodexResponse */
 /** @typedef {import("../data/Codex.js").CodexResponseStreamEvent} CodexResponseStreamEvent */
@@ -314,6 +317,18 @@ test("collectCodexResponseFromEvents rejects multiple completed responses", asyn
     ])),
     /multiple completed response events/u
   );
+});
+
+test("collectCodexResponseFromEvents accepts sanitized live reasoning stream fixture", async () => {
+  const response = await collectCodexResponseFromEvents(readableEventsFromArray(reasoningStreamEventsFixture));
+  const reasoningEvent = reasoningStreamEventsFixture.find((event) => event.type === "response.output_item.done" && "item" in event && event.item?.type === "reasoning");
+  const reasoningItem = reasoningEvent && "item" in reasoningEvent
+    ? /** @type {Record<string, import("../data/Codex.js").CodexJsonValue>} */ (reasoningEvent.item)
+    : undefined;
+
+  assert.equal(response.output_text, "fixture-ok");
+  assert.equal(response.status, "completed");
+  assert.equal(reasoningItem?.encrypted_content, "<redacted-encrypted-content>");
 });
 
 test("fetchCodexResponseStream aborts during stream consumption", async (context) => {

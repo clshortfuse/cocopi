@@ -1,0 +1,192 @@
+{
+  "data": [
+    {
+      "date": "2026-05-07",
+      "totals": {
+        "users": 1,
+        "threads": 123,
+        "turns": 123,
+        "credits": 1234,
+        "uncached_text_input_tokens": 1234,
+        "cached_text_input_tokens": 1234,
+        "text_output_tokens": 1234,
+        "text_total_tokens": 1234
+      },
+      "clients": [
+        {
+          "client_id": "CODEX_DESKTOP_APP",
+          "users": 1,
+          "threads": 13,
+          "turns": 52,
+          "credits": 1234,
+          "uncached_text_input_tokens": 1234,
+          "cached_text_input_tokens": 1234,
+          "text_output_tokens": 1234,
+          "text_total_tokens": 1234
+        },
+        {
+          "client_id": "CODEX_IDE_VSCODE",
+          "users": 1,
+          "threads": 123,
+          "turns": 123,
+          "credits": 1234,
+          "uncached_text_input_tokens": 1234,
+          "cached_text_input_tokens": 1234,
+          "text_output_tokens": 1234,
+          "text_total_tokens": 1234
+        },
+        {
+          "client_id": "CODEX_UNKNOWN_DEFAULT",
+          "users": 1,
+          "threads": 17,
+          "turns": 123,
+          "credits": 0
+        }
+      ]
+    },
+    {
+      "date": "2026-05-08",
+      "totals": {
+        "users": 1,
+        "threads": 123,
+        "turns": 123,
+        "credits": 1234,
+        "uncached_text_input_tokens": 1234,
+        "cached_text_input_tokens": 1234,
+        "text_output_tokens": 1234,
+        "text_total_tokens": 1234
+      },
+      "clients": [
+        {
+          "client_id": "CODEX_UNKNOWN_DEFAULT",
+          "users": 1,
+          "threads": 123,
+          "turns": 123,
+          "credits": 0
+        }
+      ]
+    },
+    {
+      "date": "2026-05-09",
+      "totals": {
+        "users": 1,
+        "threads": 123,
+        "turns": 123,
+        "credits": 1234,
+        "uncached_text_input_tokens": 1234,
+        "cached_text_input_tokens": 1234,
+        "text_output_tokens": 1234,
+        "text_total_tokens": 1234
+      },
+      "clients": [
+        {
+          "client_id": "CODEX_UNKNOWN_DEFAULT",
+          "users": 1,
+          "threads": 123,
+          "turns": 123,
+          "credits": 0
+        }
+      ]
+    },
+    {
+      "date": "2026-05-10",
+      "totals": {
+        "users": 1,
+        "threads": 8,
+        "turns": 123,
+        "credits": 1234,
+        "uncached_text_input_tokens": 1234,
+        "cached_text_input_tokens": 1234,
+        "text_output_tokens": 1234,
+        "text_total_tokens": 1234
+      },
+      "clients": [
+        {
+          "client_id": "CODEX_DESKTOP_APP",
+          "users": 1,
+          "threads": 6,
+          "turns": 74,
+          "credits": 1234,
+          "uncached_text_input_tokens": 1234,
+          "cached_text_input_tokens": 1234,
+          "text_output_tokens": 1234,
+          "text_total_tokens": 1234
+        },
+        {
+          "client_id": "CODEX_UNKNOWN_DEFAULT",
+          "users": 1,
+          "threads": 2,
+          "turns": 123,
+          "credits": 0
+        }
+      ]
+    },
+    {
+      "date": "2026-05-11",
+      "totals": {
+        "users": 1,
+        "threads": 19,
+        "turns": 123,
+        "credits": 1234,
+        "uncached_text_input_tokens": 1234,
+        "cached_text_input_tokens": 1234,
+        "text_output_tokens": 1234,
+        "text_total_tokens": 1234
+      },
+      "clients": [
+        {
+          "client_id": "CODEX_DESKTOP_APP",
+          "users": 1,
+          "threads": 6,
+          "turns": 39,
+          "credits": 1234,
+          "uncached_text_input_tokens": 1234,
+          "cached_text_input_tokens": 1234,
+          "text_output_tokens": 1234,
+          "text_total_tokens": 1234
+        },
+        {
+          "client_id": "CODEX_UNKNOWN_DEFAULT",
+          "users": 1,
+          "threads": 13,
+          "turns": 123,
+          "credits": 0
+        }
+      ]
+    },
+    {
+      "date": "2026-05-12",
+      "totals": {
+        "users": 1,
+        "threads": 29,
+        "turns": 123,
+        "credits": 1234,
+        "uncached_text_input_tokens": 1234,
+        "cached_text_input_tokens": 1234,
+        "text_output_tokens": 1234,
+        "text_total_tokens": 1234
+      },
+      "clients": [
+        {
+          "client_id": "CODEX_DESKTOP_APP",
+          "users": 1,
+          "threads": 6,
+          "turns": 22,
+          "credits": 123,
+          "uncached_text_input_tokens": 1234,
+          "cached_text_input_tokens": 1234,
+          "text_output_tokens": 1234,
+          "text_total_tokens": 1234
+        },
+        {
+          "client_id": "CODEX_UNKNOWN_DEFAULT",
+          "users": 1,
+          "threads": 23,
+          "turns": 123,
+          "credits": 0
+        }
+      ]
+    }
+  ],
+  "group_by": "day"
+}
