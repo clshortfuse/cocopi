@@ -14,7 +14,6 @@ import { parseEnvFile, upsertEnvValues } from "../lib/utils/env-file.js";
 
 const env = { ...(await readEnvForLiveTests()), ...process.env };
 const liveSkipReason = liveTestSkipReason(env);
-const LIVE_CODEX_MODEL = "gpt-5.3-codex-spark";
 const ENV_PATH = ".env";
 /** @type {Promise<{ accessToken: string, idToken?: string }> | undefined} */
 let liveTokenRefresh;
@@ -24,7 +23,20 @@ test("live Codex models smoke", { skip: liveSkipReason }, async () => {
   assert.ok(models.length > 0, "expected at least one Codex model");
 
   const model = chooseLiveCodexModel(models);
-  assert.equal(model, LIVE_CODEX_MODEL);
+  assert.ok(models.some((entry) => entry.id === model), `expected selected model ${model} in live model catalog`);
+});
+
+test("live Codex model catalog parses a no-reasoning model when present", { skip: liveSkipReason }, async (context) => {
+  const { models } = await readLiveCodexClient();
+  const model = readLiveModelWithoutReasoningSupport(models);
+  if (!model) {
+    context.skip("live model catalog did not include a model without reasoning support");
+    return;
+  }
+
+  context.diagnostic(formatLiveModelReasoningDiagnostic(model));
+  assert.equal(model.supportedInApi, false, "expected supported_in_api=false for a model without external reasoning support");
+  assert.equal(codexModelCatalogShowsReasoningSupport(model), false);
 });
 
 test("live Codex usage limits smoke", { skip: liveSkipReason }, async (context) => {
@@ -215,12 +227,47 @@ async function refreshLiveTokensOnce() {
  * @param {import("../data/Codex.js").CodexModelSummary[]} models
  */
 function chooseLiveCodexModel(models) {
-  const model = chooseCodexModel(models, LIVE_CODEX_MODEL);
-  if (model !== LIVE_CODEX_MODEL) {
-    throw new Error(`Live tests require ${LIVE_CODEX_MODEL}; available models: ${models.map((entry) => entry.id).join(", ")}`);
+  const preferredModel = configuredLiveCodexModel();
+  const model = chooseCodexModel(models, preferredModel);
+  if (preferredModel && model !== preferredModel) {
+    throw new Error(`Live tests require configured CODEX_MODEL ${preferredModel}; available models: ${models.map((entry) => entry.id).join(", ")}`);
   }
 
   return model;
+}
+
+function configuredLiveCodexModel() {
+  return env.CODEX_MODEL?.trim() || undefined;
+}
+
+/** @param {import("../data/Codex.js").CodexModelSummary[]} models */
+function readLiveModelWithoutReasoningSupport(models) {
+  return models.find((model) => !codexModelCatalogShowsReasoningSupport(model));
+}
+
+/** @param {import("../data/Codex.js").CodexModelSummary} model */
+function codexModelCatalogShowsReasoningSupport(model) {
+  if (model.supportedInApi === false) {
+    return false;
+  }
+
+  if (Array.isArray(model.supportedReasoningLevels)) {
+    return model.supportedReasoningLevels.length > 0;
+  }
+
+  return true;
+}
+
+/** @param {import("../data/Codex.js").CodexModelSummary} model */
+function formatLiveModelReasoningDiagnostic(model) {
+  return [
+    `model=${model.id}`,
+    `supportedInApi=${String(model.supportedInApi)}`,
+    `supportsReasoningSummaries=${String(model.supportsReasoningSummaries)}`,
+    `defaultReasoningSummary=${model.defaultReasoningSummary ?? "absent"}`,
+    `defaultReasoningLevel=${model.defaultReasoningLevel ?? "absent"}`,
+    `supportedReasoningLevels=${model.supportedReasoningLevels?.map((level) => level.effort).join(",") ?? "absent"}`
+  ].join(" ");
 }
 
 async function readEnvForLiveTests() {

@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import { CODEX_CLIENT_VERSION, DEFAULT_CODEX_API_BASE_URL } from "../lib/codex-api/config.js";
+import { parseModelsResponse } from "../lib/codex-api/models.js";
 import { COCOPI_COMMANDS } from "../lib/vscode/commands.js";
 import {
   COCOPI_LANGUAGE_MODEL_VENDOR,
@@ -17,6 +19,9 @@ import {
 import { clearCocopiIssues, readCocopiIssues } from "../lib/vscode/issues.js";
 import { CODEX_SECRET_KEYS } from "../lib/vscode/secret-storage.js";
 import { clearCocopiTokenCacheDebugSummaries, readCocopiTokenCacheDebugSummaries } from "../lib/vscode/token-cache-debug.js";
+
+const chatgptProCatalogFixture = JSON.parse(await readFile(new URL("fixtures/codex-models/chatgpt-pro-catalog.json", import.meta.url), "utf8"));
+const reasoningRequestPayloadFixtures = JSON.parse(await readFile(new URL("fixtures/codex-request-payloads/reasoning-variants.json", import.meta.url), "utf8"));
 
 const LanguageModelChatMessageRole = Object.freeze({ User: 1, Assistant: 2 });
 const LanguageModelChatToolMode = Object.freeze({ Auto: 1, Required: 2 });
@@ -831,10 +836,10 @@ test("languageModelInformationFromCodexModels exposes navigation reasoning confi
       displayName: "GPT-5.5",
       defaultReasoningLevel: "medium",
       supportedReasoningLevels: [
-        { effort: "low" },
-        { effort: "medium" },
-        { effort: "high" },
-        { effort: "xhigh" }
+        { effort: "low", description: "Faster responses with less reasoning" },
+        { effort: "medium", description: "Balanced reasoning and speed" },
+        { effort: "high", description: "Greater reasoning depth but slower" },
+        { effort: "xhigh", description: "Extra high reasoning depth for complex problems" }
       ],
       additionalSpeedTiers: ["fast"]
     }
@@ -856,8 +861,14 @@ test("languageModelInformationFromCodexModels exposes navigation reasoning confi
     "High",
     "Extra High"
   ]);
-  assert.equal(reasoningEffort?.title, "Reasoning Effort");
-  assert.equal(reasoningEffort?.default, "xhigh");
+  assert.deepEqual(reasoningEffort?.enumDescriptions, [
+    "Faster responses with less reasoning",
+    "Balanced reasoning and speed",
+    "Greater reasoning depth but slower",
+    "Extra high reasoning depth for complex problems"
+  ]);
+  assert.equal(reasoningEffort?.title, "Thinking Effort");
+  assert.equal(reasoningEffort?.default, "medium");
   assert.equal(reasoningEffort?.group, "navigation");
   assert.equal(/** @type {{ configurationSchema?: { properties?: Record<string, unknown> } }} */ (models[0]).configurationSchema?.properties?.requestOptions, undefined);
 });
@@ -1894,7 +1905,7 @@ test("provideLanguageModelChatResponse logs received model option values and cha
   )));
 });
 
-test("provideLanguageModelChatResponse uses highest catalog reasoning when no effort is selected", async (testContext) => {
+test("provideLanguageModelChatResponse uses catalog default reasoning when no effort is selected", async (testContext) => {
   /** @type {RequestInit | undefined} */
   let responseRequestOptions;
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
@@ -1934,7 +1945,280 @@ test("provideLanguageModelChatResponse uses highest catalog reasoning when no ef
   );
 
   const body = JSON.parse(String(responseRequestOptions?.body));
+  assert.deepEqual(body.reasoning, { effort: "medium" });
+});
+
+test("provideLanguageModelChatResponse omits summary when catalog reports no summary support", async (testContext) => {
+  /** @type {RequestInit | undefined} */
+  let responseRequestOptions;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
+    if (String(url).includes("/models?")) {
+      return Response.json({
+        models: [{
+          slug: "gpt-no-summary-test",
+          display_name: "GPT No Summary Test",
+          default_reasoning_level: "xhigh",
+          supported_reasoning_levels: [
+            { effort: "medium", description: "Balanced" },
+            { effort: "xhigh", description: "Deep work" }
+          ],
+          supports_reasoning_summaries: false,
+          default_reasoning_summary: "detailed"
+        }]
+      });
+    }
+
+    responseRequestOptions = options;
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "ok" }),
+      sseData({ type: "response.completed", response: { id: "resp-ok" } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(configurationValues({ reasoningSummary: "detailed" })));
+
+  await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-no-summary-test"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "think")],
+    fakeResponseOptions({ toolMode: 1, modelOptions: { reasoningSummary: "detailed" } }),
+    fakeProgress(),
+    fakeCancellationToken()
+  );
+
+  const body = JSON.parse(String(responseRequestOptions?.body));
   assert.deepEqual(body.reasoning, { effort: "xhigh" });
+});
+
+test("provideLanguageModelChatResponse omits default none summary from catalog", async (testContext) => {
+  /** @type {RequestInit | undefined} */
+  let responseRequestOptions;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
+    if (String(url).includes("/models?")) {
+      return Response.json({
+        models: [{
+          slug: "gpt-default-no-summary-test",
+          display_name: "GPT Default No Summary Test",
+          default_reasoning_level: "high",
+          supported_reasoning_levels: [
+            { effort: "low", description: "Quick" },
+            { effort: "high", description: "Deep" }
+          ],
+          supports_reasoning_summaries: true,
+          default_reasoning_summary: "none"
+        }]
+      });
+    }
+
+    responseRequestOptions = options;
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "ok" }),
+      sseData({ type: "response.completed", response: { id: "resp-ok" } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode());
+
+  await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-default-no-summary-test"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "think")],
+    fakeResponseOptions({ toolMode: 1 }),
+    fakeProgress(),
+    fakeCancellationToken()
+  );
+
+  const body = JSON.parse(String(responseRequestOptions?.body));
+  assert.deepEqual(body.reasoning, { effort: "high" });
+});
+
+test("provideLanguageModelChatResponse omits reasoning when catalog reports no reasoning support", async (testContext) => {
+  /** @type {RequestInit | undefined} */
+  let responseRequestOptions;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
+    if (String(url).includes("/models?")) {
+      return Response.json(chatgptProCatalogFixture);
+    }
+
+    responseRequestOptions = options;
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "ok" }),
+      sseData({ type: "response.completed", response: { id: "resp-ok" } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(configurationValues({ reasoningEffort: "xhigh", reasoningSummary: "detailed" })));
+
+  await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
+  const models = parseModelsResponse(chatgptProCatalogFixture);
+  const unsupportedModel = models.find((model) => model.supportedInApi === false);
+  assert.ok(unsupportedModel, "expected fixture to include a model marked unsupported in the external API");
+  await provider.provideLanguageModelChatResponse(
+    fakeModel(unsupportedModel.id),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "think")],
+    fakeResponseOptions({ toolMode: 1, modelOptions: { reasoningEffort: "high", reasoningSummary: "detailed" } }),
+    fakeProgress(),
+    fakeCancellationToken()
+  );
+
+  const body = JSON.parse(String(responseRequestOptions?.body));
+  assert.equal("reasoning" in body, false);
+});
+
+test("provideLanguageModelChatResponse matches reasoning request payload fixtures", async (testContext) => {
+  /** @type {Record<string, unknown> | undefined} */
+  let activeCatalog;
+  /** @type {Record<string, unknown> | undefined} */
+  let responseRequestBody;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
+    if (String(url).includes("/models?")) {
+      assert.ok(activeCatalog, "expected active catalog for model catalog request");
+      return Response.json(activeCatalog);
+    }
+
+    responseRequestBody = JSON.parse(String(options.body));
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "ok" }),
+      sseData({ type: "response.completed", response: { id: "resp-ok" } })
+    ]);
+  }));
+
+  const scenarios = [
+    {
+      fixture: "catalogDefaultReasoning",
+      model: "gpt-fixture-reasoning",
+      catalog: {
+        models: [{
+          slug: "gpt-fixture-reasoning",
+          display_name: "GPT Fixture Reasoning",
+          supported_in_api: true,
+          default_reasoning_level: "medium",
+          supported_reasoning_levels: [
+            { effort: "low", description: "Fast" },
+            { effort: "medium", description: "Balanced" }
+          ],
+          supports_reasoning_summaries: true,
+          default_reasoning_summary: "none"
+        }]
+      },
+      responseOptions: fakeResponseOptions({ toolMode: 1 })
+    },
+    {
+      fixture: "directLowConciseReasoning",
+      model: "gpt-fixture-direct",
+      responseOptions: fakeResponseOptions({ toolMode: 1, modelOptions: { reasoningEffort: "low", reasoningSummary: "concise" } })
+    },
+    {
+      fixture: "nestedHighDetailedReasoning",
+      model: "gpt-fixture-nested",
+      responseOptions: fakeResponseOptions({
+        toolMode: 1,
+        modelOptions: {
+          reasoning: {
+            effort: "high",
+            summary: "detailed"
+          }
+        }
+      })
+    },
+    {
+      fixture: "offSummaryReasoning",
+      model: "gpt-fixture-off-summary",
+      responseOptions: fakeResponseOptions({ toolMode: 1, modelOptions: { reasoningEffort: "high", reasoningSummary: "off" } })
+    },
+    {
+      fixture: "legacyCatalogExplicitReasoning",
+      model: "gpt-fixture-legacy-catalog",
+      catalog: {
+        models: [{
+          slug: "gpt-fixture-legacy-catalog",
+          display_name: "GPT Fixture Legacy Catalog",
+          supported_in_api: true
+        }]
+      },
+      responseOptions: fakeResponseOptions({ toolMode: 1, modelOptions: { reasoningEffort: "high", reasoningSummary: "detailed" } })
+    },
+    {
+      fixture: "unsupportedCatalogOmitsReasoning",
+      model: "gpt-fixture-unsupported",
+      catalog: {
+        models: [{
+          slug: "gpt-fixture-unsupported",
+          display_name: "GPT Fixture Unsupported",
+          supported_in_api: false,
+          default_reasoning_level: "high",
+          supported_reasoning_levels: [
+            { effort: "low", description: "Fast" },
+            { effort: "high", description: "Deep" }
+          ],
+          supports_reasoning_summaries: true,
+          default_reasoning_summary: "detailed"
+        }]
+      },
+      responseOptions: fakeResponseOptions({ toolMode: 1, modelOptions: { reasoningEffort: "high", reasoningSummary: "detailed" } })
+    }
+  ];
+
+  for (const scenario of scenarios) {
+    activeCatalog = scenario.catalog;
+    responseRequestBody = undefined;
+    const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+      [CODEX_SECRET_KEYS.accessToken, "access-token"],
+      [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+      [CODEX_SECRET_KEYS.idToken, "id-token"]
+    ])), fakeVscode());
+
+    if (scenario.catalog) {
+      await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
+    }
+
+    await provider.provideLanguageModelChatResponse(
+      fakeModel(scenario.model),
+      [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "think")],
+      scenario.responseOptions,
+      fakeProgress(),
+      fakeCancellationToken()
+    );
+
+    assert.deepEqual(normalizeRequestPayloadForFixture(responseRequestBody), reasoningRequestPayloadFixtures[scenario.fixture], scenario.fixture);
+  }
+});
+
+test("provideLanguageModelChatResponse does not apply model-specific summary rules before catalog load", async (testContext) => {
+  /** @type {RequestInit | undefined} */
+  let requestOptions;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    requestOptions = options;
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "ok" }),
+      sseData({ type: "response.completed", response: { id: "resp-ok" } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(configurationValues({ reasoningEffort: "xhigh", reasoningSummary: "detailed" })));
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-no-catalog-test"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "think")],
+    fakeResponseOptions({ toolMode: 1, modelOptions: { reasoningSummary: "detailed" } }),
+    fakeProgress(),
+    fakeCancellationToken()
+  );
+
+  const body = JSON.parse(String(requestOptions?.body));
+  assert.deepEqual(body.reasoning, { effort: "xhigh", summary: "detailed" });
 });
 
 test("provideLanguageModelChatResponse reads nested model reasoning options", async (testContext) => {
@@ -3497,6 +3781,7 @@ function modelInformation(id, name, detail = id, options = {}) {
     tooltip: options.tooltip ? `Cocopi - ${options.tooltip}` : "Remote Codex through Cocopi",
     detail: `Cocopi - ${detail}`,
     version: id,
+    isUserSelectable: true,
     maxInputTokens: Math.max(1, Math.floor((contextWindow - maxOutputTokens) * 0.9)),
     maxOutputTokens,
     capabilities: {
@@ -3537,6 +3822,26 @@ function fakeCancellationToken() {
       }
     }
   });
+}
+
+/** @param {Record<string, unknown> | undefined} requestPayload */
+function normalizeRequestPayloadForFixture(requestPayload) {
+  assert.ok(requestPayload, "expected request payload");
+  const payload = structuredClone(requestPayload);
+  payload.prompt_cache_key = "<session-id>";
+  if (payload.client_metadata && typeof payload.client_metadata === "object" && !Array.isArray(payload.client_metadata)) {
+    const metadata = /** @type {Record<string, unknown>} */ (payload.client_metadata);
+    metadata["x-cocopi-session-id"] = "<session-id>";
+    metadata["x-cocopi-turn-id"] = "<session-id>:1";
+    metadata["x-codex-turn-metadata"] = JSON.stringify({
+      turn_id: "<session-id>:1",
+      thread_source: "vscode",
+      client: "cocopi",
+      source: "language-model"
+    });
+  }
+
+  return payload;
 }
 
 /**

@@ -1,0 +1,194 @@
+{
+  "catalogDefaultReasoning": {
+    "model": "gpt-fixture-reasoning",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "think"
+          }
+        ]
+      }
+    ],
+    "tools": [],
+    "tool_choice": "none",
+    "parallel_tool_calls": false,
+    "store": false,
+    "stream": true,
+    "include": ["reasoning.encrypted_content"],
+    "prompt_cache_key": "<session-id>",
+    "client_metadata": {
+      "x-codex-installation-id": "cocopi-language-model",
+      "x-cocopi-session-id": "<session-id>",
+      "x-cocopi-source": "language-model",
+      "x-cocopi-host-request-index": "1",
+      "x-cocopi-turn-id": "<session-id>:1",
+      "x-codex-turn-metadata": "{\"turn_id\":\"<session-id>:1\",\"thread_source\":\"vscode\",\"client\":\"cocopi\",\"source\":\"language-model\"}"
+    },
+    "reasoning": {
+      "effort": "medium"
+    }
+  },
+  "directLowConciseReasoning": {
+    "model": "gpt-fixture-direct",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "think"
+          }
+        ]
+      }
+    ],
+    "tools": [],
+    "tool_choice": "none",
+    "parallel_tool_calls": false,
+    "store": false,
+    "stream": true,
+    "include": ["reasoning.encrypted_content"],
+    "prompt_cache_key": "<session-id>",
+    "client_metadata": {
+      "x-codex-installation-id": "cocopi-language-model",
+      "x-cocopi-session-id": "<session-id>",
+      "x-cocopi-source": "language-model",
+      "x-cocopi-host-request-index": "1",
+      "x-cocopi-turn-id": "<session-id>:1",
+      "x-codex-turn-metadata": "{\"turn_id\":\"<session-id>:1\",\"thread_source\":\"vscode\",\"client\":\"cocopi\",\"source\":\"language-model\"}"
+    },
+    "reasoning": {
+      "effort": "low",
+      "summary": "concise"
+    }
+  },
+  "nestedHighDetailedReasoning": {
+    "model": "gpt-fixture-nested",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "think"
+          }
+        ]
+      }
+    ],
+    "tools": [],
+    "tool_choice": "none",
+    "parallel_tool_calls": false,
+    "store": false,
+    "stream": true,
+    "include": ["reasoning.encrypted_content"],
+    "prompt_cache_key": "<session-id>",
+    "client_metadata": {
+      "x-codex-installation-id": "cocopi-language-model",
+      "x-cocopi-session-id": "<session-id>",
+      "x-cocopi-source": "language-model",
+      "x-cocopi-host-request-index": "1",
+      "x-cocopi-turn-id": "<session-id>:1",
+      "x-codex-turn-metadata": "{\"turn_id\":\"<session-id>:1\",\"thread_source\":\"vscode\",\"client\":\"cocopi\",\"source\":\"language-model\"}"
+    },
+    "reasoning": {
+      "effort": "high",
+      "summary": "detailed"
+    }
+  },
+  "offSummaryReasoning": {
+    "model": "gpt-fixture-off-summary",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "think"
+          }
+        ]
+      }
+    ],
+    "tools": [],
+    "tool_choice": "none",
+    "parallel_tool_calls": false,
+    "store": false,
+    "stream": true,
+    "include": ["reasoning.encrypted_content"],
+    "prompt_cache_key": "<session-id>",
+    "client_metadata": {
+      "x-codex-installation-id": "cocopi-language-model",
+      "x-cocopi-session-id": "<session-id>",
+      "x-cocopi-source": "language-model",
+      "x-cocopi-host-request-index": "1",
+      "x-cocopi-turn-id": "<session-id>:1",
+      "x-codex-turn-metadata": "{\"turn_id\":\"<session-id>:1\",\"thread_source\":\"vscode\",\"client\":\"cocopi\",\"source\":\"language-model\"}"
+    },
+    "reasoning": {
+      "effort": "high"
+    }
+  },
+  "legacyCatalogExplicitReasoning": {
+    "model": "gpt-fixture-legacy-catalog",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "think"
+          }
+        ]
+      }
+    ],
+    "tools": [],
+    "tool_choice": "none",
+    "parallel_tool_calls": false,
+    "store": false,
+    "stream": true,
+    "include": ["reasoning.encrypted_content"],
+    "prompt_cache_key": "<session-id>",
+    "client_metadata": {
+      "x-codex-installation-id": "cocopi-language-model",
+      "x-cocopi-session-id": "<session-id>",
+      "x-cocopi-source": "language-model",
+      "x-cocopi-host-request-index": "1",
+      "x-cocopi-turn-id": "<session-id>:1",
+      "x-codex-turn-metadata": "{\"turn_id\":\"<session-id>:1\",\"thread_source\":\"vscode\",\"client\":\"cocopi\",\"source\":\"language-model\"}"
+    },
+    "reasoning": {
+      "effort": "high",
+      "summary": "detailed"
+    }
+  },
+  "unsupportedCatalogOmitsReasoning": {
+    "model": "gpt-fixture-unsupported",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "think"
+          }
+        ]
+      }
+    ],
+    "tools": [],
+    "tool_choice": "none",
+    "parallel_tool_calls": false,
+    "store": false,
+    "stream": true,
+    "include": ["reasoning.encrypted_content"],
+    "prompt_cache_key": "<session-id>",
+    "client_metadata": {
+      "x-codex-installation-id": "cocopi-language-model",
+      "x-cocopi-session-id": "<session-id>",
+      "x-cocopi-source": "language-model",
+      "x-cocopi-host-request-index": "1",
+      "x-cocopi-turn-id": "<session-id>:1",
+      "x-codex-turn-metadata": "{\"turn_id\":\"<session-id>:1\",\"thread_source\":\"vscode\",\"client\":\"cocopi\",\"source\":\"language-model\"}"
+    }
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "models": [
+    {
+      "prefer_websockets": true,
+      "support_verbosity": true,
+      "default_verbosity": "low",
+      "input_modalities": ["text"],
+      "context_window": 128000,
+      "max_context_window": 128000,
+      "auto_compact_token_limit": null,
+      "reasoning_summary_format": "experimental",
+      "default_reasoning_summary": "none",
+      "slug": "gpt-5.3-codex-spark",
+      "display_name": "GPT-5.3-Codex-Spark",
+      "description": "Ultra-fast coding model.",
+      "default_reasoning_level": "high",
+      "supported_reasoning_levels": [
+        {
+          "effort": "low",
+          "description": "Fast responses with lighter reasoning"
+        },
+        {
+          "effort": "medium",
+          "description": "Balances speed and reasoning depth for everyday tasks"
+        },
+        {
+          "effort": "high",
+          "description": "Greater reasoning depth for complex problems"
+        },
+        {
+          "effort": "xhigh",
+          "description": "Extra high reasoning depth for complex problems"
+        }
+      ],
+      "visibility": "list",
+      "minimal_client_version": "0.100.0",
+      "supported_in_api": false,
+      "priority": 7,
+      "supports_reasoning_summaries": true,
+      "available_in_plans": ["plus", "pro", "business", "enterprise"],
+      "additional_speed_tiers": []
+    },
+    {
+      "slug": "gpt-live-reasoning-fixture",
+      "display_name": "GPT Live Reasoning Fixture",
+      "supported_in_api": true,
+      "default_reasoning_level": "medium",
+      "supported_reasoning_levels": [
+        {
+          "effort": "low",
+          "description": "Fast responses with lighter reasoning"
+        },
+        {
+          "effort": "medium",
+          "description": "Balances speed and reasoning depth"
+        }
+      ],
+      "supports_reasoning_summaries": true,
+      "default_reasoning_summary": "none"
+    }
+  ]
+}

@@ -133,7 +133,7 @@ Status key:
 - `[x]` Report provider errors in VS Code-friendly form.
 - `[?]` VS Code/Copilot Chat persistence semantics for custom provider `LanguageModelDataPart` state across edit, retry, fork, export, and compaction flows.
 - `[?]` Marketplace restrictions for custom model providers.
-- `[x]` Provider registration and per-model configuration target the VS Code 1.119+ chat provider proposal surface.
+- `[x]` Provider registration and per-model configuration target the VS Code 1.120+ chat provider proposal surface.
 - `[~]` Default compaction strategy follows VS Code; future custom strategy options are documented but not implemented.
 
 #### Provider Hidden-State Carrier

@@ -1,8 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import { COCOPI_ORIGINATOR, codexUserAgent } from "../lib/codex-api/codex-headers.js";
 import { chooseCodexModel, fetchCodexModelsResponse, listCodexModels, parseModelsResponse } from "../lib/codex-api/models.js";
+
+const chatgptProCatalogFixture = JSON.parse(await readFile(new URL("fixtures/codex-models/chatgpt-pro-catalog.json", import.meta.url), "utf8"));
 
 test("parseModelsResponse reads Codex backend model catalog", () => {
   assert.deepEqual(parseModelsResponse({
@@ -62,6 +65,33 @@ test("parseModelsResponse preserves empty supported reasoning levels", () => {
   assert.deepEqual(parseModelsResponse({
     models: [{ slug: "gpt-no-reasoning", supported_reasoning_levels: [] }]
   }), [{ id: "gpt-no-reasoning", displayName: "gpt-no-reasoning", supportedReasoningLevels: [] }]);
+});
+
+test("parseModelsResponse preserves explicit false reasoning summary support", () => {
+  assert.deepEqual(parseModelsResponse({
+    models: [{
+      slug: "gpt-no-summary",
+      supports_reasoning_summaries: false,
+      default_reasoning_summary: "detailed"
+    }]
+  }), [{
+    id: "gpt-no-summary",
+    displayName: "gpt-no-summary",
+    supportsReasoningSummaries: false,
+    defaultReasoningSummary: "detailed"
+  }]);
+});
+
+test("parseModelsResponse preserves live catalog external API support metadata", () => {
+  const models = parseModelsResponse(chatgptProCatalogFixture);
+  const unsupportedModel = models.find((model) => model.supportedInApi === false);
+
+  assert.ok(unsupportedModel, "expected fixture to include a model marked unsupported in the external API");
+  assert.equal(unsupportedModel.supportedInApi, false);
+  assert.equal(unsupportedModel.defaultReasoningLevel, "high");
+  assert.equal(unsupportedModel.supportedReasoningLevels?.length, 4);
+  assert.equal(unsupportedModel.supportsReasoningSummaries, true);
+  assert.equal(unsupportedModel.defaultReasoningSummary, "none");
 });
 
 test("parseModelsResponse reads image input from catalog modalities", () => {

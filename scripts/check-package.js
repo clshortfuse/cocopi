@@ -54,7 +54,7 @@ function checkManifest(manifest) {
   assertEqual(manifest.type, "module", "package type");
   assertEqual(manifest.main, "./extension.js", "extension main");
   assertEqual(manifest.types, "./types/extension.d.ts", "extension declaration entry");
-  assertEqual(readRecord(manifest.engines, "engines").vscode, "^1.119.0", "VS Code engine range");
+  assertEqual(readRecord(manifest.engines, "engines").vscode, "^1.120.0", "VS Code engine range");
   assertEqual(readRecord(manifest.engines, "engines").node, ">=22", "Node engine range");
   assertStringArrayEqual(readArray(manifest.enabledApiProposals, "enabledApiProposals"), ["chatProvider", "languageModelThinkingPart"], "enabled API proposals");
   assertStringArrayEqual(readArray(manifest.files, "files"), PACKAGE_FILES, "package files");
@@ -105,6 +105,7 @@ function checkManifest(manifest) {
     readRecord(languageModelProvider.configuration, "language model provider configuration");
   }
   assertEqual(languageModelProvider.displayName, "Cocopi", "language model provider display name");
+  assertEqual(languageModelProvider.managementCommand, COCOPI_COMMANDS.manage, "language model provider management command");
 }
 
 /**
