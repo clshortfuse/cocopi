@@ -45,8 +45,6 @@ test("readCocopiRuntime combines configuration with SecretStorage auth", async (
     },
     auth: {
       accessToken: "access-token",
-      refreshToken: "refresh-token",
-      idToken: "id-token",
       chatgptAccountId: "account-id",
       chatgptPlanType: "plus"
     },
@@ -113,7 +111,6 @@ test("readCocopiRuntime refreshes expired SecretStorage auth", async (testContex
   assert.equal(form.get("grant_type"), "refresh_token");
   assert.equal(form.get("refresh_token"), "old-refresh-token");
   assert.equal(runtime.auth?.accessToken, secrets.get(CODEX_SECRET_KEYS.accessToken));
-  assert.equal(runtime.auth?.refreshToken, "new-refresh-token");
   assert.equal(runtime.auth?.chatgptAccountId, "account-id");
   assert.equal(runtime.auth?.chatgptPlanType, "team");
   assert.equal(secrets.get(CODEX_SECRET_KEYS.refreshToken), "new-refresh-token");

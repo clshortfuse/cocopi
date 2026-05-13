@@ -1298,8 +1298,6 @@ function fakeRuntime(options) {
     },
     auth: {
       accessToken: "access-token",
-      refreshToken: "refresh-token",
-      idToken: "id-token",
       chatgptAccountId: "account-id",
       chatgptPlanType: "plus"
     },
