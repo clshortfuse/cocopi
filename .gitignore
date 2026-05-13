@@ -8,6 +8,7 @@ node_modules/
 # Local agent/debug transcripts and scratch reports.
 *_logs.json
 *.log
+.tmp/
 
 # Build and generated output.
 types/
