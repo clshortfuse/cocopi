@@ -78,6 +78,7 @@ test("activateWithVscode wires commands, provider, participant, and diagnostics"
     COCOPI_COMMANDS.signOut
   ]);
   assert.equal(vscode.languageModelVendor, COCOPI_LANGUAGE_MODEL_VENDOR);
+  assert.deepEqual(vscode.selectedModelSelectors, [{ vendor: COCOPI_LANGUAGE_MODEL_VENDOR }]);
   assert.equal(vscode.chatParticipantId, COCOPI_CHAT_PARTICIPANT_ID);
   assert.equal(vscode.outputChannelName, COCOPI_OUTPUT_CHANNEL_NAME);
   assert.equal(context.subscriptions.length, 11);
@@ -101,6 +102,8 @@ function fakeVscode() {
   const vscode = {
     /** @type {string[]} */
     registeredCommands: [],
+    /** @type {Array<{ vendor?: string } | undefined>} */
+    selectedModelSelectors: [],
     languageModelVendor: "",
     chatParticipantId: "",
     outputChannelName: "",
@@ -140,6 +143,11 @@ function fakeVscode() {
         void provider;
         vscode.languageModelVendor = vendor;
         return { dispose() {} };
+      },
+      /** @param {{ vendor?: string }} [selector] */
+      async selectChatModels(selector) {
+        vscode.selectedModelSelectors.push(selector);
+        return [];
       },
       async invokeTool() {
         return { content: [] };
