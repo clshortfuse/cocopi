@@ -28,7 +28,8 @@
       "x-codex-turn-metadata": "{\"turn_id\":\"<session-id>:1\",\"thread_source\":\"vscode\",\"client\":\"cocopi\",\"source\":\"language-model\"}"
     },
     "reasoning": {
-      "effort": "medium"
+      "effort": "medium",
+      "summary": "auto"
     }
   },
   "directLowConciseReasoning": {

@@ -103,7 +103,7 @@ test("Cocopi chat handler streams Codex text deltas", async (testContext) => {
   assert.equal(body.model, "gpt-selected");
   assert.equal(body.instructions, undefined);
   assert.equal(body.service_tier, "priority");
-  assert.equal(body.reasoning, undefined);
+  assert.deepEqual(body.reasoning, { summary: "auto" });
   assert.equal(body.input[0].content[0].text, "say hello");
   assert.equal(body.client_metadata["x-cocopi-source"], "chat");
   assert.equal(body.client_metadata["x-cocopi-host-request-index"], "1");
@@ -1037,7 +1037,7 @@ function fakeConfiguration(options = {}) {
     authMode: "secretStorage",
     serviceTier: "auto",
     reasoningEffort: "default",
-    reasoningSummary: "default",
+    reasoningSummary: "auto",
     chatParticipantModelSource: options.chatParticipantModelSource ?? "selected",
     transport: "sse",
     debugLevel: "off",

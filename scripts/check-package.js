@@ -67,7 +67,7 @@ function checkManifest(manifest) {
   assertConfigurationProperty(properties, "cocopi.model", "string", DEFAULT_CODEX_MODEL);
   assertConfigurationProperty(properties, "cocopi.authMode", "string", COCOPI_AUTH_MODES.secretStorage);
   assertConfigurationProperty(properties, "cocopi.reasoningEffort", "string", COCOPI_REASONING_EFFORTS.default);
-  assertConfigurationProperty(properties, "cocopi.reasoningSummary", "string", COCOPI_REASONING_SUMMARIES.default);
+  assertConfigurationProperty(properties, "cocopi.reasoningSummary", "string", COCOPI_REASONING_SUMMARIES.auto);
   assertConfigurationProperty(properties, "cocopi.chatParticipantModelSource", "string", COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES.selected);
   assertConfigurationProperty(properties, "cocopi.transport", "string", COCOPI_TRANSPORTS.websocket);
   assertConfigurationProperty(properties, "cocopi.streamIdleTimeoutMs", "number", DEFAULT_STREAM_IDLE_TIMEOUT_MS);

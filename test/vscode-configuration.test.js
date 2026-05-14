@@ -11,7 +11,7 @@ test("readCocopiConfiguration reads defaults", () => {
     authMode: COCOPI_AUTH_MODES.secretStorage,
     serviceTier: COCOPI_SERVICE_TIERS.auto,
     reasoningEffort: COCOPI_REASONING_EFFORTS.default,
-    reasoningSummary: COCOPI_REASONING_SUMMARIES.default,
+    reasoningSummary: COCOPI_REASONING_SUMMARIES.auto,
     chatParticipantModelSource: COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES.selected,
     transport: COCOPI_TRANSPORTS.websocket,
     debugLevel: COCOPI_DEBUG_LEVELS.off,
@@ -109,7 +109,7 @@ test("readCocopiConfiguration falls back from blank and disabled values", () => 
     authMode: COCOPI_AUTH_MODES.secretStorage,
     serviceTier: COCOPI_SERVICE_TIERS.auto,
     reasoningEffort: COCOPI_REASONING_EFFORTS.default,
-    reasoningSummary: COCOPI_REASONING_SUMMARIES.default,
+    reasoningSummary: COCOPI_REASONING_SUMMARIES.auto,
     chatParticipantModelSource: COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES.selected,
     transport: COCOPI_TRANSPORTS.websocket,
     debugLevel: COCOPI_DEBUG_LEVELS.off,
@@ -130,8 +130,8 @@ test("readCocopiConfiguration falls back from blank and disabled values", () => 
   });
 });
 
-test("codexReasoningFromCocopiOptions omits reasoning without a catalog default", () => {
-  assert.equal(codexReasoningFromCocopiOptions(readCocopiConfiguration(fakeVscodeConfiguration())), undefined);
+test("codexReasoningFromCocopiOptions defaults to auto summary", () => {
+  assert.deepEqual(codexReasoningFromCocopiOptions(readCocopiConfiguration(fakeVscodeConfiguration())), { summary: "auto" });
 });
 
 test("codexReasoningFromCocopiOptions uses catalog default reasoning effort", () => {
@@ -142,20 +142,64 @@ test("codexReasoningFromCocopiOptions uses catalog default reasoning effort", ()
   }), { effort: "xhigh", summary: "auto" });
 });
 
-test("codexReasoningFromCocopiOptions uses catalog default reasoning summary", () => {
+test("codexReasoningFromCocopiOptions defaults to auto over catalog default reasoning summary", () => {
   assert.deepEqual(codexReasoningFromCocopiOptions(readCocopiConfiguration(fakeVscodeConfiguration()), undefined, {
     defaultEffort: "high",
     supportedEfforts: ["low", "medium", "high", "xhigh"],
     defaultSummary: "detailed"
-  }), { effort: "high", summary: "detailed" });
+  }), { effort: "high", summary: "auto" });
 });
 
-test("codexReasoningFromCocopiOptions omits none catalog default summary", () => {
+test("codexReasoningFromCocopiOptions defaults to auto over none catalog default summary", () => {
   assert.deepEqual(codexReasoningFromCocopiOptions(readCocopiConfiguration(fakeVscodeConfiguration()), undefined, {
     defaultEffort: "high",
     supportedEfforts: ["low", "medium", "high", "xhigh"],
     defaultSummary: "none"
-  }), { effort: "high" });
+  }), { effort: "high", summary: "auto" });
+});
+
+test("codexReasoningFromCocopiOptions uses auto summary when catalog default is none", () => {
+  assert.deepEqual(codexReasoningFromCocopiOptions(readCocopiConfiguration(fakeVscodeConfiguration()), undefined, {
+    defaultEffort: "high",
+    supportedEfforts: ["low", "medium", "high", "xhigh"],
+    supportsSummaries: true,
+    defaultSummary: "none"
+  }), { effort: "high", summary: "auto" });
+});
+
+test("codexReasoningFromCocopiOptions keeps auto summary over catalog default", () => {
+  assert.deepEqual(codexReasoningFromCocopiOptions(readCocopiConfiguration(fakeVscodeConfiguration()), undefined, {
+    defaultEffort: "high",
+    supportedEfforts: ["low", "medium", "high", "xhigh"],
+    supportsSummaries: true,
+    defaultSummary: "auto"
+  }), { effort: "high", summary: "auto" });
+});
+
+test("codexReasoningFromCocopiOptions maps configured model default summary", () => {
+  const configuration = readCocopiConfiguration(fakeVscodeConfiguration(configurationValues({
+    reasoningSummary: "model-default"
+  })));
+
+  assert.deepEqual(codexReasoningFromCocopiOptions(configuration, undefined, {
+    defaultEffort: "medium",
+    supportedEfforts: ["low", "medium", "high"],
+    supportsSummaries: true,
+    defaultSummary: "concise"
+  }), { effort: "medium", summary: "concise" });
+});
+
+test("codexReasoningFromCocopiOptions omits model default summary when catalog default is none", () => {
+  const configuration = readCocopiConfiguration(fakeVscodeConfiguration(configurationValues({
+    reasoningSummary: "model-default"
+  })));
+
+  assert.deepEqual(codexReasoningFromCocopiOptions(configuration, undefined, {
+    defaultEffort: "medium",
+    supportedEfforts: ["low", "medium", "high"],
+    supportsSummaries: true,
+    defaultSummary: "none"
+  }), { effort: "medium" });
 });
 
 test("codexReasoningFromCocopiOptions omits summaries for models that do not support them", () => {
@@ -166,11 +210,11 @@ test("codexReasoningFromCocopiOptions omits summaries for models that do not sup
   }), { effort: "xhigh" });
 });
 
-test("codexReasoningFromCocopiOptions omits reasoning for models without supported efforts", () => {
-  assert.equal(codexReasoningFromCocopiOptions(readCocopiConfiguration(fakeVscodeConfiguration()), undefined, {
+test("codexReasoningFromCocopiOptions can request summaries without supported efforts", () => {
+  assert.deepEqual(codexReasoningFromCocopiOptions(readCocopiConfiguration(fakeVscodeConfiguration()), undefined, {
     defaultEffort: "xhigh",
     supportedEfforts: []
-  }), undefined);
+  }), { summary: "auto" });
 });
 
 test("codexReasoningFromCocopiOptions maps unsupported selected effort to nearest catalog effort", () => {
@@ -179,7 +223,7 @@ test("codexReasoningFromCocopiOptions maps unsupported selected effort to neares
   }, {
     defaultEffort: "low",
     supportedEfforts: ["low", "medium"]
-  }), { effort: "medium" });
+  }), { effort: "medium", summary: "auto" });
 });
 
 test("codexReasoningFromCocopiOptions maps selected reasoning options", () => {

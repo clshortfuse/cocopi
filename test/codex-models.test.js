@@ -7,6 +7,14 @@ import { chooseCodexModel, fetchCodexModelsResponse, listCodexModels, parseModel
 
 const chatgptProCatalogFixture = JSON.parse(await readFile(new URL("fixtures/codex-models/chatgpt-pro-catalog.json", import.meta.url), "utf8"));
 
+test("chatgpt pro catalog fixture uses captured server model ids", () => {
+  const rawModels = chatgptProCatalogFixture.models;
+
+  assert.ok(Array.isArray(rawModels), "expected captured catalog fixture to include models");
+  assert.deepEqual(rawModels.map((model) => model.slug), ["gpt-5.3-codex-spark", "gpt-5.5"]);
+  assert.equal(rawModels.some((model) => /fixture/u.test(`${model.slug ?? ""} ${model.display_name ?? ""}`)), false);
+});
+
 test("parseModelsResponse reads Codex backend model catalog", () => {
   assert.deepEqual(parseModelsResponse({
     models: [

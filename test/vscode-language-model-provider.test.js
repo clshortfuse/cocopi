@@ -908,6 +908,27 @@ test("languageModelInformationFromCodexModels omits configuration schema for uns
   assert.equal(/** @type {{ configurationSchema?: unknown }} */ (model).configurationSchema, undefined);
 });
 
+test("languageModelInformationFromCodexModels keeps picker reasoning schema for external unsupported catalog models", () => {
+  const [model] = languageModelInformationFromCodexModels([
+    {
+      id: "gpt-external-unsupported",
+      displayName: "GPT External Unsupported",
+      supportedInApi: false,
+      defaultReasoningLevel: "high",
+      supportedReasoningLevels: [
+        { effort: "low", description: "Fast" },
+        { effort: "high", description: "Deep" }
+      ],
+      supportsReasoningSummaries: true,
+      defaultReasoningSummary: "none"
+    }
+  ], "gpt-external-unsupported", { useModelDefaultCompactionLimit: false, compactionFallbackStrategy: "ninety-percent" });
+
+  const reasoningEffort = /** @type {{ configurationSchema?: { properties?: Record<string, Record<string, unknown>> } }} */ (model).configurationSchema?.properties?.reasoningEffort;
+  assert.deepEqual(reasoningEffort?.enum, ["low", "high"]);
+  assert.equal(reasoningEffort?.default, "high");
+});
+
 test("codexInputFromLanguageModelMessages converts user and assistant text", () => {
   assert.deepEqual(codexInputFromLanguageModelMessages([
     fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "hello"),
@@ -1469,7 +1490,7 @@ test("provideLanguageModelChatResponse streams tagged output text verbatim", asy
   ]);
 });
 
-test("provideLanguageModelChatResponse preserves reasoning without showing it as assistant output", async (testContext) => {
+test("provideLanguageModelChatResponse renders server-emitted reasoning without assistant output items", async (testContext) => {
   const progress = fakeProgress();
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
     sseData({ type: "response.output_item.added", item: { type: "reasoning", id: "rs-1" }, output_index: 0 }),
@@ -1491,7 +1512,7 @@ test("provideLanguageModelChatResponse preserves reasoning without showing it as
     fakeCancellationToken()
   );
 
-  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), []);
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["<details open><summary>Thinking</summary>\n\n", "Inspecting files.", "\n\n</details>\n\n"]);
   const dataPart = progress.parts.find((part) => part instanceof LanguageModelDataPart);
   assert.ok(dataPart instanceof LanguageModelDataPart);
   assert.deepEqual(responseItemsFromStatefulMarkerDataPart(dataPart), [
@@ -1551,6 +1572,12 @@ test("provideLanguageModelChatResponse reports received reasoning summary deltas
         models: [{
           slug: "gpt-test",
           display_name: "GPT Test",
+          default_reasoning_level: "medium",
+          supported_reasoning_levels: [
+            { effort: "low", description: "Fast" },
+            { effort: "medium", description: "Balanced" }
+          ],
+          supports_reasoning_summaries: true,
           default_reasoning_summary: "none"
         }]
       });
@@ -1580,7 +1607,7 @@ test("provideLanguageModelChatResponse reports received reasoning summary deltas
   );
 
   const body = JSON.parse(String(responseRequestOptions?.body));
-  assert.equal(body.reasoning?.summary, undefined);
+  assert.deepEqual(body.reasoning, { effort: "medium", summary: "auto" });
   assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), []);
   assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelThinkingPart).map((part) => part.value), ["Inspecting files.", ""]);
   assert.ok(progress.parts.some((part) => part instanceof LanguageModelDataPart));
@@ -1652,7 +1679,7 @@ test("provideLanguageModelChatResponse streams reasoning text as native thinking
   });
 });
 
-test("provideLanguageModelChatResponse suppresses reasoning summary when configured off", async (testContext) => {
+test("provideLanguageModelChatResponse renders reasoning summaries emitted by the server", async (testContext) => {
   const progress = fakeProgress();
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
     sseData({ type: "response.output_item.added", item: { type: "reasoning", id: "rs-1" }, output_index: 0 }),
@@ -1675,7 +1702,7 @@ test("provideLanguageModelChatResponse suppresses reasoning summary when configu
   );
 
   assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), []);
-  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelThinkingPart).map((part) => part.value), []);
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelThinkingPart).map((part) => part.value), ["Inspecting files.", ""]);
   assert.ok(progress.parts.some((part) => part instanceof LanguageModelDataPart));
 });
 
@@ -1905,7 +1932,7 @@ test("provideLanguageModelChatResponse logs received model option values and cha
   )));
 });
 
-test("provideLanguageModelChatResponse uses catalog default reasoning when no effort is selected", async (testContext) => {
+test("provideLanguageModelChatResponse uses catalog default effort and auto summary when no effort is selected", async (testContext) => {
   /** @type {RequestInit | undefined} */
   let responseRequestOptions;
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
@@ -1945,7 +1972,7 @@ test("provideLanguageModelChatResponse uses catalog default reasoning when no ef
   );
 
   const body = JSON.parse(String(responseRequestOptions?.body));
-  assert.deepEqual(body.reasoning, { effort: "medium" });
+  assert.deepEqual(body.reasoning, { effort: "medium", summary: "auto" });
 });
 
 test("provideLanguageModelChatResponse omits summary when catalog reports no summary support", async (testContext) => {
@@ -1993,7 +2020,7 @@ test("provideLanguageModelChatResponse omits summary when catalog reports no sum
   assert.deepEqual(body.reasoning, { effort: "xhigh" });
 });
 
-test("provideLanguageModelChatResponse omits default none summary from catalog", async (testContext) => {
+test("provideLanguageModelChatResponse requests auto summary when catalog default is none", async (testContext) => {
   /** @type {RequestInit | undefined} */
   let responseRequestOptions;
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
@@ -2035,7 +2062,7 @@ test("provideLanguageModelChatResponse omits default none summary from catalog",
   );
 
   const body = JSON.parse(String(responseRequestOptions?.body));
-  assert.deepEqual(body.reasoning, { effort: "high" });
+  assert.deepEqual(body.reasoning, { effort: "high", summary: "auto" });
 });
 
 test("provideLanguageModelChatResponse omits reasoning when catalog reports no reasoning support", async (testContext) => {
@@ -2348,7 +2375,7 @@ test("provideLanguageModelChatResponse keeps saved reasoning configuration over 
   );
 
   const body = JSON.parse(String(requestOptions?.body));
-  assert.deepEqual(body.reasoning, { effort: "xhigh" });
+  assert.deepEqual(body.reasoning, { effort: "xhigh", summary: "auto" });
 });
 
 test("provideLanguageModelChatResponse sends configured service tier", async (testContext) => {

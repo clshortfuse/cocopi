@@ -1280,7 +1280,7 @@ function fakeRuntime(options) {
       authMode: "secretStorage",
       serviceTier: "auto",
       reasoningEffort: "default",
-      reasoningSummary: "default",
+      reasoningSummary: "auto",
       chatParticipantModelSource: "selected",
       transport: options.transport,
       debugLevel: "off",

@@ -201,25 +201,25 @@
           "type": "string"
         },
         "cocopi.reasoningSummary": {
-          "default": "default",
+          "default": "auto",
           "description": "Reasoning summary behavior for Cocopi requests. Request-specific model options still override this setting.",
           "enum": [
-            "default",
             "auto",
+            "model-default",
             "off",
             "concise",
             "detailed"
           ],
           "enumDescriptions": [
+            "Use Codex auto summary mode to show the most detailed available reasoning summaries when the model supports them.",
             "Use the model catalog default when available.",
-            "Let Codex choose the reasoning summary behavior.",
             "Do not show reasoning summaries.",
             "Show concise reasoning summaries.",
             "Show detailed reasoning summaries."
           ],
           "enumItemLabels": [
-            "Model Default",
             "Auto",
+            "Model Default",
             "Off",
             "Concise",
             "Detailed"
