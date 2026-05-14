@@ -56,6 +56,7 @@ function checkManifest(manifest) {
   assertEqual(manifest.types, "./types/extension.d.ts", "extension declaration entry");
   assertEqual(readRecord(manifest.engines, "engines").vscode, "^1.120.0", "VS Code engine range");
   assertEqual(readRecord(manifest.engines, "engines").node, ">=22", "Node engine range");
+  assertStringArrayEqual(readArray(manifest.activationEvents, "activationEvents"), ["onLanguageModelChat:cocopi", "onStartupFinished"], "activation events");
   assertStringArrayEqual(readArray(manifest.enabledApiProposals, "enabledApiProposals"), ["chatProvider", "languageModelThinkingPart"], "enabled API proposals");
   assertStringArrayEqual(readArray(manifest.files, "files"), PACKAGE_FILES, "package files");
   assertEqual(manifest.icon, "media/icon.png", "package icon");

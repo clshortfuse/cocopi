@@ -1,4 +1,8 @@
 {
+  "activationEvents": [
+    "onLanguageModelChat:cocopi",
+    "onStartupFinished"
+  ],
   "author": "Carlos Lopez Jr. <clshortfuse@gmail.com> (https://shortfuse.org/)",
   "bugs": {
     "url": "https://github.com/clshortfuse/cocopi/issues"
