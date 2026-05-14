@@ -2,15 +2,15 @@
   <title id="title">Cocopi coconut promo mark</title>
   <desc id="desc">A three-color Cocopi wordmark with a cut-open coconut slice icon.</desc>
   <rect x="16" y="16" width="768" height="268" rx="36" fill="#3F2412" fill-opacity="0.5"/>
-  <rect x="32" y="32" width="736" height="236" rx="28" fill="#FFFFFF" fill-opacity="0.92"/>
-  <g transform="translate(64 52)">
-    <circle cx="98" cy="98" r="82" fill="#3F2412"/>
-    <circle cx="98" cy="98" r="74" fill="#FFFFFF"/>
-    <circle cx="98" cy="98" r="52" fill="#A8A8A8"/>
+  <rect x="24" y="24" width="752" height="252" rx="32" fill="#FFFFFF" fill-opacity="0.92"/>
+  <g transform="translate(64 52) scale(8.1666667)">
+    <circle cx="12" cy="12" r="10" fill="#3F2412"/>
+    <circle cx="12" cy="12" r="9.5" fill="#FFFFFF"/>
+    <circle cx="12" cy="12" r="6" fill="#A8A8A8"/>
   </g>
   <g fill="#3F2412">
-    <text x="284" y="132" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="72" font-weight="750" letter-spacing="-2">Cocopi</text>
-    <text x="288" y="178" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="28" font-weight="500" fill="#3F2412">Codex + Copilot</text>
+    <text x="268" y="132" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="72" font-weight="750" letter-spacing="-2">Cocopi</text>
+    <text x="272" y="178" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="28" font-weight="500" fill="#3F2412">Codex + Copilot</text>
   </g>
-  <path d="M288 206h346" stroke="#3F2412" stroke-width="5" stroke-linecap="round"/>
+  <path d="M272 206h346" stroke="#3F2412" stroke-width="5" stroke-linecap="round"/>
 </svg>

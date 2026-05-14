@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title desc">
   <title id="title">Cocopi status silhouette</title>
   <desc id="desc">Single-color coconut-slice silhouette for the VS Code status bar product icon.</desc>
-  <path fill="#000000" fill-rule="evenodd" d="M64 8a56 56 0 1 1 0 112A56 56 0 1 1 64 8Zm0 5.5a50.5 50.5 0 1 0 0 101 50.5 50.5 0 1 0 0-101Zm0 15a35.5 35.5 0 1 1 0 71 35.5 35.5 0 1 1 0-71Z"/>
+  <path fill="#000000" fill-rule="evenodd" d="M12 2a10 10 0 1 1 0 20A10 10 0 1 1 12 2Zm0 .5a9.5 9.5 0 1 0 0 19 9.5 9.5 0 1 0 0-19Zm0 3.5a6 6 0 1 1 0 12 6 6 0 1 1 0-12Z"/>
 </svg>
