@@ -257,6 +257,33 @@
           "description": "Enable Cocopi Token Tracker entries for token usage and prompt-cache behavior.",
           "type": "boolean"
         },
+        "cocopi.showTokenTrackerTimeline": {
+          "default": true,
+          "description": "Show Token Tracker timeline graphs for local usage and speed over time. This only controls display; use cocopi.tokenTracking to enable or disable recording Token Tracker rows.",
+          "type": "boolean"
+        },
+        "cocopi.tokenTrackerTimelineDays": {
+          "default": 7,
+          "description": "Local calendar days shown in Token Tracker timeline graphs. Stored timestamps remain UTC; graph buckets use local calendar time so daylight-saving changes are represented correctly.",
+          "maximum": 30,
+          "minimum": 1,
+          "type": "number"
+        },
+        "cocopi.tokenTrackerTimelineMode": {
+          "default": "both",
+          "description": "Token Tracker timeline graph mode.",
+          "enum": [
+            "combined",
+            "split",
+            "both"
+          ],
+          "enumDescriptions": [
+            "Show unified local usage and speed graphs averaged across all models and reasoning settings.",
+            "Show graphs split by selected model and reasoning settings.",
+            "Show both unified and model/reasoning split graphs."
+          ],
+          "type": "string"
+        },
         "cocopi.toolStrict": {
           "default": true,
           "description": "Send VS Code tool schemas to Codex with strict structured-output validation enabled. Request-specific tool options can override this setting.",

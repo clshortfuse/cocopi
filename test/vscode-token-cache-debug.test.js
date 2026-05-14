@@ -413,6 +413,9 @@ test("usage analytics aggregates local rows and quota depletion over time", asyn
       recordedAt: "2026-04-30T10:00:00.000Z",
       hostRequestIndex: 1,
       sessionId: "session-a",
+      selectedModel: "gpt-a",
+      reasoningEffort: "high",
+      reasoningSummary: "auto",
       billedTotalTokens: 1000,
       inputTokens: 1200,
       outputTokens: 100,
@@ -425,6 +428,9 @@ test("usage analytics aggregates local rows and quota depletion over time", asyn
       recordedAt: "2026-04-30T12:00:00.000Z",
       hostRequestIndex: 2,
       sessionId: "session-a",
+      selectedModel: "gpt-b",
+      reasoningEffort: "low",
+      reasoningSummary: "concise",
       billedTotalTokens: 1500,
       inputTokens: 1800,
       outputTokens: 200,
@@ -490,15 +496,27 @@ test("usage analytics aggregates local rows and quota depletion over time", asyn
   });
 
   const analytics = readCocopiUsageAnalytics({
-    now: new Date("2026-04-30T13:00:00.000Z")
+    now: new Date("2026-04-30T13:00:00.000Z"),
+    timelineDays: 3
   });
   const fiveHour = analytics.windows.find((window) => window.label === "5h");
+  const expectedTimelineStart = new Date("2026-04-30T13:00:00.000Z");
+  expectedTimelineStart.setDate(expectedTimelineStart.getDate() - 3);
   assert.equal(fiveHour?.requestCount, 2);
   assert.equal(fiveHour?.billableTokens, 2500);
   assert.equal(fiveHour?.uncachedInputTokens, 2200);
   assert.equal(fiveHour?.averageLatencyMs, 3000);
   assert.equal(fiveHour?.averageFirstOutputLatencyMs, 750);
   assert.equal(fiveHour?.outputTokensPerSecond, 50);
+  assert.equal(analytics.timeline.label, "3d by 60m");
+  assert.equal(analytics.timeline.windowStart, expectedTimelineStart.toISOString());
+  assert.equal(analytics.timeline.buckets.reduce((total, bucket) => total + bucket.requestCount, 0), 2);
+  assert.equal(analytics.timeline.buckets.reduce((total, bucket) => total + bucket.billableTokens, 0), 2500);
+  assert.deepEqual(analytics.timeline.series.map((series) => series.label), [
+    "gpt-a · high",
+    "gpt-b · low"
+  ]);
+  assert.deepEqual(analytics.timeline.series.map((series) => series.billableTokens), [1000, 1500]);
   assert.equal(analytics.sessions[0]?.sessionId, "session-a");
   assert.equal(analytics.sessions[0]?.billableTokens, 2500);
   assert.equal(analytics.rateLimitTrends[0]?.deltaUsedPercent, 10);
@@ -575,12 +593,15 @@ function tokenCacheSummary(options) {
   };
 }
 
-/** @param {{ id: number, recordedAt: string, hostRequestIndex: number, billedTotalTokens: number, sessionId?: string, inputTokens?: number, outputTokens?: number, cachedTokens?: number, requestDurationMs?: number, firstOutputLatencyMs?: number }} options */
+/** @param {{ id: number, recordedAt: string, hostRequestIndex: number, billedTotalTokens: number, sessionId?: string, selectedModel?: string, reasoningEffort?: string, reasoningSummary?: string, inputTokens?: number, outputTokens?: number, cachedTokens?: number, requestDurationMs?: number, firstOutputLatencyMs?: number }} options */
 function storedTokenCacheSummary(options) {
   return {
     ...tokenCacheSummary({
       hostRequestIndex: options.hostRequestIndex,
       sessionId: options.sessionId,
+      selectedModel: options.selectedModel,
+      reasoningEffort: options.reasoningEffort,
+      reasoningSummary: options.reasoningSummary,
       inputTokens: options.inputTokens ?? options.billedTotalTokens,
       outputTokens: options.outputTokens ?? 0,
       cachedTokens: options.cachedTokens ?? 0,

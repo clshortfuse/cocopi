@@ -2,7 +2,7 @@ import { access, readFile } from "node:fs/promises";
 
 import { COCOPI_CHAT_PARTICIPANT_ID } from "../lib/vscode/chat-participant.js";
 import { COCOPI_COMMANDS } from "../lib/vscode/commands.js";
-import { COCOPI_AUTH_MODES, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_TRANSPORTS, DEFAULT_STREAM_IDLE_TIMEOUT_MS } from "../lib/vscode/configuration.js";
+import { COCOPI_AUTH_MODES, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS } from "../lib/vscode/configuration.js";
 import { COCOPI_LANGUAGE_MODEL_VENDOR } from "../lib/vscode/language-model-provider.js";
 import { DEFAULT_CODEX_API_BASE_URL, DEFAULT_CODEX_MODEL } from "../lib/codex-api/config.js";
 
@@ -71,6 +71,9 @@ function checkManifest(manifest) {
   assertConfigurationProperty(properties, "cocopi.chatParticipantModelSource", "string", COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES.selected);
   assertConfigurationProperty(properties, "cocopi.transport", "string", COCOPI_TRANSPORTS.websocket);
   assertConfigurationProperty(properties, "cocopi.streamIdleTimeoutMs", "number", DEFAULT_STREAM_IDLE_TIMEOUT_MS);
+  assertConfigurationProperty(properties, "cocopi.showTokenTrackerTimeline", "boolean", true);
+  assertConfigurationProperty(properties, "cocopi.tokenTrackerTimelineDays", "number", DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS);
+  assertConfigurationProperty(properties, "cocopi.tokenTrackerTimelineMode", "string", COCOPI_TOKEN_TRACKER_TIMELINE_MODES.both);
   assertConfigurationProperty(properties, "cocopi.useModelDefaultCompactionLimit", "boolean", true);
   assertConfigurationProperty(properties, "cocopi.compactionFallbackStrategy", "string", COCOPI_COMPACTION_FALLBACK_STRATEGIES.ninetyPercent);
 
