@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title desc">
   <title id="title">Cocopi coconut icon</title>
-  <desc id="desc">Three concentric colored circles representing a coconut slice.</desc>
-  <circle cx="12" cy="12" r="10" fill="#3F2412"/>
-  <circle cx="12" cy="12" r="9.5" fill="#FFFFFF"/>
-  <circle cx="12" cy="12" r="6" fill="#A8A8A8"/>
+  <desc id="desc">Two concentric circles and a pointed decagon representing a coconut slice.</desc>
+  <circle cx="12" cy="12" r="10" fill="#2A1B16"/>
+  <circle cx="12" cy="12" r="9.5" fill="#F1EFE8"/>
+  <polygon points="12,6 15.527,7.146 17.706,10.146 17.706,13.854 15.527,16.854 12,18 8.473,16.854 6.294,13.854 6.294,10.146 8.473,7.146" fill="#C8C3AE"/>
 </svg>

@@ -1,16 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="300" viewBox="0 0 800 300" role="img" aria-labelledby="title desc">
   <title id="title">Cocopi coconut promo mark</title>
   <desc id="desc">A three-color Cocopi wordmark with a cut-open coconut slice icon.</desc>
-  <rect x="16" y="16" width="768" height="268" rx="36" fill="#3F2412" fill-opacity="0.5"/>
-  <rect x="24" y="24" width="752" height="252" rx="32" fill="#FFFFFF" fill-opacity="0.92"/>
+  <rect x="16" y="16" width="768" height="268" rx="36" fill="#2A1B16" fill-opacity="0.5"/>
+  <rect x="24" y="24" width="752" height="252" rx="32" fill="#F8F8F6" fill-opacity="0.92"/>
   <g transform="translate(64 52) scale(8.1666667)">
-    <circle cx="12" cy="12" r="10" fill="#3F2412"/>
-    <circle cx="12" cy="12" r="9.5" fill="#FFFFFF"/>
-    <circle cx="12" cy="12" r="6" fill="#A8A8A8"/>
+    <circle cx="12" cy="12" r="10" fill="#2A1B16"/>
+    <circle cx="12" cy="12" r="9.5" fill="#F1EFE8"/>
+    <polygon points="12,6 15.527,7.146 17.706,10.146 17.706,13.854 15.527,16.854 12,18 8.473,16.854 6.294,13.854 6.294,10.146 8.473,7.146" fill="#C8C3AE"/>
   </g>
-  <g fill="#3F2412">
+  <g fill="#2A1B16">
     <text x="268" y="132" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="72" font-weight="750" letter-spacing="-2">Cocopi</text>
-    <text x="272" y="178" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="28" font-weight="500" fill="#3F2412">Codex + Copilot</text>
+    <text x="272" y="178" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="28" font-weight="500" fill="#2A1B16">Codex + Copilot</text>
   </g>
-  <path d="M272 206h346" stroke="#3F2412" stroke-width="5" stroke-linecap="round"/>
+  <path d="M272 206h346" stroke="#2A1B16" stroke-width="5" stroke-linecap="round"/>
 </svg>
