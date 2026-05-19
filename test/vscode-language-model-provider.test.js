@@ -8,6 +8,7 @@ import { COCOPI_COMMANDS } from "../lib/vscode/commands.js";
 import {
   COCOPI_LANGUAGE_MODEL_VENDOR,
   COCOPI_STATEFUL_MARKER_MIME,
+  VSCODE_LANGUAGE_MODEL_USAGE_MIME,
   COCOPI_MODEL_CATALOG_CACHE_TTL_MS,
   codexInputFromLanguageModelMessages,
   codexRequestStateFromLanguageModelMessages,
@@ -1447,6 +1448,51 @@ test("provideLanguageModelChatResponse streams text parts", async (testContext) 
   });
   assert.equal(statefulMarkerPayloadFromDataPart(dataPart).sessionId, body.prompt_cache_key);
   assert.deepEqual(body.input, [{ role: "user", content: [{ type: "input_text", text: "say hello" }] }]);
+});
+
+test("provideLanguageModelChatResponse reports usage for VS Code context usage", async (testContext) => {
+  const progress = fakeProgress();
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.output_text.delta", delta: "hello" }),
+    sseData({
+      type: "response.completed",
+      response: {
+        id: "resp-hello",
+        usage: {
+          input_tokens: 150,
+          input_tokens_details: { cached_tokens: 75 },
+          output_tokens: 12,
+          output_tokens_details: { reasoning_tokens: 8 },
+          total_tokens: 162
+        }
+      }
+    })
+  ])));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode());
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-test"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "say hello")],
+    fakeResponseOptions({ toolMode: 1 }),
+    progress,
+    fakeCancellationToken()
+  );
+
+  const dataParts = progress.parts.filter((part) => part instanceof LanguageModelDataPart);
+  assert.equal(dataParts[0]?.mimeType, COCOPI_STATEFUL_MARKER_MIME);
+  const usagePart = dataParts.find((part) => part.mimeType === VSCODE_LANGUAGE_MODEL_USAGE_MIME);
+  assert.ok(usagePart instanceof LanguageModelDataPart);
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(usagePart.data)), {
+    prompt_tokens: 150,
+    completion_tokens: 12,
+    total_tokens: 162,
+    prompt_tokens_details: { cached_tokens: 75 },
+    completion_tokens_details: { reasoning_tokens: 8 }
+  });
 });
 
 test("provideLanguageModelChatResponse streams tagged output text verbatim", async (testContext) => {
