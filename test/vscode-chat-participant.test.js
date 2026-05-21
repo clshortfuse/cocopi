@@ -164,6 +164,61 @@ test("Cocopi chat handler streams reasoning summary deltas as thinking parts whe
   });
 });
 
+test("Cocopi chat handler routes commentary output deltas as thinking parts when supported", async (testContext) => {
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  const response = fakeChatResponseStream();
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.output_item.added", item: { id: "msg-plan", type: "message", status: "in_progress", role: "assistant", phase: "commentary", content: [] }, output_index: 0 }),
+    sseData({ type: "response.output_text.delta", item_id: "msg-plan", output_index: 0, content_index: 0, sequence_number: 8, delta: "Planning descriptor copy." }),
+    sseData({ type: "response.output_item.done", item_id: "msg-plan", output_index: 0, item: { id: "msg-plan", type: "message", status: "completed", role: "assistant", phase: "commentary", content: [{ type: "output_text", text: "Planning descriptor copy." }] } }),
+    sseData({ type: "response.output_item.added", item: { id: "msg-final", type: "message", status: "in_progress", role: "assistant", phase: "final_answer", content: [] }, output_index: 1 }),
+    sseData({ type: "response.output_text.delta", item_id: "msg-final", output_index: 1, content_index: 0, delta: "Done." }),
+    sseData({ type: "response.completed", response: { id: "resp-test" } })
+  ])));
+  const handler = createCocopiChatRequestHandler(context, fakeVscode(configurationValues({ model: "gpt-test" }), { chatThinkingPart: true }));
+
+  await Promise.resolve(handler(fakeChatRequest("inspect"), fakeChatContext(), response, fakeCancellationToken()));
+
+  assert.deepEqual(response.markdownValues, ["Done."]);
+  const [part] = response.pushedParts;
+  assert.ok(part instanceof ChatResponseThinkingProgressPart);
+  assert.equal(part.value, "Planning descriptor copy.");
+  assert.equal(part.id, "msg-plan:output:0");
+  assert.deepEqual(part.metadata, {
+    openai_event_type: "response.output_text.delta",
+    openai_item_id: "msg-plan",
+    openai_output_index: 0,
+    openai_content_index: 0,
+    openai_sequence_number: 8,
+    openai_phase: "commentary"
+  });
+});
+
+test("Cocopi chat handler keeps commentary output visible without thinking-part support", async (testContext) => {
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  const response = fakeChatResponseStream();
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.output_item.added", item: { id: "msg-plan", type: "message", status: "in_progress", role: "assistant", phase: "commentary", content: [] }, output_index: 0 }),
+    sseData({ type: "response.output_text.delta", item_id: "msg-plan", output_index: 0, content_index: 0, delta: "Planning descriptor copy." }),
+    sseData({ type: "response.output_item.added", item: { id: "msg-final", type: "message", status: "in_progress", role: "assistant", phase: "final_answer", content: [] }, output_index: 1 }),
+    sseData({ type: "response.output_text.delta", item_id: "msg-final", output_index: 1, content_index: 0, delta: "Done." }),
+    sseData({ type: "response.completed", response: { id: "resp-test" } })
+  ])));
+  const handler = createCocopiChatRequestHandler(context, fakeVscode(configurationValues({ model: "gpt-test" })));
+
+  await Promise.resolve(handler(fakeChatRequest("inspect"), fakeChatContext(), response, fakeCancellationToken()));
+
+  assert.deepEqual(response.markdownValues, ["Planning descriptor copy.", "Done."]);
+});
+
 test("Cocopi chat handler streams follow-up reasoning as thinking parts when supported", async (testContext) => {
   const context = fakeContext(new Map([
     [CODEX_SECRET_KEYS.accessToken, "access-token"],

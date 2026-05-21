@@ -172,6 +172,7 @@
  * @property {string} [item_id]
  * @property {number} [output_index]
  * @property {number} [content_index]
+ * @property {number} [sequence_number]
  */
 
 /**

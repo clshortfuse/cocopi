@@ -1608,6 +1608,79 @@ test("provideLanguageModelChatResponse streams reasoning as native thinking when
   assert.ok(progress.parts.some((part) => part instanceof LanguageModelDataPart));
 });
 
+test("provideLanguageModelChatResponse routes commentary output text as native thinking when supported", async (testContext) => {
+  const progress = fakeProgress();
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.output_item.added", item: { id: "msg-plan", type: "message", status: "in_progress", role: "assistant", phase: "commentary", content: [] }, output_index: 0 }),
+    sseData({ type: "response.output_text.delta", item_id: "msg-plan", output_index: 0, content_index: 0, sequence_number: 2, delta: "Need maybe update descriptor_locations." }),
+    sseData({ type: "response.output_item.done", item_id: "msg-plan", output_index: 0, item: { id: "msg-plan", type: "message", status: "completed", role: "assistant", phase: "commentary", content: [{ type: "output_text", text: "Need maybe update descriptor_locations." }] } }),
+    sseData({ type: "response.output_item.added", item: { id: "msg-final", type: "message", status: "in_progress", role: "assistant", phase: "final_answer", content: [] }, output_index: 1 }),
+    sseData({ type: "response.output_text.delta", item_id: "msg-final", output_index: 1, content_index: 0, delta: "Done." }),
+    sseData({ type: "response.output_item.done", item_id: "msg-final", output_index: 1, item: { id: "msg-final", type: "message", status: "completed", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: "Done." }] } }),
+    sseData({ type: "response.completed", response: { id: "resp-commentary" } })
+  ])));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(new Map([["reasoningSummary", "detailed"]]), { thinkingPart: true }));
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-test"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "inspect")],
+    fakeResponseOptions({ toolMode: 1, modelOptions: { reasoningSummary: "detailed" } }),
+    progress,
+    fakeCancellationToken()
+  );
+
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["Done."]);
+  const thinkingParts = progress.parts.filter((part) => part instanceof LanguageModelThinkingPart);
+  assert.deepEqual(thinkingParts.map((part) => part.value), ["Need maybe update descriptor_locations.", ""]);
+  assert.equal(thinkingParts[0].id, "msg-plan:output:0");
+  assert.deepEqual(thinkingParts[0].metadata, {
+    openai_event_type: "response.output_text.delta",
+    openai_item_id: "msg-plan",
+    openai_output_index: 0,
+    openai_content_index: 0,
+    openai_sequence_number: 2,
+    openai_phase: "commentary"
+  });
+  assert.equal(thinkingParts[1].id, "");
+  assert.deepEqual(thinkingParts[1].metadata, { vscode_reasoning_done: true });
+});
+
+test("provideLanguageModelChatResponse keeps commentary output visible without native thinking support", async (testContext) => {
+  const progress = fakeProgress();
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.output_item.added", item: { id: "msg-plan", type: "message", status: "in_progress", role: "assistant", phase: "commentary", content: [] }, output_index: 0 }),
+    sseData({ type: "response.output_text.delta", item_id: "msg-plan", output_index: 0, content_index: 0, delta: "Need maybe update descriptor_locations." }),
+    sseData({ type: "response.output_item.done", item_id: "msg-plan", output_index: 0, item: { id: "msg-plan", type: "message", status: "completed", role: "assistant", phase: "commentary", content: [{ type: "output_text", text: "Need maybe update descriptor_locations." }] } }),
+    sseData({ type: "response.output_item.added", item: { id: "msg-final", type: "message", status: "in_progress", role: "assistant", phase: "final_answer", content: [] }, output_index: 1 }),
+    sseData({ type: "response.output_text.delta", item_id: "msg-final", output_index: 1, content_index: 0, delta: "Done." }),
+    sseData({ type: "response.completed", response: { id: "resp-commentary" } })
+  ])));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(new Map([["reasoningSummary", "detailed"]])));
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-test"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "inspect")],
+    fakeResponseOptions({ toolMode: 1, modelOptions: { reasoningSummary: "detailed" } }),
+    progress,
+    fakeCancellationToken()
+  );
+
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), [
+    "<details open><summary>Thinking</summary>\n\n",
+    "Need maybe update descriptor_locations.",
+    "\n\n</details>\n\n",
+    "Done."
+  ]);
+});
+
 test("provideLanguageModelChatResponse reports received reasoning summary deltas by default", async (testContext) => {
   const progress = fakeProgress();
   /** @type {RequestInit | undefined} */
@@ -2937,7 +3010,11 @@ test("provideLanguageModelChatResponse preserves assistant output item phase in 
     fakeCancellationToken()
   );
 
-  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["I will inspect the files."]);
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), [
+    "<details open><summary>Thinking</summary>\n\n",
+    "I will inspect the files.",
+    "\n\n</details>\n\n"
+  ]);
   const dataPart = progress.parts.find((part) => part instanceof LanguageModelDataPart);
   assert.ok(dataPart instanceof LanguageModelDataPart);
   assert.equal(dataPart.mimeType, COCOPI_STATEFUL_MARKER_MIME);

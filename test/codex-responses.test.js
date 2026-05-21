@@ -169,9 +169,21 @@ test("fetchCodexResponseStream adapts completed JSON responses into events", asy
     })
   })), [
     {
-      type: "response.output_text.delta",
+      type: "response.output_item.added",
       response_id: "resp-json",
       output_index: 0,
+      item: {
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: "hello" }]
+      }
+    },
+    {
+      type: "response.output_text.delta",
+      response_id: "resp-json",
+      item_id: "output-0",
+      output_index: 0,
+      content_index: 0,
       delta: "hello"
     },
     {
