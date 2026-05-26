@@ -49,13 +49,14 @@ function checkManifest(manifest) {
   const contributes = readRecord(manifest.contributes, "contributes");
   const configuration = readRecord(contributes.configuration, "contributes.configuration");
   const properties = readRecord(configuration.properties, "contributes.configuration.properties");
+  const engines = readRecord(manifest.engines, "engines");
 
   assertEqual(manifest.name, "cocopi", "package name");
   assertEqual(manifest.type, "module", "package type");
   assertEqual(manifest.main, "./extension.js", "extension main");
   assertEqual(manifest.types, "./types/extension.d.ts", "extension declaration entry");
-  assertEqual(readRecord(manifest.engines, "engines").vscode, "^1.120.0", "VS Code engine range");
-  assertEqual(readRecord(manifest.engines, "engines").node, ">=22", "Node engine range");
+  assertNonEmptyString(engines.vscode, "VS Code engine range");
+  assertPropertyAbsent(engines, "node", "Node engine range");
   assertStringArrayEqual(readArray(manifest.activationEvents, "activationEvents"), ["onLanguageModelChat:cocopi", "onStartupFinished"], "activation events");
   assertStringArrayEqual(readArray(manifest.enabledApiProposals, "enabledApiProposals"), ["chatProvider", "languageModelThinkingPart"], "enabled API proposals");
   assertStringArrayEqual(readArray(manifest.files, "files"), PACKAGE_FILES, "package files");
@@ -221,6 +222,27 @@ function readArray(value, label) {
 function assertEqual(actual, expected, label) {
   if (actual !== expected) {
     throw new Error(`Expected ${label} to be ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}.`);
+  }
+}
+
+/**
+ * @param {import("../data/Codex.js").CodexJsonValue} value
+ * @param {string} label
+ */
+function assertNonEmptyString(value, label) {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new TypeError(`Expected ${label} to be a non-empty string.`);
+  }
+}
+
+/**
+ * @param {Record<string, import("../data/Codex.js").CodexJsonValue>} record
+ * @param {string} key
+ * @param {string} label
+ */
+function assertPropertyAbsent(record, key, label) {
+  if (Object.hasOwn(record, key)) {
+    throw new Error(`Expected ${label} to be absent, got ${JSON.stringify(record[key])}.`);
   }
 }
 

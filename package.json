@@ -339,8 +339,7 @@
     "languageModelThinkingPart"
   ],
   "engines": {
-    "node": ">=22",
-    "vscode": "^1.120.0"
+    "vscode": "^1.121.0"
   },
   "exports": {
     ".": {
@@ -404,7 +403,8 @@
     "test": "node --test test/*.test.js",
     "test:live": "node --test test/codex-live.test.js",
     "types": "node -e \"fs.rmSync('types', { recursive: true, force: true })\" && tsc -p tsconfig.types.json",
-    "validate": "npm run check && npm run lint && npm run package:check && npm run coverage"
+    "validate": "npm run check && npm run lint && npm run package:check && npm run coverage",
+    "vscode:engine": "node scripts/bump-vscode-engine.js"
   },
   "type": "module",
   "types": "./types/extension.d.ts",

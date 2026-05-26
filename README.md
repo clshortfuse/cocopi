@@ -19,10 +19,9 @@ Use Cocopi when you want Codex-style responses without leaving VS Code: ask codi
 
 ## Requirements
 
-- VS Code `^1.119.0` with the chat model provider proposal support used by this extension.
+- VS Code with the chat model provider support used by this extension. See `package.json` for the current engine range.
 - A signed-in account with access to the ChatGPT/Codex backend services Cocopi uses.
 - Internet access for authentication and model requests.
-- Node.js `>=22` only if you build, test, or package Cocopi from source.
 
 Backend availability, model access, rate limits, and exact capabilities depend on the signed-in account and upstream service behavior.
 
