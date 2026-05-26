@@ -969,6 +969,32 @@ test("codexRequestStateFromLanguageModelMessages promotes VS Code instruction pr
   });
 });
 
+test("codexRequestStateFromLanguageModelMessages promotes instruction preamble with cache-control metadata", () => {
+  const instructions = [
+    "You are an expert AI programming assistant, working with a user in the VS Code editor.",
+    "When asked for your name, you must respond with \"GitHub Copilot\".",
+    "<instructions>",
+    "Follow the user's requirements carefully.",
+    "</instructions>",
+    "<toolUseInstructions>",
+    "Use tools when needed.",
+    "</toolUseInstructions>"
+  ].join("\n");
+
+  assert.deepEqual(codexRequestStateFromLanguageModelMessages([
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
+      new LanguageModelTextPart(instructions),
+      new LanguageModelDataPart(new Uint8Array([1]), "cache_control")
+    ]),
+    fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "hello")
+  ], "gpt-test", { LanguageModelChatMessageRole }), {
+    instructions,
+    input: [
+      { role: "user", content: [{ type: "input_text", text: "hello" }] }
+    ]
+  });
+});
+
 test("codexRequestStateFromLanguageModelMessages keeps compaction prompt as user input", () => {
   const compactionPrompt = [
     "Your task is to create a comprehensive, detailed summary of the entire conversation that captures all essential information needed to seamlessly continue the work without any loss of context.",
@@ -1012,6 +1038,17 @@ test("codexInputFromLanguageModelMessages ignores non-image data parts", () => {
     ])
   ], { LanguageModelChatMessageRole }), [
     { role: "user", content: [{ type: "input_text", text: "read this" }] }
+  ]);
+});
+
+test("codexInputFromLanguageModelMessages ignores assistant image data parts", () => {
+  assert.deepEqual(codexInputFromLanguageModelMessages([
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
+      new LanguageModelTextPart("Here is an image."),
+      new LanguageModelDataPart(new Uint8Array([0x89, 0x50, 0x4E, 0x47]), "image/png")
+    ])
+  ], { LanguageModelChatMessageRole }), [
+    { role: "assistant", content: [{ type: "output_text", text: "Here is an image." }] }
   ]);
 });
 
@@ -1895,6 +1932,53 @@ test("provideLanguageModelChatResponse sends VS Code instruction preamble as top
 
   const body = JSON.parse(String(requestOptions?.body));
   assert.equal(body.instructions, instructions);
+  assert.deepEqual(body.input, [{ role: "user", content: [{ type: "input_text", text: "say hello" }] }]);
+});
+
+test("provideLanguageModelChatResponse replaces VS Code instruction preamble when configured", async (testContext) => {
+  /** @type {RequestInit | undefined} */
+  let requestOptions;
+  const sourceInstructions = [
+    "You are an expert AI programming assistant, working with a user in the VS Code editor.",
+    "<instructions>",
+    "Follow the user's requirements carefully.",
+    "</instructions>",
+    "<toolUseInstructions>",
+    "Use tools when needed.",
+    "</toolUseInstructions>"
+  ].join("\n");
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    requestOptions = options;
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "ok" }),
+      sseData({ type: "response.completed", response: { id: "resp-ok" } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(configurationValues({
+    chatInstructions: "Use concise replacement instructions.",
+    chatInstructionsMode: "replace"
+  })));
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-test"),
+    [
+      fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
+        new LanguageModelTextPart(sourceInstructions),
+        new LanguageModelDataPart(new Uint8Array([1]), "cache_control")
+      ]),
+      fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "say hello")
+    ],
+    fakeResponseOptions({ toolMode: 1 }),
+    fakeProgress(),
+    fakeCancellationToken()
+  );
+
+  const body = JSON.parse(String(requestOptions?.body));
+  assert.equal(body.instructions, "Use concise replacement instructions.");
   assert.deepEqual(body.input, [{ role: "user", content: [{ type: "input_text", text: "say hello" }] }]);
 });
 
