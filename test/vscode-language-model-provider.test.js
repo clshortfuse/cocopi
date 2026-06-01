@@ -1256,7 +1256,7 @@ test("codexRequestStateFromLanguageModelMessages restores session ids from empty
   });
 });
 
-test("codexRequestStateFromLanguageModelMessages treats compaction summaries as replay boundaries", () => {
+test("codexRequestStateFromLanguageModelMessages keeps compaction summaries in message order", () => {
   const sessionId = "cocopi-language-model-00000000-0000-4000-8000-000000000001";
 
   assert.deepEqual(codexRequestStateFromLanguageModelMessages([
@@ -1269,8 +1269,10 @@ test("codexRequestStateFromLanguageModelMessages treats compaction summaries as 
     ]),
     fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "<conversation-summary>\nOld work was summarized.\n</conversation-summary>"),
     fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "continue")
-  ], "gpt-test", { LanguageModelChatMessageRole }), {
+  ], "gpt-test", { LanguageModelChatMessageRole }, { issueTracking: false }), {
     input: [
+      { role: "user", content: [{ type: "input_text", text: "read package metadata" }] },
+      { type: "reasoning", id: "rs-old", encrypted_content: "encrypted-reasoning" },
       { role: "user", content: [{ type: "input_text", text: "<conversation-summary>\nOld work was summarized.\n</conversation-summary>" }] },
       { role: "user", content: [{ type: "input_text", text: "continue" }] }
     ],
@@ -1278,18 +1280,22 @@ test("codexRequestStateFromLanguageModelMessages treats compaction summaries as 
   });
 });
 
-test("codexRequestStateFromLanguageModelMessages does not continue from markers embedded in compaction summaries", () => {
+test("codexRequestStateFromLanguageModelMessages restores markers replayed beside compaction summaries", () => {
   const sessionId = "cocopi-language-model-00000000-0000-4000-8000-000000000001";
+  /** @type {import("../data/Codex.js").CodexResponseInputItem[]} */
+  const responseItems = [
+    { type: "reasoning", id: "rs-old", encrypted_content: "encrypted-reasoning" },
+    { type: "function_call", call_id: "call-old", name: "read_file", arguments: jsonString({ path: "package.json" }) }
+  ];
+  /** @type {Record<string, import("../data/Codex.js").CodexJsonValue>} */
+  const requestState = { model: "gpt-test", input: [] };
 
   assert.deepEqual(codexRequestStateFromLanguageModelMessages([
     fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
-      statefulMarkerDataPart("gpt-test", [
-        { type: "reasoning", id: "rs-old", encrypted_content: "encrypted-reasoning" },
-        { type: "function_call", call_id: "call-old", name: "read_file", arguments: jsonString({ path: "package.json" }) }
-      ], {
+      statefulMarkerDataPart("gpt-test", responseItems, {
         sessionId,
         responseId: "resp-old",
-        requestState: { model: "gpt-test", input: [] },
+        requestState,
         hostRequestIndex: 7
       }),
       new LanguageModelTextPart("<conversation-summary>\nOld work was summarized.\n</conversation-summary>"),
@@ -1303,6 +1309,12 @@ test("codexRequestStateFromLanguageModelMessages does not continue from markers 
       { type: "function_call_output", call_id: "call-old", output: jsonString({ name: "cocopi" }) }
     ],
     sessionId,
+    continuationAnchors: [{
+      input: [],
+      responseItems,
+      responseId: "resp-old",
+      requestState
+    }],
     hostRequestIndex: 7
   });
 });
