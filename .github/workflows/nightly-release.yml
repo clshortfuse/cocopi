@@ -1,0 +1,172 @@
+name: Nightly Release
+
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Create a nightly release even when no commits changed since the latest nightly.
+        default: false
+        required: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Create nightly release
+    runs-on: ubuntu-latest
+    if: github.ref_name == github.event.repository.default_branch
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine nightly release need
+        id: nightly
+        env:
+          FORCE_NIGHTLY: ${{ inputs.force == true && 'true' || 'false' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          git fetch --force --tags origin
+
+          latest_tag="$(gh release list \
+            --repo "$GITHUB_REPOSITORY" \
+            --limit 100 \
+            --json createdAt,isDraft,isPrerelease,tagName \
+            --jq '[.[] | select(.isDraft == false and .isPrerelease == true and (.tagName | startswith("nightly-")))] | sort_by(.createdAt) | reverse | .[0].tagName // ""')"
+
+          should_release="true"
+          commits_since="all"
+          reason="no previous nightly release"
+          if [[ -n "$latest_tag" ]]; then
+            commits_since="$(git rev-list --count "${latest_tag}..HEAD")"
+            reason="${commits_since} commits since ${latest_tag}"
+            if [[ "$commits_since" == "0" && "$FORCE_NIGHTLY" != "true" ]]; then
+              should_release="false"
+              reason="no commits since ${latest_tag}"
+            fi
+          fi
+
+          stamp="$(date -u +'%Y%m%d')"
+          short_sha="$(git rev-parse --short=12 HEAD)"
+          release_tag="nightly-${stamp}"
+          if git rev-parse -q --verify "refs/tags/${release_tag}" >/dev/null; then
+            release_tag="nightly-${stamp}-${short_sha}"
+          fi
+          if git rev-parse -q --verify "refs/tags/${release_tag}" >/dev/null; then
+            release_tag="nightly-${stamp}-${short_sha}-${GITHUB_RUN_NUMBER}"
+          fi
+
+          {
+            echo "commits_since=${commits_since}"
+            echo "latest_tag=${latest_tag}"
+            echo "reason=${reason}"
+            echo "release_tag=${release_tag}"
+            echo "short_sha=${short_sha}"
+            echo "should_release=${should_release}"
+            echo "stamp=${stamp}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "$reason"
+
+      - name: Report skipped nightly
+        if: steps.nightly.outputs.should_release != 'true'
+        run: |
+          echo "Skipping nightly release: ${{ steps.nightly.outputs.reason }}."
+
+      - name: Setup Node.js
+        if: steps.nightly.outputs.should_release == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.nightly.outputs.should_release == 'true'
+        run: npm ci
+
+      - name: Type check
+        if: steps.nightly.outputs.should_release == 'true'
+        run: npm run check
+
+      - name: Lint
+        if: steps.nightly.outputs.should_release == 'true'
+        run: npm run lint
+
+      - name: Test
+        if: steps.nightly.outputs.should_release == 'true'
+        run: npm test
+
+      - name: Package VSIX
+        if: steps.nightly.outputs.should_release == 'true'
+        run: npm run package:vsix
+
+      - name: Prepare release asset
+        id: asset
+        if: steps.nightly.outputs.should_release == 'true'
+        run: |
+          set -euo pipefail
+
+          vsix="$(find out -maxdepth 1 -type f -name '*.vsix' -print -quit)"
+          if [[ -z "$vsix" ]]; then
+            echo "No VSIX package found in out/." >&2
+            exit 1
+          fi
+
+          asset="out/cocopi-nightly-${{ steps.nightly.outputs.stamp }}-${{ steps.nightly.outputs.short_sha }}.vsix"
+          mv "$vsix" "$asset"
+          echo "path=${asset}" >> "$GITHUB_OUTPUT"
+
+      - name: Write release notes
+        if: steps.nightly.outputs.should_release == 'true'
+        env:
+          COMMITS_SINCE: ${{ steps.nightly.outputs.commits_since }}
+          LATEST_TAG: ${{ steps.nightly.outputs.latest_tag }}
+          RELEASE_TAG: ${{ steps.nightly.outputs.release_tag }}
+          SHORT_SHA: ${{ steps.nightly.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "Automated Cocopi nightly build."
+            echo
+            echo "- Tag: \`${RELEASE_TAG}\`"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Short commit: \`${SHORT_SHA}\`"
+            if [[ -n "$LATEST_TAG" ]]; then
+              echo "- Previous nightly: \`${LATEST_TAG}\`"
+              echo "- Commits since previous nightly: ${COMMITS_SINCE}"
+            fi
+            echo
+            echo "## Changes"
+            if [[ -n "$LATEST_TAG" ]]; then
+              git log --no-merges --pretty='- %h %s' "${LATEST_TAG}..HEAD"
+            else
+              git log --no-merges --pretty='- %h %s' -20 HEAD
+            fi
+          } > nightly-notes.md
+
+      - name: Create GitHub release
+        if: steps.nightly.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.nightly.outputs.release_tag }}" \
+            "${{ steps.asset.outputs.path }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Cocopi Nightly ${{ steps.nightly.outputs.stamp }}" \
+            --notes-file nightly-notes.md \
+            --prerelease \
+            --latest=false

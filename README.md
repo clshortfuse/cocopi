@@ -143,6 +143,8 @@ npm run package:vsix
 
 The packaged extension is written to `out/cocopi-<version>.vsix`.
 
+Nightly GitHub prereleases are created by `.github/workflows/nightly-release.yml`. The workflow packages a VSIX and skips itself when there are no commits since the latest `nightly-*` prerelease.
+
 Regenerate PNG artwork and the status icon font from the SVG sources with:
 
 ```powershell
