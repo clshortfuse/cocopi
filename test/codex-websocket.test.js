@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { canonicalCodexJsonString } from "../lib/codex-api/json.js";
 import { buildTextResponseBody } from "../lib/codex-api/response-body.js";
 import {
   CODEX_RESPONSES_WEBSOCKET_BETA_HEADER,
@@ -298,6 +299,83 @@ test("fetchCodexResponseStreamWithAuthRefresh retries clean early WebSocket clos
   assert.equal(fetchMock.mock.callCount(), 1);
   assert.equal(fallbackErrors.length, 1);
   assert.match(fallbackErrors[0].message, /closed before a terminal response event/u);
+});
+
+test("fetchCodexResponseStreamWithAuthRefresh reports WebSocket open transport errors without SSE retry", async (testContext) => {
+  FakeWebSocket.reset();
+  closeCodexResponseWebSocketSessions();
+  replaceGlobalWebSocket(testContext, fakeWebSocketConstructor());
+  const fetchMock = testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.output_text.delta", delta: "fallback" }),
+    sseData({ type: "response.completed", response: { id: "resp-sse" } })
+  ])));
+
+  const streamPromise = fetchCodexResponseStreamWithAuthRefresh(fakeSecretContext(), fakeRuntime({ transport: "websocket" }), {
+    body: buildTextResponseBody({
+      model: "gpt-5-codex",
+      input: "say hi",
+      promptCacheKey: "cocopi-language-model-open-error"
+    })
+  });
+
+  await nextMicrotask();
+  const socket = FakeWebSocket.single();
+  socket.error();
+
+  await assert.rejects(streamPromise, /transport error while opening/u);
+  assert.equal(fetchMock.mock.callCount(), 0);
+});
+
+test("fetchCodexResponseStreamWithAuthRefresh retries WebSocket connection limits with a fresh WebSocket", async (testContext) => {
+  FakeWebSocket.reset();
+  closeCodexResponseWebSocketSessions();
+  replaceGlobalWebSocket(testContext, fakeWebSocketConstructor());
+  const fetchMock = testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => {
+    throw new Error("unexpected SSE fallback");
+  }));
+  /** @type {Error[]} */
+  const reconnectErrors = [];
+  const body = buildTextResponseBody({
+    model: "gpt-5-codex",
+    input: "say hi",
+    promptCacheKey: "cocopi-language-model-connection-limit"
+  });
+
+  const streamPromise = fetchCodexResponseStreamWithAuthRefresh(fakeSecretContext(), fakeRuntime({ transport: "websocket" }), {
+    body,
+    onWebSocketReconnect(error) {
+      reconnectErrors.push(error);
+    }
+  });
+
+  await nextMicrotask();
+  const socket = FakeWebSocket.single();
+  socket.open();
+  const eventsPromise = collectEvents(await streamPromise);
+  socket.message(JSON.stringify({
+    type: "error",
+    error: {
+      message: "Responses websocket connection limit reached (60 minutes). Create a new websocket connection to continue."
+    }
+  }));
+
+  await waitForFakeWebSocketCount(2);
+  const retrySocket = FakeWebSocket.instances[1];
+  retrySocket.open();
+  await nextMicrotask();
+  assert.equal(retrySocket.sent[0], canonicalCodexJsonString(responseCreateWebSocketMessage(body)));
+  retrySocket.message(JSON.stringify({ type: "response.output_text.delta", delta: "retried" }));
+  retrySocket.message(JSON.stringify({ type: "response.completed", response: { id: "resp-retried" } }));
+
+  assert.deepEqual(await eventsPromise, [
+    { type: "response.output_text.delta", delta: "retried" },
+    { type: "response.completed", response: { id: "resp-retried" } }
+  ]);
+  assert.equal(fetchMock.mock.callCount(), 0);
+  assert.equal(reconnectErrors.length, 1);
+  assert.match(reconnectErrors[0].message, /connection limit reached/u);
+
+  closeCodexResponseWebSocketSessions();
 });
 
 test("fetchCodexResponseStreamWithAuthRefresh retries stale previous response ids with full SSE", async (testContext) => {
@@ -1195,6 +1273,15 @@ async function nextMicrotask() {
   await Promise.resolve();
 }
 
+/** @param {number} count */
+async function waitForFakeWebSocketCount(count) {
+  for (let index = 0; index < 20 && FakeWebSocket.instances.length < count; index += 1) {
+    await nextMicrotask();
+  }
+
+  assert.equal(FakeWebSocket.instances.length, count);
+}
+
 /**
  * @param {string[]} chunks
  */
@@ -1295,6 +1382,7 @@ function fakeRuntime(options) {
       chatInstructionsRegexPattern: "",
       chatInstructionsRegexReplacement: "",
       chatInstructionsRegexFlags: "g",
+      editProgressIntervalMs: 30_000,
       streamIdleTimeoutMs: 120_000,
       useModelDefaultCompactionLimit: true,
       compactionFallbackStrategy: "ninety-percent"
@@ -1392,6 +1480,10 @@ class FakeWebSocket extends EventTarget {
     const event = new Event("message");
     Object.defineProperty(event, "data", { value: data });
     this.dispatchEvent(event);
+  }
+
+  error() {
+    this.dispatchEvent(new Event("error"));
   }
 
   /**
