@@ -1657,7 +1657,7 @@ test("provideLanguageModelChatResponse streams reasoning as native thinking when
   assert.ok(progress.parts.some((part) => part instanceof LanguageModelDataPart));
 });
 
-test("provideLanguageModelChatResponse routes commentary output text as native thinking when supported", async (testContext) => {
+test("provideLanguageModelChatResponse routes commentary output text as visible text when native thinking is supported", async (testContext) => {
   const progress = fakeProgress();
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
     sseData({ type: "response.output_item.added", item: { id: "msg-plan", type: "message", status: "in_progress", role: "assistant", phase: "commentary", content: [] }, output_index: 0 }),
@@ -1682,20 +1682,11 @@ test("provideLanguageModelChatResponse routes commentary output text as native t
     fakeCancellationToken()
   );
 
-  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["Done."]);
-  const thinkingParts = progress.parts.filter((part) => part instanceof LanguageModelThinkingPart);
-  assert.deepEqual(thinkingParts.map((part) => part.value), ["Need maybe update descriptor_locations.", ""]);
-  assert.equal(thinkingParts[0].id, "msg-plan:output:0");
-  assert.deepEqual(thinkingParts[0].metadata, {
-    openai_event_type: "response.output_text.delta",
-    openai_item_id: "msg-plan",
-    openai_output_index: 0,
-    openai_content_index: 0,
-    openai_sequence_number: 2,
-    openai_phase: "commentary"
-  });
-  assert.equal(thinkingParts[1].id, "");
-  assert.deepEqual(thinkingParts[1].metadata, { vscode_reasoning_done: true });
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), [
+    "Need maybe update descriptor_locations.",
+    "Done."
+  ]);
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelThinkingPart).map((part) => part.value), []);
 });
 
 test("provideLanguageModelChatResponse keeps commentary output visible without native thinking support", async (testContext) => {
@@ -1723,9 +1714,7 @@ test("provideLanguageModelChatResponse keeps commentary output visible without n
   );
 
   assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), [
-    "<details open><summary>Thinking</summary>\n\n",
     "Need maybe update descriptor_locations.",
-    "\n\n</details>\n\n",
     "Done."
   ]);
 });
@@ -3107,9 +3096,7 @@ test("provideLanguageModelChatResponse preserves assistant output item phase in 
   );
 
   assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), [
-    "<details open><summary>Thinking</summary>\n\n",
-    "I will inspect the files.",
-    "\n\n</details>\n\n"
+    "I will inspect the files."
   ]);
   const dataPart = progress.parts.find((part) => part instanceof LanguageModelDataPart);
   assert.ok(dataPart instanceof LanguageModelDataPart);

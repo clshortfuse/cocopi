@@ -164,7 +164,7 @@ test("Cocopi chat handler streams reasoning summary deltas as thinking parts whe
   });
 });
 
-test("Cocopi chat handler routes commentary output deltas as thinking parts when supported", async (testContext) => {
+test("Cocopi chat handler routes commentary output deltas as visible markdown when thinking parts are supported", async (testContext) => {
   const context = fakeContext(new Map([
     [CODEX_SECRET_KEYS.accessToken, "access-token"],
     [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
@@ -183,19 +183,8 @@ test("Cocopi chat handler routes commentary output deltas as thinking parts when
 
   await Promise.resolve(handler(fakeChatRequest("inspect"), fakeChatContext(), response, fakeCancellationToken()));
 
-  assert.deepEqual(response.markdownValues, ["Done."]);
-  const [part] = response.pushedParts;
-  assert.ok(part instanceof ChatResponseThinkingProgressPart);
-  assert.equal(part.value, "Planning descriptor copy.");
-  assert.equal(part.id, "msg-plan:output:0");
-  assert.deepEqual(part.metadata, {
-    openai_event_type: "response.output_text.delta",
-    openai_item_id: "msg-plan",
-    openai_output_index: 0,
-    openai_content_index: 0,
-    openai_sequence_number: 8,
-    openai_phase: "commentary"
-  });
+  assert.deepEqual(response.markdownValues, ["Planning descriptor copy.", "Done."]);
+  assert.deepEqual(response.pushedParts.filter((part) => part instanceof ChatResponseThinkingProgressPart), []);
 });
 
 test("Cocopi chat handler keeps commentary output visible without thinking-part support", async (testContext) => {
