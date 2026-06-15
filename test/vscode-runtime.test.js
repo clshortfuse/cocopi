@@ -42,6 +42,7 @@ test("readCocopiRuntime combines configuration with SecretStorage auth", async (
       chatInstructionsRegexPattern: "",
       chatInstructionsRegexReplacement: "",
       chatInstructionsRegexFlags: "g",
+      editProgressIntervalMs: 30_000,
       streamIdleTimeoutMs: 5000,
       useModelDefaultCompactionLimit: true,
       compactionFallbackStrategy: "ninety-percent"
@@ -78,6 +79,7 @@ test("readCocopiRuntime returns signed-out runtime state", async () => {
       chatInstructionsRegexPattern: "",
       chatInstructionsRegexReplacement: "",
       chatInstructionsRegexFlags: "g",
+      editProgressIntervalMs: 30_000,
       streamIdleTimeoutMs: 120_000,
       useModelDefaultCompactionLimit: true,
       compactionFallbackStrategy: "ninety-percent"

@@ -162,6 +162,12 @@
           ],
           "type": "string"
         },
+        "cocopi.editProgressIntervalMs": {
+          "default": 30000,
+          "description": "Milliseconds between elapsed-time edit progress updates while streamed edit tool arguments are still being generated. Set to 0 to disable timed edit progress.",
+          "minimum": 0,
+          "type": "number"
+        },
         "cocopi.issueTracking": {
           "default": true,
           "description": "Enable private Cocopi diagnostic entries for runtime anomalies and cache diagnostics.",

@@ -577,6 +577,64 @@ test("Cocopi chat handler replays reasoning through consecutive tool calls", asy
   assert.deepEqual(finalFollowUpBody.include, ["reasoning.encrypted_content"]);
 });
 
+test("Cocopi chat handler reports edit progress around apply_patch", async (testContext) => {
+  /** @type {RequestInit[]} */
+  const requestOptions = [];
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  const vscode = fakeVscode(configurationValues({ model: "gpt-test" }));
+  vscode.lm.tools = [{
+    name: "apply_patch",
+    description: "Apply a patch.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        explanation: { type: "string" },
+        input: { type: "string" }
+      },
+      required: ["explanation", "input"]
+    },
+    tags: []
+  }];
+  const patchInput = "*** Begin Patch\n*** Update File: src/index.js\n@@\n-old\n+new\n*** End Patch\n";
+  let requestCount = 0;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    requestOptions.push(options);
+    requestCount += 1;
+    return requestCount === 1
+      ? eventStreamResponse([
+        sseData({ type: "response.function_call_arguments.done", item_id: "item-1", output_index: 0, call_id: "call-1", name: "apply_patch", arguments: jsonString({ explanation: "Update greeting.", input: patchInput }) }),
+        sseData({ type: "response.completed", response: {} })
+      ])
+      : eventStreamResponse([
+        sseData({ type: "response.output_text.delta", delta: "Done." }),
+        sseData({ type: "response.completed", response: {} })
+      ]);
+  }));
+  const handler = createCocopiChatRequestHandler(context, vscode);
+  const response = fakeChatResponseStream();
+
+  await Promise.resolve(handler(
+    fakeChatRequest("apply it", { toolReferences: [{ name: "apply_patch" }], toolInvocationToken: "tool-token" }),
+    fakeChatContext(),
+    response,
+    fakeCancellationToken()
+  ));
+
+  assert.deepEqual(vscode.toolInvocations, [
+    { name: "apply_patch", options: { toolInvocationToken: "tool-token", input: { explanation: "Update greeting.", input: patchInput } } }
+  ]);
+  assert.deepEqual(response.progressValues, [
+    "Applying patch.",
+    "Applied patch."
+  ]);
+  assert.deepEqual(response.markdownValues, ["Done."]);
+  assert.equal(requestOptions.length, 2);
+});
+
 test("Cocopi chat handler logs payloads for follow-up request failures", async (testContext) => {
   /** @type {RequestInit[]} */
   const requestOptions = [];
@@ -1096,6 +1154,7 @@ function fakeConfiguration(options = {}) {
     chatInstructionsRegexPattern: ".*",
     chatInstructionsRegexReplacement: "",
     chatInstructionsRegexFlags: "",
+    editProgressIntervalMs: 30_000,
     streamIdleTimeoutMs: 120_000,
     useModelDefaultCompactionLimit: true,
     compactionFallbackStrategy: /** @type {"ninety-percent"} */ ("ninety-percent")

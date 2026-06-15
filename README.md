@@ -90,6 +90,7 @@ Diagnostics are intended for troubleshooting extension behavior. They are stored
 | `cocopi.chatInstructionsRegexPattern` | empty | Pattern used when `cocopi.chatInstructionsMode` is `regex`. |
 | `cocopi.chatInstructionsRegexReplacement` | empty | Replacement text used when `cocopi.chatInstructionsMode` is `regex`. |
 | `cocopi.chatInstructionsRegexFlags` | `g` | Regex flags used with `cocopi.chatInstructionsRegexPattern`. |
+| `cocopi.editProgressIntervalMs` | `30000` | Elapsed-time edit progress cadence in milliseconds. Set `0` to disable timed edit progress. |
 | `cocopi.streamIdleTimeoutMs` | `120000` | Stream idle timeout in milliseconds. Set `0` to disable. |
 | `cocopi.useModelDefaultCompactionLimit` | `true` | Uses the model-provided auto-compaction limit when available. |
 | `cocopi.compactionFallbackStrategy` | `ninety-percent` | Fallback compaction threshold when no model-provided limit is available. |

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { DEFAULT_CODEX_API_BASE_URL, DEFAULT_CODEX_MODEL } from "../lib/codex-api/config.js";
-import { COCOPI_AUTH_MODES, COCOPI_CHAT_INSTRUCTIONS_MODES, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_DEBUG_LEVELS, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_SERVICE_TIERS, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS, codexReasoningFromCocopiOptions, codexServiceTierFromCocopiOptions, codexToolOptionsFromCocopiOptions, readCocopiConfiguration, resolveChatParticipantInstructions } from "../lib/vscode/configuration.js";
+import { COCOPI_AUTH_MODES, COCOPI_CHAT_INSTRUCTIONS_MODES, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_DEBUG_LEVELS, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_SERVICE_TIERS, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS, DEFAULT_EDIT_PROGRESS_INTERVAL_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS, codexReasoningFromCocopiOptions, codexServiceTierFromCocopiOptions, codexToolOptionsFromCocopiOptions, readCocopiConfiguration, resolveChatParticipantInstructions } from "../lib/vscode/configuration.js";
 
 test("readCocopiConfiguration reads defaults", () => {
   assert.deepEqual(readCocopiConfiguration(fakeVscodeConfiguration()), {
@@ -21,6 +21,7 @@ test("readCocopiConfiguration reads defaults", () => {
     tokenTrackerTimelineDays: DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS,
     tokenTrackerTimelineMode: COCOPI_TOKEN_TRACKER_TIMELINE_MODES.both,
     toolStrict: true,
+    editProgressIntervalMs: DEFAULT_EDIT_PROGRESS_INTERVAL_MS,
     streamIdleTimeoutMs: DEFAULT_STREAM_IDLE_TIMEOUT_MS,
     chatInstructions: DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS,
     chatInstructionsMode: COCOPI_CHAT_INSTRUCTIONS_MODES.optional,
@@ -48,6 +49,7 @@ test("readCocopiConfiguration normalizes configured values", () => {
     tokenTrackerTimelineDays: 14,
     tokenTrackerTimelineMode: "split",
     toolStrict: false,
+    editProgressIntervalMs: 2345.67,
     streamIdleTimeoutMs: 1234.56,
     chatInstructions: "Use a pirate accent and concise responses.",
     chatInstructionsMode: "append",
@@ -74,6 +76,7 @@ test("readCocopiConfiguration normalizes configured values", () => {
     tokenTrackerTimelineDays: 14,
     tokenTrackerTimelineMode: COCOPI_TOKEN_TRACKER_TIMELINE_MODES.split,
     toolStrict: false,
+    editProgressIntervalMs: 2345,
     streamIdleTimeoutMs: 1234,
     chatInstructions: "Use a pirate accent and concise responses.",
     chatInstructionsMode: COCOPI_CHAT_INSTRUCTIONS_MODES.append,
@@ -98,6 +101,7 @@ test("readCocopiConfiguration falls back from blank and disabled values", () => 
     debugLevel: "unsupported",
     tokenTrackerTimelineDays: 0,
     tokenTrackerTimelineMode: "unsupported",
+    editProgressIntervalMs: 0,
     streamIdleTimeoutMs: 0,
     useModelDefaultCompactionLimit: "unsupported",
     compactionFallbackStrategy: "unsupported"
@@ -119,6 +123,7 @@ test("readCocopiConfiguration falls back from blank and disabled values", () => 
     tokenTrackerTimelineDays: DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS,
     tokenTrackerTimelineMode: COCOPI_TOKEN_TRACKER_TIMELINE_MODES.both,
     toolStrict: true,
+    editProgressIntervalMs: undefined,
     streamIdleTimeoutMs: undefined,
     chatInstructions: DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS,
     chatInstructionsMode: COCOPI_CHAT_INSTRUCTIONS_MODES.optional,

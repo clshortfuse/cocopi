@@ -3285,10 +3285,38 @@ test("provideLanguageModelChatResponse pins blank runSubagent model input", asyn
 test("provideLanguageModelChatResponse lets VS Code render tool starts without synthetic thinking", async (testContext) => {
   const progress = fakeProgress();
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
-    sseData({ type: "response.output_item.added", output_index: 1, sequence_number: 794, item: { id: "fc-1", type: "function_call", status: "in_progress", arguments: "", call_id: "call-1", name: "create_file" } }),
+    sseData({ type: "response.output_item.added", output_index: 1, sequence_number: 794, item: { id: "fc-1", type: "function_call", status: "in_progress", arguments: "", call_id: "call-1", name: "read_file" } }),
     sseData({ type: "response.function_call_arguments.delta", item_id: "fc-1", output_index: 1, sequence_number: 795, delta: "{\"" }),
-    sseData({ type: "response.function_call_arguments.delta", item_id: "fc-1", output_index: 1, sequence_number: 796, delta: "content" }),
-    sseData({ type: "response.function_call_arguments.done", item_id: "fc-1", output_index: 1, call_id: "call-1", name: "create_file", arguments: jsonString({ content: "hello" }) }),
+    sseData({ type: "response.function_call_arguments.delta", item_id: "fc-1", output_index: 1, sequence_number: 796, delta: "path" }),
+    sseData({ type: "response.function_call_arguments.done", item_id: "fc-1", output_index: 1, call_id: "call-1", name: "read_file", arguments: jsonString({ path: "README.md" }) }),
+    sseData({ type: "response.completed", response: { id: "resp-tool" } })
+  ])));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(new Map(), { thinkingPart: true }));
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-test"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "read it")],
+    fakeResponseOptions({ toolMode: 2, tools: [{ name: "read_file", description: "Read a file.", inputSchema: { type: "object" } }] }),
+    progress,
+    fakeCancellationToken()
+  );
+
+  const thinkingParts = progress.parts.filter((part) => part instanceof LanguageModelThinkingPart);
+  assert.deepEqual(thinkingParts.map((part) => part.value), []);
+  assert.ok(progress.parts.some((part) => part instanceof LanguageModelToolCallPart));
+});
+
+test("provideLanguageModelChatResponse reports file creation target while create_file arguments stream", async (testContext) => {
+  const progress = fakeProgress();
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.output_item.added", output_index: 1, sequence_number: 794, item: { id: "fc-1", type: "function_call", status: "in_progress", arguments: "", call_id: "call-1", name: "create_file" } }),
+    sseData({ type: "response.function_call_arguments.delta", item_id: "fc-1", output_index: 1, sequence_number: 795, delta: String.raw`{"filePath":"C:\\Users\\clsho\\Documents\\GitHub\\cocopi\\story.md"` }),
+    sseData({ type: "response.function_call_arguments.delta", item_id: "fc-1", output_index: 1, sequence_number: 796, delta: String.raw`,"content":"hello` }),
+    sseData({ type: "response.function_call_arguments.done", item_id: "fc-1", output_index: 1, call_id: "call-1", name: "create_file", arguments: jsonString({ filePath: String.raw`C:\Users\clsho\Documents\GitHub\cocopi\story.md`, content: "hello" }) }),
     sseData({ type: "response.completed", response: { id: "resp-tool" } })
   ])));
   const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
@@ -3306,8 +3334,110 @@ test("provideLanguageModelChatResponse lets VS Code render tool starts without s
   );
 
   const thinkingParts = progress.parts.filter((part) => part instanceof LanguageModelThinkingPart);
-  assert.deepEqual(thinkingParts.map((part) => part.value), []);
-  assert.ok(progress.parts.some((part) => part instanceof LanguageModelToolCallPart));
+  const thinkingValues = thinkingParts.map((part) => part.value).filter(Boolean);
+  assert.deepEqual(thinkingValues, ["Preparing file creation for story.md."]);
+  assert.equal(new Set(thinkingParts.filter((part) => part.value).map((part) => part.id)).size, thinkingValues.length);
+  const targetThinkingIndex = progress.parts.findIndex((part) => part instanceof LanguageModelThinkingPart && part.value === "Preparing file creation for story.md.");
+  const firstToolIndex = progress.parts.findIndex((part) => part instanceof LanguageModelToolCallPart);
+  assert.notEqual(targetThinkingIndex, -1);
+  assert.ok(firstToolIndex > targetThinkingIndex);
+});
+
+test("provideLanguageModelChatResponse reports patch preparation while patch arguments stream", async (testContext) => {
+  const progress = fakeProgress();
+  const editInput = "*** Begin Patch\n*** Update File: src/story.md\n@@\n-old\n+new\n*** End Patch\n";
+  const largePatchDelta = `\n+${"x".repeat(2400)}`;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.output_item.added", output_index: 1, sequence_number: 794, item: { id: "fc-1", type: "function_call", status: "in_progress", arguments: "", call_id: "call-1", name: "apply_patch" } }),
+    sseData({ type: "response.function_call_arguments.delta", item_id: "fc-1", output_index: 1, sequence_number: 795, delta: String.raw`{"input":"*** Begin Patch\n*** Update File: src/story.md` }),
+    sseData({ type: "response.function_call_arguments.delta", item_id: "fc-1", output_index: 1, sequence_number: 796, delta: String.raw`\n@@` }),
+    sseData({ type: "response.function_call_arguments.delta", item_id: "fc-1", output_index: 1, sequence_number: 797, delta: largePatchDelta }),
+    sseData({ type: "response.function_call_arguments.done", item_id: "fc-1", output_index: 1, call_id: "call-1", name: "apply_patch", arguments: jsonString({ input: editInput }) }),
+    sseData({ type: "response.completed", response: { id: "resp-tool" } })
+  ])));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(new Map(), { thinkingPart: true }));
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-test"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "edit it")],
+    fakeResponseOptions({ toolMode: 2, tools: [{ name: "apply_patch", description: "Edit a file.", inputSchema: { type: "object" } }] }),
+    progress,
+    fakeCancellationToken()
+  );
+
+  const thinkingParts = progress.parts.filter((part) => part instanceof LanguageModelThinkingPart);
+  const thinkingValues = thinkingParts.map((part) => part.value).filter(Boolean);
+  assert.deepEqual(thinkingValues, ["Preparing patch for story.md.", "Generating patch for story.md (3 KB streamed)."]);
+  assert.equal(new Set(thinkingParts.filter((part) => part.value).map((part) => part.id)).size, thinkingValues.length);
+  const targetThinkingIndex = progress.parts.findIndex((part) => part instanceof LanguageModelThinkingPart && part.value === "Preparing patch for story.md.");
+  const firstToolIndex = progress.parts.findIndex((part) => part instanceof LanguageModelToolCallPart);
+  assert.notEqual(targetThinkingIndex, -1);
+  assert.ok(firstToolIndex > targetThinkingIndex);
+});
+
+test("provideLanguageModelChatResponse reports timed progress while patch arguments stream slowly", async (testContext) => {
+  const progress = fakeProgress();
+  const editInput = "*** Begin Patch\n*** Update File: src/story.md\n@@\n-old\n+new\n*** End Patch\n";
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => delayedEventStreamResponse([
+    sseData({ type: "response.output_item.added", output_index: 1, sequence_number: 794, item: { id: "fc-1", type: "function_call", status: "in_progress", arguments: "", call_id: "call-1", name: "apply_patch" } }),
+    sseData({ type: "response.function_call_arguments.delta", item_id: "fc-1", output_index: 1, sequence_number: 795, delta: String.raw`{"input":"*** Begin Patch\n*** Update File: src/story.md\n@@` })
+  ], [
+    sseData({ type: "response.function_call_arguments.done", item_id: "fc-1", output_index: 1, call_id: "call-1", name: "apply_patch", arguments: jsonString({ explanation: "Update file.", input: editInput }) }),
+    sseData({ type: "response.completed", response: { id: "resp-tool" } })
+  ], 2300)));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(configurationValues({ editProgressIntervalMs: 2000 }), { thinkingPart: true }));
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-test"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "edit it")],
+    fakeResponseOptions({ toolMode: 2, tools: [{ name: "apply_patch", description: "Edit a file.", inputSchema: { type: "object" } }] }),
+    progress,
+    fakeCancellationToken()
+  );
+
+  const thinkingValues = progress.parts
+    .filter((part) => part instanceof LanguageModelThinkingPart)
+    .map((part) => part.value)
+    .filter(Boolean);
+  assert.ok(thinkingValues.includes("Preparing patch for story.md."));
+  assert.ok(thinkingValues.some((value) => typeof value === "string" && /^Generating patch for story\.md \(\d+ chars streamed, 2s elapsed\)\.$/u.test(value)));
+});
+
+test("provideLanguageModelChatResponse reports insertEdit target while arguments stream", async (testContext) => {
+  const progress = fakeProgress();
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.output_item.added", output_index: 1, sequence_number: 794, item: { id: "fc-1", type: "function_call", status: "in_progress", arguments: "", call_id: "call-1", name: "copilot_insertEdit" } }),
+    sseData({ type: "response.function_call_arguments.delta", item_id: "fc-1", output_index: 1, sequence_number: 795, delta: String.raw`{"explanation":"Update greeting.","filePath":"C:\\Users\\clsho\\Documents\\GitHub\\cocopi\\src\\index.js"` }),
+    sseData({ type: "response.function_call_arguments.done", item_id: "fc-1", output_index: 1, call_id: "call-1", name: "copilot_insertEdit", arguments: jsonString({ explanation: "Update greeting.", filePath: String.raw`C:\Users\clsho\Documents\GitHub\cocopi\src\index.js`, code: "// ...existing code...\nconsole.log('hi');" }) }),
+    sseData({ type: "response.completed", response: { id: "resp-tool" } })
+  ])));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(new Map(), { thinkingPart: true }));
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-test"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "edit it")],
+    fakeResponseOptions({ toolMode: 2, tools: [{ name: "copilot_insertEdit", description: "Edit a file.", inputSchema: { type: "object" } }] }),
+    progress,
+    fakeCancellationToken()
+  );
+
+  const thinkingValues = progress.parts
+    .filter((part) => part instanceof LanguageModelThinkingPart)
+    .map((part) => part.value)
+    .filter(Boolean);
+  assert.deepEqual(thinkingValues, ["Preparing edit for index.js."]);
 });
 
 test("provideLanguageModelChatResponse keeps native thinking open through tool calls", async (testContext) => {
@@ -3618,7 +3748,12 @@ test("provideLanguageModelChatResponse records issues for missing instructions e
 test("languageModelErrorFromCodexError maps common provider failure classes", () => {
   assert.equal(languageModelErrorFromCodexError(new Error("failed with status 401"), fakeAbortSignal(), fakeVscode()).code, "NoPermissions");
   assert.equal(languageModelErrorFromCodexError(new Error("failed with status 404"), fakeAbortSignal(), fakeVscode()).code, "NotFound");
-  assert.equal(languageModelErrorFromCodexError(new Error("failed with status 429"), fakeAbortSignal(), fakeVscode()).code, "Blocked");
+  const rateLimitError = languageModelErrorFromCodexError(new Error("failed with status 429"), fakeAbortSignal(), fakeVscode());
+  assert.equal(rateLimitError.code, "Blocked");
+  assert.match(rateLimitError.message, /rate limited.*status 429/u);
+  const idleError = languageModelErrorFromCodexError(new Error("Codex Responses WebSocket stream was idle for 120000ms."), fakeAbortSignal(), fakeVscode());
+  assert.equal(idleError.code, "Blocked");
+  assert.equal(idleError.message, "Cocopi request timed out waiting for Codex stream activity (idle for 120000ms).");
   const stalePreviousResponseError = languageModelErrorFromCodexError(new Error("Codex Responses WebSocket request failed; with status 400; code=previous_response_not_found; message=Previous response with id 'resp-missing' not found."), fakeAbortSignal(), fakeVscode());
   assert.equal(stalePreviousResponseError.code, undefined);
   assert.match(stalePreviousResponseError.message, /previous response id/u);
@@ -4091,6 +4226,32 @@ function eventStreamResponse(chunks, options = {}) {
       if (options.close !== false) {
         controller.close();
       }
+    }
+  }), {
+    status: 200,
+    headers: { "content-type": "text/event-stream" }
+  });
+}
+
+/**
+ * @param {string[]} initialChunks
+ * @param {string[]} delayedChunks
+ * @param {number} delayMs
+ */
+function delayedEventStreamResponse(initialChunks, delayedChunks, delayMs) {
+  const encoder = new TextEncoder();
+  return new Response(new ReadableStream({
+    start(controller) {
+      for (const chunk of initialChunks) {
+        controller.enqueue(encoder.encode(chunk));
+      }
+
+      setTimeout(() => {
+        for (const chunk of delayedChunks) {
+          controller.enqueue(encoder.encode(chunk));
+        }
+        controller.close();
+      }, delayMs);
     }
   }), {
     status: 200,

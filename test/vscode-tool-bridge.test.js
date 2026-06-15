@@ -95,6 +95,46 @@ test("codexToolsFromLanguageModelTools emits cache-stable tool order and schemas
   assert.deepEqual(Object.keys(properties), ["content", "path"]);
 });
 
+test("codexToolsFromLanguageModelTools puts create_file path before content", () => {
+  const tools = codexToolsFromLanguageModelTools([{
+    name: "create_file",
+    description: "Create a file.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        content: { type: "string" },
+        filePath: { type: "string" }
+      },
+      required: ["content", "filePath"]
+    }
+  }]);
+
+  const parameters = /** @type {Record<string, import("../data/Codex.js").CodexJsonValue>} */ (tools[0].parameters);
+  const properties = /** @type {Record<string, import("../data/Codex.js").CodexJsonValue>} */ (parameters.properties);
+  assert.deepEqual(Object.keys(properties), ["filePath", "content"]);
+  assert.deepEqual(parameters.required, ["filePath", "content"]);
+});
+
+test("codexToolsFromLanguageModelTools leaves unexpected create_file schemas untouched", () => {
+  const tools = codexToolsFromLanguageModelTools([{
+    name: "create_file",
+    description: "Create a file.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        content: { type: "string" }
+      },
+      required: ["path", "content"]
+    }
+  }]);
+
+  const parameters = /** @type {Record<string, import("../data/Codex.js").CodexJsonValue>} */ (tools[0].parameters);
+  const properties = /** @type {Record<string, import("../data/Codex.js").CodexJsonValue>} */ (parameters.properties);
+  assert.deepEqual(Object.keys(properties), ["content", "path"]);
+  assert.deepEqual(parameters.required, ["path", "content"]);
+});
+
 test("codexToolsFromLanguageModelTools normalizes VS Code schemas to the Codex tool subset", () => {
   assert.deepEqual(codexToolsFromLanguageModelTools([{
     name: "run_in_terminal",
