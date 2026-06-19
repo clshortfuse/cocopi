@@ -1080,6 +1080,55 @@ test("codexRequestStateFromLanguageModelMessages replays matching stateful marke
   });
 });
 
+test("codexRequestStateFromLanguageModelMessages sanitizes stateful marker replay items", () => {
+  assert.deepEqual(codexRequestStateFromLanguageModelMessages([
+    fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "read package metadata"),
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
+      statefulMarkerDataPart("gpt-test", [
+        {
+          role: "assistant",
+          content: [{
+            type: "output_text",
+            text: "done",
+            internal_chat_message_metadata_passthrough: { unexpected: true }
+          }],
+          phase: "final_answer",
+          internal_chat_message_metadata_passthrough: { unexpected: true }
+        },
+        {
+          type: "reasoning",
+          id: "rs-1",
+          encrypted_content: "encrypted-reasoning",
+          internal_chat_message_metadata_passthrough: { unexpected: true }
+        },
+        {
+          type: "function_call",
+          call_id: "call-1",
+          name: "read_file",
+          arguments: jsonString({ path: "package.json" }),
+          internal_chat_message_metadata_passthrough: { unexpected: true }
+        },
+        {
+          type: "function_call_output",
+          call_id: "call-1",
+          output: jsonString({ name: "cocopi" }),
+          internal_chat_message_metadata_passthrough: { unexpected: true }
+        }
+      ])
+    ]),
+    fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "continue")
+  ], "gpt-test", { LanguageModelChatMessageRole }), {
+    input: [
+      { role: "user", content: [{ type: "input_text", text: "read package metadata" }] },
+      { role: "assistant", content: [{ type: "output_text", text: "done" }], phase: "final_answer" },
+      { type: "reasoning", id: "rs-1", encrypted_content: "encrypted-reasoning" },
+      { type: "function_call", call_id: "call-1", name: "read_file", arguments: jsonString({ path: "package.json" }) },
+      { type: "function_call_output", call_id: "call-1", output: jsonString({ name: "cocopi" }) },
+      { role: "user", content: [{ type: "input_text", text: "continue" }] }
+    ]
+  });
+});
+
 test("codexRequestStateFromLanguageModelMessages drops unpaired tool replay items", () => {
   clearCocopiIssues();
 
