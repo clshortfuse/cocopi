@@ -74,14 +74,18 @@ test("activateWithVscode wires commands, provider, participant, and diagnostics"
     COCOPI_COMMANDS.showTokenTracker,
     COCOPI_COMMANDS.signIn,
     COCOPI_COMMANDS.selectModel,
+    COCOPI_COMMANDS.selectInlineCompletionModel,
+    COCOPI_COMMANDS.showInlineCompletionOptions,
+    COCOPI_COMMANDS.toggleInlineCompletions,
     COCOPI_COMMANDS.status,
     COCOPI_COMMANDS.signOut
   ]);
   assert.equal(vscode.languageModelVendor, COCOPI_LANGUAGE_MODEL_VENDOR);
+  assert.equal(vscode.inlineCompletionProviders, 1);
   assert.deepEqual(vscode.selectedModelSelectors, [{ vendor: COCOPI_LANGUAGE_MODEL_VENDOR }]);
   assert.equal(vscode.chatParticipantId, COCOPI_CHAT_PARTICIPANT_ID);
   assert.equal(vscode.outputChannelName, COCOPI_OUTPUT_CHANNEL_NAME);
-  assert.equal(context.subscriptions.length, 11);
+  assert.equal(context.subscriptions.length, 15);
 });
 
 function fakeContext() {
@@ -105,6 +109,7 @@ function fakeVscode() {
     /** @type {Array<{ vendor?: string } | undefined>} */
     selectedModelSelectors: [],
     languageModelVendor: "",
+    inlineCompletionProviders: 0,
     chatParticipantId: "",
     outputChannelName: "",
     commands: {
@@ -151,6 +156,18 @@ function fakeVscode() {
       },
       async invokeTool() {
         return { content: [] };
+      }
+    },
+    languages: {
+      /**
+       * @param {import("vscode").DocumentSelector} selector
+       * @param {import("vscode").InlineCompletionItemProvider} provider
+       */
+      registerInlineCompletionItemProvider(selector, provider) {
+        void selector;
+        void provider;
+        vscode.inlineCompletionProviders += 1;
+        return { dispose() {} };
       }
     },
     chat: {

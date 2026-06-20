@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { DEFAULT_CODEX_API_BASE_URL, DEFAULT_CODEX_MODEL } from "../lib/codex-api/config.js";
-import { COCOPI_AUTH_MODES, COCOPI_CHAT_INSTRUCTIONS_MODES, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_DEBUG_LEVELS, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_SERVICE_TIERS, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS, DEFAULT_EDIT_PROGRESS_INTERVAL_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS, codexReasoningFromCocopiOptions, codexServiceTierFromCocopiOptions, codexToolOptionsFromCocopiOptions, readCocopiConfiguration, resolveChatParticipantInstructions } from "../lib/vscode/configuration.js";
+import { COCOPI_AUTH_MODES, COCOPI_CHAT_INSTRUCTIONS_MODES, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_DEBUG_LEVELS, COCOPI_INLINE_COMPLETION_MODEL_AUTO, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_SERVICE_TIERS, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS, DEFAULT_EDIT_PROGRESS_INTERVAL_MS, DEFAULT_INLINE_COMPLETION_MAX_PREFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_MAX_SUFFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS, codexReasoningFromCocopiOptions, codexServiceTierFromCocopiOptions, codexToolOptionsFromCocopiOptions, readCocopiConfiguration, resolveChatParticipantInstructions } from "../lib/vscode/configuration.js";
 
 test("readCocopiConfiguration reads defaults", () => {
   assert.deepEqual(readCocopiConfiguration(fakeVscodeConfiguration()), {
@@ -28,6 +28,13 @@ test("readCocopiConfiguration reads defaults", () => {
     chatInstructionsRegexPattern: "",
     chatInstructionsRegexReplacement: "",
     chatInstructionsRegexFlags: "g",
+    inlineCompletions: {
+      enabled: false,
+      model: COCOPI_INLINE_COMPLETION_MODEL_AUTO,
+      maxPrefixCharacters: DEFAULT_INLINE_COMPLETION_MAX_PREFIX_CHARACTERS,
+      maxSuffixCharacters: DEFAULT_INLINE_COMPLETION_MAX_SUFFIX_CHARACTERS,
+      timeoutMs: DEFAULT_INLINE_COMPLETION_TIMEOUT_MS
+    },
     useModelDefaultCompactionLimit: true,
     compactionFallbackStrategy: COCOPI_COMPACTION_FALLBACK_STRATEGIES.ninetyPercent
   });
@@ -56,6 +63,11 @@ test("readCocopiConfiguration normalizes configured values", () => {
     chatInstructionsRegexPattern: "assistant",
     chatInstructionsRegexReplacement: "model",
     chatInstructionsRegexFlags: "gi",
+    "inlineCompletions.enabled": true,
+    "inlineCompletions.model": "gpt-5-spark",
+    "inlineCompletions.maxPrefixCharacters": 1234.56,
+    "inlineCompletions.maxSuffixCharacters": 2345.67,
+    "inlineCompletions.timeoutMs": 3456.78,
     useModelDefaultCompactionLimit: false,
     compactionFallbackStrategy: "full"
   });
@@ -83,6 +95,13 @@ test("readCocopiConfiguration normalizes configured values", () => {
     chatInstructionsRegexPattern: "assistant",
     chatInstructionsRegexReplacement: "model",
     chatInstructionsRegexFlags: "gi",
+    inlineCompletions: {
+      enabled: true,
+      model: "gpt-5-spark",
+      maxPrefixCharacters: 1234,
+      maxSuffixCharacters: 2345,
+      timeoutMs: 3456
+    },
     useModelDefaultCompactionLimit: false,
     compactionFallbackStrategy: COCOPI_COMPACTION_FALLBACK_STRATEGIES.full
   });
@@ -103,6 +122,11 @@ test("readCocopiConfiguration falls back from blank and disabled values", () => 
     tokenTrackerTimelineMode: "unsupported",
     editProgressIntervalMs: 0,
     streamIdleTimeoutMs: 0,
+    "inlineCompletions.enabled": "unsupported",
+    "inlineCompletions.model": "   ",
+    "inlineCompletions.maxPrefixCharacters": -1,
+    "inlineCompletions.maxSuffixCharacters": -1,
+    "inlineCompletions.timeoutMs": 0,
     useModelDefaultCompactionLimit: "unsupported",
     compactionFallbackStrategy: "unsupported"
   });
@@ -130,6 +154,13 @@ test("readCocopiConfiguration falls back from blank and disabled values", () => 
     chatInstructionsRegexPattern: "",
     chatInstructionsRegexReplacement: "",
     chatInstructionsRegexFlags: "g",
+    inlineCompletions: {
+      enabled: false,
+      model: COCOPI_INLINE_COMPLETION_MODEL_AUTO,
+      maxPrefixCharacters: DEFAULT_INLINE_COMPLETION_MAX_PREFIX_CHARACTERS,
+      maxSuffixCharacters: DEFAULT_INLINE_COMPLETION_MAX_SUFFIX_CHARACTERS,
+      timeoutMs: undefined
+    },
     useModelDefaultCompactionLimit: true,
     compactionFallbackStrategy: COCOPI_COMPACTION_FALLBACK_STRATEGIES.ninetyPercent
   });

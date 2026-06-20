@@ -2,7 +2,7 @@ import { access, readFile } from "node:fs/promises";
 
 import { COCOPI_CHAT_PARTICIPANT_ID } from "../lib/vscode/chat-participant.js";
 import { COCOPI_COMMANDS } from "../lib/vscode/commands.js";
-import { COCOPI_AUTH_MODES, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, DEFAULT_EDIT_PROGRESS_INTERVAL_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS } from "../lib/vscode/configuration.js";
+import { COCOPI_AUTH_MODES, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_INLINE_COMPLETION_MODEL_AUTO, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, DEFAULT_EDIT_PROGRESS_INTERVAL_MS, DEFAULT_INLINE_COMPLETION_MAX_PREFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_MAX_SUFFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS } from "../lib/vscode/configuration.js";
 import { COCOPI_LANGUAGE_MODEL_VENDOR } from "../lib/vscode/language-model-provider.js";
 import { DEFAULT_CODEX_API_BASE_URL, DEFAULT_CODEX_MODEL } from "../lib/codex-api/config.js";
 
@@ -19,9 +19,11 @@ const REQUIRED_FILES = [
   "tsconfig.types.json",
   "types/extension.d.ts",
   "types/lib/vscode/commands.d.ts",
+  "types/lib/vscode/inline-completions.d.ts",
   "lib/vscode/activate.js",
   "lib/vscode/chat-participant.js",
   "lib/vscode/commands.js",
+  "lib/vscode/inline-completions.js",
   "lib/vscode/language-model-provider.js"
 ];
 
@@ -81,6 +83,11 @@ function checkManifest(manifest) {
   assertConfigurationProperty(properties, "cocopi.transport", "string", COCOPI_TRANSPORTS.websocket);
   assertConfigurationProperty(properties, "cocopi.editProgressIntervalMs", "number", DEFAULT_EDIT_PROGRESS_INTERVAL_MS);
   assertConfigurationProperty(properties, "cocopi.streamIdleTimeoutMs", "number", DEFAULT_STREAM_IDLE_TIMEOUT_MS);
+  assertConfigurationProperty(properties, "cocopi.inlineCompletions.enabled", "boolean", false);
+  assertConfigurationProperty(properties, "cocopi.inlineCompletions.model", "string", COCOPI_INLINE_COMPLETION_MODEL_AUTO);
+  assertConfigurationProperty(properties, "cocopi.inlineCompletions.maxPrefixCharacters", "number", DEFAULT_INLINE_COMPLETION_MAX_PREFIX_CHARACTERS);
+  assertConfigurationProperty(properties, "cocopi.inlineCompletions.maxSuffixCharacters", "number", DEFAULT_INLINE_COMPLETION_MAX_SUFFIX_CHARACTERS);
+  assertConfigurationProperty(properties, "cocopi.inlineCompletions.timeoutMs", "number", DEFAULT_INLINE_COMPLETION_TIMEOUT_MS);
   assertConfigurationProperty(properties, "cocopi.showTokenTrackerTimeline", "boolean", true);
   assertConfigurationProperty(properties, "cocopi.tokenTrackerTimelineDays", "number", DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS);
   assertConfigurationProperty(properties, "cocopi.tokenTrackerTimelineMode", "string", COCOPI_TOKEN_TRACKER_TIMELINE_MODES.both);
@@ -93,6 +100,9 @@ function checkManifest(manifest) {
   assertIncludesCommand(commands, COCOPI_COMMANDS.showTokenTracker);
   assertIncludesCommand(commands, COCOPI_COMMANDS.signIn);
   assertIncludesCommand(commands, COCOPI_COMMANDS.selectModel);
+  assertIncludesCommand(commands, COCOPI_COMMANDS.selectInlineCompletionModel);
+  assertIncludesCommand(commands, COCOPI_COMMANDS.showInlineCompletionOptions);
+  assertIncludesCommand(commands, COCOPI_COMMANDS.toggleInlineCompletions);
   assertIncludesCommand(commands, COCOPI_COMMANDS.status);
   assertIncludesCommand(commands, COCOPI_COMMANDS.signOut);
 

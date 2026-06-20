@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { COCOPI_COMMANDS, registerCocopiCommands, selectModel, showAuthStatus, signIn, signOut } from "../lib/vscode/commands.js";
+import { COCOPI_COMMANDS, registerCocopiCommands, selectInlineCompletionModel, selectModel, showAuthStatus, showInlineCompletionOptions, signIn, signOut, toggleInlineCompletions } from "../lib/vscode/commands.js";
 import { recordCocopiIssue, clearCocopiIssues } from "../lib/vscode/issues.js";
 import { CODEX_SECRET_KEYS } from "../lib/vscode/secret-storage.js";
 import { clearCocopiRateLimitSnapshots, clearCocopiRemoteUsageAnalyticsSnapshots, clearCocopiTokenCacheDebugSummaries, recordCocopiRemoteUsageAnalytics, recordCocopiTokenCacheSummary, waitForCocopiTokenCacheDebugStorage } from "../lib/vscode/token-cache-debug.js";
@@ -188,30 +188,84 @@ test("Cocopi status bar item is clickable", () => {
   assert.equal(vscode.statusBarItems[0].tooltip.supportHtml, true);
   assert.match(vscode.statusBarItems[0].tooltip.value, /\*\*Cocopi\*\*/u);
   assert.match(vscode.statusBarItems[0].tooltip.value, /<table>/u);
-  assert.match(vscode.statusBarItems[0].tooltip.value, /<th scope="row" style="white-space: nowrap">\$\(server\)&nbsp;Default&nbsp;model<\/th>/u);
-  assert.match(vscode.statusBarItems[0].tooltip.value, /Default&nbsp;model/u);
+  assert.match(vscode.statusBarItems[0].tooltip.value, /\$\((?:sync~spin|warning|check)\) Account/u);
+  assert.match(vscode.statusBarItems[0].tooltip.value, /Loading|Not signed in/u);
+  assert.match(vscode.statusBarItems[0].tooltip.value, /\$\(server\) Model/u);
+  assert.match(vscode.statusBarItems[0].tooltip.value, /\$\(edit\) Inline/u);
+  assert.match(vscode.statusBarItems[0].tooltip.value, /\$\(pulse\) Usage/u);
+  assert.match(vscode.statusBarItems[0].tooltip.value, /\$\((?:sync~spin|check|bug)\) Diagnostics/u);
+  assert.doesNotMatch(vscode.statusBarItems[0].tooltip.value, /class="/u);
   assert.doesNotMatch(vscode.statusBarItems[0].tooltip.value, /\| Status \| Detail \|/u);
+  assert.match(vscode.statusBarItems[0].tooltip.value, /Open Dashboard/u);
   assert.match(vscode.statusBarItems[0].tooltip.value, /Token Tracker/u);
+  assert.match(vscode.statusBarItems[0].tooltip.value, /Sign In/u);
+  assert.doesNotMatch(vscode.statusBarItems[0].tooltip.value, /Enable Inline/u);
+  assert.doesNotMatch(vscode.statusBarItems[0].tooltip.value, /Set Inline Model/u);
+  assert.doesNotMatch(vscode.statusBarItems[0].tooltip.value, /Inline Options/u);
+  assert.match(vscode.statusBarItems[0].tooltip.value, /Click for the full Cocopi dashboard/u);
+  assert.doesNotMatch(vscode.statusBarItems[0].tooltip.value, /management menu/u);
+  assert.doesNotMatch(vscode.statusBarItems[0].tooltip.value, /pin these actions/u);
   assert.deepEqual(vscode.statusBarItems[0].tooltip.isTrusted, {
-    enabledCommands: [COCOPI_COMMANDS.status, COCOPI_COMMANDS.showTokenTracker, COCOPI_COMMANDS.showDiagnostics]
+    enabledCommands: [
+      COCOPI_COMMANDS.status,
+      COCOPI_COMMANDS.showTokenTracker,
+      COCOPI_COMMANDS.showDiagnostics,
+      COCOPI_COMMANDS.signIn,
+      COCOPI_COMMANDS.signOut,
+      COCOPI_COMMANDS.selectModel,
+      COCOPI_COMMANDS.showInlineCompletionOptions,
+      COCOPI_COMMANDS.selectInlineCompletionModel,
+      COCOPI_COMMANDS.toggleInlineCompletions
+    ]
   });
   assert.equal(vscode.statusBarItems[0].visible, true);
 });
 
-test("Cocopi status action shows usage with tracker options", async (testContext) => {
+test("Cocopi status action opens the dashboard webview", async (testContext) => {
   clearCocopiRateLimitSnapshots();
   clearCocopiTokenCacheDebugSummaries();
   const calls = [];
   testContext.mock.method(globalThis, "fetch", async (url, options = {}) => {
     calls.push({ url: String(url), options });
+    if (/\/models\?/u.test(String(url))) {
+      return Response.json({
+        models: [
+          { slug: "gpt-5.5", display_name: "GPT-5.5", context_window: 128_000 },
+          { slug: "gpt-5.3-codex-spark", display_name: "GPT-5.3 Codex Spark", context_window: 64_000 }
+        ]
+      });
+    }
+
     return Response.json({
       plan_type: "pro",
       rate_limit: {
         primary_window: {
           used_percent: 42,
-          limit_window_seconds: 18_000
+          limit_window_seconds: 18_000,
+          reset_at: 1_700_000_000
+        },
+        secondary_window: {
+          used_percent: 21,
+          limit_window_seconds: 604_800,
+          reset_at: 1_700_604_800
         }
-      }
+      },
+      additional_rate_limits: [{
+        limit_name: "GPT-5.3-Codex-Spark",
+        metered_feature: "codex_bengalfox",
+        rate_limit: {
+          primary_window: {
+            used_percent: 6,
+            limit_window_seconds: 18_000,
+            reset_at: 1_700_000_000
+          },
+          secondary_window: {
+            used_percent: 0,
+            limit_window_seconds: 604_800,
+            reset_at: 1_700_604_800
+          }
+        }
+      }]
     });
   });
   const context = fakeContext(new Map([
@@ -221,24 +275,156 @@ test("Cocopi status action shows usage with tracker options", async (testContext
     [CODEX_SECRET_KEYS.chatgptAccountId, "account-id"],
     [CODEX_SECRET_KEYS.chatgptPlanType, "pro"]
   ]));
-  const vscode = fakeVscode({ quickPickSelectionIndex: 4, statusBar: true });
+  const vscode = fakeVscode({ statusBar: true });
   registerCocopiCommands(context, vscode);
 
   await vscode.commands.callbacks.get(COCOPI_COMMANDS.status)?.();
 
   assert.match(calls[0]?.url ?? "", /\/usage$/u);
-  assert.deepEqual(vscode.quickPickItems[0].map((item) => item.label), [
-    "$(check) Signed in",
-    "$(pulse) Codex usage limits",
-    "$(dashboard) codex",
-    "$(graph) Open Token Tracker",
-    "$(bug) Open Diagnostics"
+  assert.ok(calls.some((call) => /\/models\?/u.test(call.url)));
+  assert.equal(vscode.panels[0].viewType, "cocopiStatus");
+  assert.equal(vscode.panels[0].title, "Cocopi");
+  assert.equal(vscode.panels[0].options.enableScripts, true);
+  assert.match(vscode.panels[0].webview.html, /<h1>Cocopi<\/h1>/u);
+  assert.match(vscode.panels[0].webview.html, /class="dashboard"/u);
+  assert.match(vscode.panels[0].webview.html, /class="status-card hero"/u);
+  assert.match(vscode.panels[0].webview.html, /Codex account ready/u);
+  assert.match(vscode.panels[0].webview.html, /Signed in · pro/u);
+  assert.doesNotMatch(vscode.panels[0].webview.html, /class="card-grid"/u);
+  assert.doesNotMatch(vscode.panels[0].webview.html, /Codex usage limits/u);
+  assert.match(vscode.panels[0].webview.html, /Quota windows/u);
+  assert.match(vscode.panels[0].webview.html, /<progress max="100" value="58">58%<\/progress>/u);
+  assert.match(vscode.panels[0].webview.html, /Regular weekly/u);
+  assert.match(vscode.panels[0].webview.html, /94% left/u);
+  assert.match(vscode.panels[0].webview.html, /Spark weekly/u);
+  assert.match(vscode.panels[0].webview.html, /Fallback model/u);
+  assert.match(vscode.panels[0].webview.html, /Inline autocomplete/u);
+  assert.doesNotMatch(vscode.panels[0].webview.html, /\$\(check\)|\$\(server\)|\$\(sparkle\)|\$\(pulse\)|\$\(bug\)/u);
+  assert.doesNotMatch(vscode.panels[0].webview.html, /<table/u);
+  assert.match(vscode.panels[0].webview.html, /data-command="refresh">Refresh/u);
+  assert.match(vscode.panels[0].webview.html, /<select name="model">/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="gpt-current" selected>gpt-current/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="gpt-5\.3-codex-spark">GPT-5\.3 Codex Spark/u);
+  assert.match(vscode.panels[0].webview.html, /<select name="inlineCompletionChoice">/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="off" selected>Off/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="auto">Auto \(prefer Spark\)/u);
+  assert.match(vscode.panels[0].webview.html, /Changes apply immediately/u);
+  assert.doesNotMatch(vscode.panels[0].webview.html, /Save (model|autocomplete|diagnostics)/u);
+  assert.doesNotMatch(vscode.panels[0].webview.html, /cocopi\.(toggleInlineCompletions|selectInlineCompletionModel|showInlineCompletionOptions|selectModel)/u);
+  assert.match(vscode.panels[0].webview.html, /Edit common Cocopi settings here/u);
+  assert.match(vscode.statusBarItems[0].tooltip.value, /\$\(pulse\) Regular 5h/u);
+  assert.match(vscode.statusBarItems[0].tooltip.value, /58% left · resets/u);
+  assert.match(vscode.statusBarItems[0].tooltip.value, /\$\(pulse\) Regular weekly/u);
+  assert.match(vscode.statusBarItems[0].tooltip.value, /79% left · resets/u);
+  assert.match(vscode.statusBarItems[0].tooltip.value, /\$\(sparkle\) Spark 5h/u);
+  assert.match(vscode.statusBarItems[0].tooltip.value, /94% left · resets/u);
+  assert.match(vscode.statusBarItems[0].tooltip.value, /\$\(sparkle\) Spark weekly/u);
+  assert.match(vscode.statusBarItems[0].tooltip.value, /100% left · resets/u);
+});
+
+test("Cocopi native chat status item is registered when available", async () => {
+  clearCocopiRateLimitSnapshots();
+  clearCocopiTokenCacheDebugSummaries();
+  const vscode = fakeVscode({ chatStatus: true });
+  const context = fakeContext();
+  registerCocopiCommands(context, vscode);
+
+  await vscode.commands.callbacks.get(COCOPI_COMMANDS.status)?.();
+
+  assert.equal(vscode.chatStatusItems[0].id, "cocopi.status");
+  assert.equal(vscode.chatStatusItems[0].visible, true);
+  assert.equal(vscode.chatStatusItems[0].title, "Cocopi");
+  assert.equal(vscode.chatStatusItems[0].description, "$(warning) Not signed in");
+  assert.match(vscode.chatStatusItems[0].detail ?? "", /Fallback model: gpt-current/u);
+  assert.match(vscode.chatStatusItems[0].detail ?? "", /Inline completions: Disabled · auto/u);
+  assert.match(vscode.chatStatusItems[0].detail ?? "", /\[Sign In\]\(command:cocopi\.signIn\)/u);
+  assert.match(vscode.chatStatusItems[0].tooltip ?? "", /native Chat status dashboard/u);
+  assert.equal(vscode.panels.length, 1);
+  assert.equal(vscode.panels[0].viewType, "cocopiStatus");
+  assert.match(vscode.panels[0].webview.html, /Edit common Cocopi settings here/u);
+  assert.equal(vscode.quickPickItems.length, 0);
+});
+
+test("Cocopi status webview applies embedded settings immediately", async () => {
+  const vscode = fakeVscode({ statusBar: true });
+  const context = fakeContext();
+  registerCocopiCommands(context, vscode);
+
+  await vscode.commands.callbacks.get(COCOPI_COMMANDS.status)?.();
+  await vscode.panels[0].receiveMessage({
+    type: "updateSettings",
+    settings: {
+      model: " gpt-next ",
+      inlineCompletionChoice: "model:gpt-spark-test",
+      "inlineCompletions.maxPrefixCharacters": 3200,
+      "inlineCompletions.maxSuffixCharacters": "1200",
+      "inlineCompletions.timeoutMs": 8000,
+      debugLevel: "events",
+      unknownSetting: "ignored"
+    }
+  });
+
+  assert.deepEqual(vscode.executedCommands, []);
+  assert.deepEqual(vscode.configurationUpdates, [
+    { key: "model", value: "gpt-next", target: true },
+    { key: "inlineCompletions.enabled", value: true, target: true },
+    { key: "inlineCompletions.model", value: "gpt-spark-test", target: true },
+    { key: "inlineCompletions.maxPrefixCharacters", value: 3200, target: true },
+    { key: "inlineCompletions.maxSuffixCharacters", value: 1200, target: true },
+    { key: "inlineCompletions.timeoutMs", value: 8000, target: true },
+    { key: "debugLevel", value: "events", target: true }
   ]);
-  assert.equal(vscode.quickPickItems[0][0].description, "Plan: pro");
-  assert.match(vscode.quickPickItems[0][2].detail ?? "", /5h: 58% left \(42% used\)/u);
-  assert.match(vscode.statusBarItems[0].tooltip.value, /<th scope="col" style="white-space: nowrap">Limit<\/th>/u);
-  assert.match(vscode.statusBarItems[0].tooltip.value, /<th scope="row" style="white-space: nowrap">codex<\/th><td>5h<\/td><td>58%<\/td><td>42%<\/td>/u);
-  assert.deepEqual(vscode.executedCommands, [COCOPI_COMMANDS.showDiagnostics]);
+  assert.match(vscode.panels[0].webview.html, /<option value="gpt-next" selected>gpt-next/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="model:gpt-spark-test" selected>gpt-spark-test/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="events" selected>Events/u);
+});
+
+test("showAuthStatus exposes compact configuration actions", async () => {
+  const context = fakeContext();
+  const vscode = fakeVscode({ quickPickSelectionIndex: 2 });
+  registerCocopiCommands(context, vscode);
+
+  await showAuthStatus(context, vscode);
+
+  assert.deepEqual(vscode.executedCommands, [COCOPI_COMMANDS.showInlineCompletionOptions]);
+
+  const fallbackModelVscode = fakeVscode({ quickPickSelectionIndex: 3 });
+  await showAuthStatus(context, fallbackModelVscode);
+  assert.deepEqual(fallbackModelVscode.executedCommands, [COCOPI_COMMANDS.selectModel]);
+});
+
+test("showInlineCompletionOptions exposes expanded inline controls", async () => {
+  const context = fakeContext();
+  const toggleVscode = fakeVscode({ quickPickSelectionIndex: 0 });
+
+  await showInlineCompletionOptions(context, toggleVscode);
+
+  assert.deepEqual(toggleVscode.quickPickItems[0].map((item) => item.label), [
+    "$(circle-slash) Cocopi Inline Completions",
+    "$(settings-gear) Inline Completion Model",
+    "$(list-selection) Cocopi Inline Settings",
+    "$(symbol-event) VS Code Inline Suggest Settings",
+    "$(output) Enable Event Debug Logs",
+    "$(circle-slash) Disable Debug Logs"
+  ]);
+  assert.equal(toggleVscode.quickPickItems[0][0].description, "Disabled");
+  assert.equal(toggleVscode.quickPickItems[0][1].description, "auto");
+  assert.match(toggleVscode.quickPickItems[0][2].description ?? "", /6000 prefix · 2000 suffix/u);
+  assert.deepEqual(toggleVscode.executedCommands, [COCOPI_COMMANDS.toggleInlineCompletions]);
+
+  const modelVscode = fakeVscode({ quickPickSelectionIndex: 1 });
+  await showInlineCompletionOptions(context, modelVscode);
+  assert.deepEqual(modelVscode.executedCommands, [COCOPI_COMMANDS.selectInlineCompletionModel]);
+
+  const settingsVscode = fakeVscode({ quickPickSelectionIndex: 2 });
+  await showInlineCompletionOptions(context, settingsVscode);
+  assert.deepEqual(settingsVscode.executedCommands, ["workbench.action.openSettings"]);
+  assert.deepEqual(settingsVscode.executedCommandArgs, [["cocopi.inlineCompletions"]]);
+
+  const debugVscode = fakeVscode({ quickPickSelectionIndex: 4 });
+  await showInlineCompletionOptions(context, debugVscode);
+  assert.deepEqual(debugVscode.configurationUpdates, [{ key: "debugLevel", value: "events", target: true }]);
+  assert.match(debugVscode.informationMessages.at(-1) ?? "", /event debug logs enabled/u);
 });
 
 test("Token Tracker warns when token tracking is disabled", async () => {
@@ -260,12 +446,17 @@ test("Token Tracker refreshes usage limits when opened", async (testContext) => 
   const calls = [];
   testContext.mock.method(globalThis, "fetch", async (url, options = {}) => {
     calls.push({ url: String(url), options });
+    if (/\/models\?/u.test(String(url))) {
+      return Response.json({ models: [{ slug: "gpt-current", display_name: "GPT Current" }] });
+    }
+
     return Response.json({
       plan_type: "pro",
       rate_limit: {
         primary_window: {
           used_percent: 42,
-          limit_window_seconds: 18_000
+          limit_window_seconds: 18_000,
+          reset_at: 1_700_000_000
         }
       }
     });
@@ -301,7 +492,8 @@ test("usage refresh is shared and throttled across status surfaces", async (test
       rate_limit: {
         primary_window: {
           used_percent: 42,
-          limit_window_seconds: 18_000
+          limit_window_seconds: 18_000,
+          reset_at: 1_700_000_000
         }
       }
     });
@@ -319,13 +511,16 @@ test("usage refresh is shared and throttled across status surfaces", async (test
   await vscode.commands.callbacks.get(COCOPI_COMMANDS.showTokenTracker)?.();
   await vscode.commands.callbacks.get(COCOPI_COMMANDS.status)?.();
 
-  assert.equal(calls.length, 3);
+  const usageCalls = calls.filter((call) => !/\/models\?/u.test(call.url));
+  assert.equal(usageCalls.length, 3);
   assert.ok(calls.some((call) => /\/usage$/u.test(call.url)));
   assert.ok(calls.some((call) => /\/usage\/daily-token-usage-breakdown/u.test(call.url)));
   assert.ok(calls.some((call) => /\/analytics\/daily-workspace-usage-counts/u.test(call.url)));
-  assert.match(vscode.panels[0].webview.html, /Codex usage limits/u);
-  assert.match(vscode.panels[0].webview.html, /58% left \(42% used\)/u);
-  assert.deepEqual(vscode.panels[0].postedMessages, []);
+  assert.match(vscode.panels[0].webview.html, /Quota windows/u);
+  assert.match(vscode.panels[0].webview.html, /Regular 5h/u);
+  assert.match(vscode.panels[0].webview.html, /<progress max="100" value="58">58%<\/progress>/u);
+  assert.equal(vscode.panels[1].viewType, "cocopiTokenTracker");
+  assert.deepEqual(vscode.panels[1].postedMessages, []);
 });
 
 test("signIn stores browser login tokens and account metadata", async () => {
@@ -367,7 +562,7 @@ test("status and sign-out commands report auth state", async () => {
   await showAuthStatus(context, vscode);
   assert.equal(vscode.quickPickItems[0][0].label, "$(check) Signed in");
   assert.equal(vscode.quickPickItems[0][0].description, "Plan: plus");
-  assert.match(vscode.quickPickItems[0][0].detail ?? "", /Fallback model: gpt-current/u);
+  assert.match(vscode.quickPickItems[0][0].detail ?? "", /Cocopi can use ChatGPT Codex/u);
 
   await signOut(context, vscode);
   assert.equal(secrets.has(CODEX_SECRET_KEYS.accessToken), false);
@@ -375,6 +570,7 @@ test("status and sign-out commands report auth state", async () => {
 
   await showAuthStatus(context, vscode);
   assert.equal(vscode.quickPickItems.at(-1)[0].label, "$(warning) Not signed in");
+  assert.equal(vscode.quickPickItems.at(-1)[0].action, "sign-in");
 });
 
 test("selectModel updates the configured fallback model", async (testContext) => {
@@ -395,6 +591,67 @@ test("selectModel updates the configured fallback model", async (testContext) =>
 
   assert.deepEqual(vscode.configurationUpdates, [{ key: "model", value: "gpt-next", target: true }]);
   assert.match(vscode.quickPickItems[0][1].detail ?? "", /128,000 tokens \| Fast available/u);
+});
+
+test("selectInlineCompletionModel updates the configured inline completion model", async (testContext) => {
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  const vscode = fakeVscode({ quickPickSelectionIndex: 1 });
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => Response.json({
+    models: [
+      { slug: "gpt-current", display_name: "Current" },
+      { slug: "gpt-5-spark-test", display_name: "Spark Test", context_window: 64_000 },
+      { slug: "gpt-next", display_name: "Next" }
+    ]
+  })));
+
+  await selectInlineCompletionModel(context, vscode);
+
+  assert.equal(vscode.quickPickItems[0][0].modelId, "auto");
+  assert.equal(vscode.quickPickItems[0][1].modelId, "gpt-5-spark-test");
+  assert.deepEqual(vscode.configurationUpdates, [{ key: "inlineCompletions.model", value: "gpt-5-spark-test", target: true }]);
+  assert.match(vscode.informationMessages.at(-1) ?? "", /inline completion model set to gpt-5-spark-test/u);
+});
+
+test("selectInlineCompletionModel can enable inline completions from the confirmation popup", async (testContext) => {
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  const vscode = fakeVscode({ informationSelection: "Enable Now", quickPickSelectionIndex: 0 });
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => Response.json({
+    models: [
+      { slug: "gpt-current", display_name: "Current" }
+    ]
+  })));
+
+  await selectInlineCompletionModel(context, vscode);
+
+  assert.deepEqual(vscode.configurationUpdates, [
+    { key: "inlineCompletions.model", value: "auto", target: true },
+    { key: "inlineCompletions.enabled", value: true, target: true }
+  ]);
+  assert.match(vscode.informationMessages.at(-1) ?? "", /inline completions enabled/u);
+});
+
+test("toggleInlineCompletions flips the enabled setting", async () => {
+  const context = fakeContext();
+  const vscode = fakeVscode();
+
+  await toggleInlineCompletions(context, vscode);
+
+  assert.deepEqual(vscode.configurationUpdates, [{ key: "inlineCompletions.enabled", value: true, target: true }]);
+  assert.match(vscode.informationMessages.at(-1) ?? "", /inline completions enabled/u);
+
+  const disabledVscode = fakeVscode({ inlineCompletionsEnabled: true });
+  await toggleInlineCompletions(context, disabledVscode);
+
+  assert.deepEqual(disabledVscode.configurationUpdates, [{ key: "inlineCompletions.enabled", value: false, target: true }]);
+  assert.match(disabledVscode.informationMessages.at(-1) ?? "", /inline completions disabled/u);
 });
 
 /**
@@ -481,10 +738,13 @@ function fakeContext(secrets = new Map()) {
 }
 
 /**
- * @param {{ informationSelection?: string, warningSelection?: string, quickPickSelectionIndex?: number, tokenTracking?: boolean }} [options]
+ * @param {{ informationSelection?: string, warningSelection?: string, quickPickSelectionIndex?: number, tokenTracking?: boolean, inlineCompletionsEnabled?: boolean, chatStatus?: boolean }} [options]
  */
 function fakeVscode(options = {}) {
   const configuration = new Map([["model", "gpt-current"]]);
+  if (typeof options.inlineCompletionsEnabled === "boolean") {
+    configuration.set("inlineCompletions.enabled", options.inlineCompletionsEnabled);
+  }
   const vscode = {
     commands: {
       callbacks: new Map(),
@@ -496,9 +756,13 @@ function fakeVscode(options = {}) {
         this.callbacks.set(command, callback);
         return { dispose() {} };
       },
-      /** @param {string} command */
-      async executeCommand(command) {
+      /**
+       * @param {string} command
+       * @param {...unknown} args
+       */
+      async executeCommand(command, ...args) {
         vscode.executedCommands.push(command);
+        vscode.executedCommandArgs.push(args);
       }
     },
     env: {
@@ -519,7 +783,7 @@ function fakeVscode(options = {}) {
         return {
           /**
            * @param {string} key
-           * @param {string | number} defaultValue
+           * @param {string | number | boolean} defaultValue
            */
           get(key, defaultValue) {
             if (key === "tokenTracking" && typeof options.tokenTracking === "boolean") {
@@ -529,7 +793,7 @@ function fakeVscode(options = {}) {
           },
           /**
            * @param {string} key
-           * @param {string} value
+           * @param {string | number | boolean} value
            * @param {boolean} target
            */
           async update(key, value, target) {
@@ -587,8 +851,10 @@ function fakeVscode(options = {}) {
     warningMessages: [],
     statusMessages: [],
     statusBarItems: [],
+    chatStatusItems: [],
     externalUrls: [],
     executedCommands: [],
+    executedCommandArgs: [],
     configurationUpdates: [],
     MarkdownString,
     ViewColumn: { Active: -1, One: 1, Two: 2 }
@@ -617,11 +883,38 @@ function fakeVscode(options = {}) {
     };
   }
 
+  if (options.chatStatus) {
+    vscode.window.createChatStatusItem = (id) => {
+      const item = {
+        id,
+        title: "",
+        description: "",
+        detail: undefined,
+        tooltip: undefined,
+        visible: false,
+        disposed: false,
+        show() {
+          item.visible = true;
+        },
+        hide() {
+          item.visible = false;
+        },
+        dispose() {
+          item.disposed = true;
+          item.visible = false;
+        }
+      };
+      vscode.chatStatusItems.push(item);
+      return item;
+    };
+  }
+
   return vscode;
 }
 
 function createPanel(viewType, title, showOptions, options) {
   let disposeListener = () => {};
+  let messageListener = async () => {};
   const panel = {
     viewType,
     title,
@@ -633,6 +926,10 @@ function createPanel(viewType, title, showOptions, options) {
       async postMessage(message) {
         panel.postedMessages.push(message);
         return true;
+      },
+      onDidReceiveMessage(listener) {
+        messageListener = listener;
+        return { dispose() {} };
       }
     },
     /** @param {() => void} listener */
@@ -642,6 +939,9 @@ function createPanel(viewType, title, showOptions, options) {
     },
     dispose() {
       disposeListener();
+    },
+    async receiveMessage(message) {
+      await messageListener(message);
     }
   };
   return panel;

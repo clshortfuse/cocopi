@@ -39,6 +39,18 @@
         "title": "Cocopi: Set Fallback Model"
       },
       {
+        "command": "cocopi.selectInlineCompletionModel",
+        "title": "Cocopi: Set Inline Completion Model"
+      },
+      {
+        "command": "cocopi.showInlineCompletionOptions",
+        "title": "Cocopi: Show Inline Completion Options"
+      },
+      {
+        "command": "cocopi.toggleInlineCompletions",
+        "title": "Cocopi: Toggle Inline Completions"
+      },
+      {
         "command": "cocopi.status",
         "title": "Cocopi: Show Status"
       },
@@ -172,6 +184,36 @@
           "default": true,
           "description": "Enable private Cocopi diagnostic entries for runtime anomalies and cache diagnostics.",
           "type": "boolean"
+        },
+        "cocopi.inlineCompletions.enabled": {
+          "default": false,
+          "description": "Enable Cocopi AI inline completions. When enabled, Cocopi sends limited editor context around the cursor to the selected Codex model as you type.",
+          "type": "boolean"
+        },
+        "cocopi.inlineCompletions.model": {
+          "default": "auto",
+          "description": "Codex model id for Cocopi AI inline completions. Use 'auto' to prefer a Spark-like low-latency catalog model when available, falling back to cocopi.model.",
+          "type": "string"
+        },
+        "cocopi.inlineCompletions.maxPrefixCharacters": {
+          "default": 6000,
+          "description": "Maximum characters before the cursor to send with Cocopi inline completion requests.",
+          "maximum": 50000,
+          "minimum": 0,
+          "type": "number"
+        },
+        "cocopi.inlineCompletions.maxSuffixCharacters": {
+          "default": 2000,
+          "description": "Maximum characters after the cursor to send with Cocopi inline completion requests.",
+          "maximum": 50000,
+          "minimum": 0,
+          "type": "number"
+        },
+        "cocopi.inlineCompletions.timeoutMs": {
+          "default": 10000,
+          "description": "Milliseconds to wait for a Cocopi inline completion stream before timing out. Set to 0 to disable the inline completion idle timeout.",
+          "minimum": 0,
+          "type": "number"
         },
         "cocopi.model": {
           "default": "gpt-5.5",
