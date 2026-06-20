@@ -34,6 +34,12 @@ const PACKAGE_FILES = [
   "media",
   "types"
 ];
+const PACKAGE_KEYWORDS = [
+  "vscode",
+  "chat",
+  "codex",
+  "language-models"
+];
 
 async function main() {
   const manifest = JSON.parse(await readFile(PACKAGE_PATH, "utf8"));
@@ -58,8 +64,9 @@ function checkManifest(manifest) {
   assertNonEmptyString(engines.vscode, "VS Code engine range");
   assertPropertyAbsent(engines, "node", "Node engine range");
   assertStringArrayEqual(readArray(manifest.activationEvents, "activationEvents"), ["onLanguageModelChat:cocopi", "onStartupFinished"], "activation events");
-  assertStringArrayEqual(readArray(manifest.enabledApiProposals, "enabledApiProposals"), ["chatProvider", "languageModelThinkingPart"], "enabled API proposals");
+  assertStringArrayEqual(readArray(manifest.enabledApiProposals, "enabledApiProposals"), ["chatStatusItem", "chatProvider", "languageModelThinkingPart"], "enabled API proposals");
   assertStringArrayEqual(readArray(manifest.files, "files"), PACKAGE_FILES, "package files");
+  assertStringArrayEqual(readArray(manifest.keywords, "keywords"), PACKAGE_KEYWORDS, "package keywords");
   assertEqual(manifest.icon, "media/icon.png", "package icon");
   assertCocopiIconContribution(contributes);
   assertPackageExports(readRecord(manifest.exports, "exports"));

@@ -341,11 +341,12 @@
   },
   "displayName": "Cocopi",
   "enabledApiProposals": [
+    "chatStatusItem",
     "chatProvider",
     "languageModelThinkingPart"
   ],
   "engines": {
-    "vscode": "^1.121.0"
+    "vscode": "^1.125.0"
   },
   "exports": {
     ".": {
@@ -383,7 +384,8 @@
   "keywords": [
     "vscode",
     "chat",
-    "codex"
+    "codex",
+    "language-models"
   ],
   "license": "UNLICENSED",
   "main": "./extension.js",

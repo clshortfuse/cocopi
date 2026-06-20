@@ -4198,6 +4198,7 @@ function modelInformation(id, name, detail = id, options = {}) {
     tooltip: options.tooltip ? `Cocopi - ${options.tooltip}` : "Remote Codex through Cocopi",
     detail: `Cocopi - ${detail}`,
     version: id,
+    isBYOK: true,
     isUserSelectable: true,
     maxInputTokens: Math.max(1, Math.floor((contextWindow - maxOutputTokens) * 0.9)),
     maxOutputTokens,

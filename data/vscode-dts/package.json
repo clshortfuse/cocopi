@@ -1,6 +1,7 @@
 {
   "private": true,
   "enabledApiProposals": [
+    "chatStatusItem",
     "chatProvider",
     "languageModelThinkingPart"
   ]
