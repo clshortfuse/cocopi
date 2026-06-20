@@ -11,6 +11,7 @@ Use Cocopi when you want Codex-style responses without leaving VS Code: ask codi
 ## Highlights
 
 - **Use Cocopi from VS Code Chat** — pick a Cocopi model in the Chat model selector or mention `@cocopi` directly.
+- **Opt in to AI autocomplete** — enable Cocopi inline completions and choose a dedicated low-latency model for ghost text.
 - **Sign in from the editor** — complete the browser sign-in flow and keep runtime credentials in VS Code SecretStorage.
 - **Tune response behavior** — choose reasoning effort, reasoning summaries, service tier, and transport settings.
 - **Track local usage** — review token usage, prompt-cache behavior, selected model, service tier, and transport details in Token Tracker.
@@ -27,11 +28,12 @@ Backend availability, model access, rate limits, and exact capabilities depend o
 
 ## Get started
 
-1. Install Cocopi from a VSIX package or a published build.
+1. Install Cocopi from a VSIX package or a published build. In VS Code 1.125+, published model-provider builds can also be found from the Language Models editor's **Install Model Providers** search.
 2. Run **Cocopi: Sign In** from the command palette.
 3. Complete the browser sign-in flow.
 4. Open VS Code Chat and pick a Cocopi model, or type `@cocopi` in chat.
-5. Use the Cocopi status-bar item to check sign-in state, usage status, Token Tracker, and Diagnostics.
+5. Optional: hover the Cocopi status-bar icon for a compact summary and quick links. Click the icon to open the richer Cocopi dashboard with card-style status and configuration actions. In VS Code builds with the proposed Chat status item API, Cocopi also mirrors the same summary into the native Chat/Copilot status dashboard. Open **Inline Options** for expanded autocomplete controls.
+6. Use the Cocopi status-bar item to check sign-in state, usage status, Token Tracker, and Diagnostics.
 
 ## Everyday use
 
@@ -45,7 +47,15 @@ Mention `@cocopi` in chat when you want a direct Cocopi response without changin
 
 ### Check status and usage
 
-Hover the Cocopi status-bar item for a quick status summary. Click it to open a management menu with sign-in, status, Token Tracker, and Diagnostics actions.
+Hover the Cocopi status-bar item for a compact status summary. Click it to open the richer Cocopi dashboard with card-style status and configuration actions.
+
+### Use AI inline completions
+
+Hover the Cocopi status-bar icon for a compact account/model/usage summary plus quick links to the dashboard, Token Tracker, and Diagnostics. Click the icon to open the richer Cocopi dashboard with card-style status and configuration actions; VS Code builds with the proposed Chat status item API also mirror that summary in the native Chat/Copilot status dashboard. **Inline Options** expands autocomplete controls for Cocopi context-budget settings, VS Code's native inline-suggest setting, and event debug logs. You can also run **Cocopi: Toggle Inline Completions** from the command palette, or use **Manage Cocopi** → **Toggle Inline Completions**, to enable or disable Cocopi ghost-text completions. The command shows a small confirmation popup after changing the setting. You can also set `cocopi.inlineCompletions.enabled` directly in Settings.
+
+Run **Cocopi: Set Inline Completion Model** to choose the autocomplete model. If inline completions are disabled, the command offers an **Enable Now** popup action. The default `auto` mode prefers a Spark-like low-latency model from the signed-in account's model catalog when one is available, then falls back to `cocopi.model`. VS Code's own `editor.inlineSuggest.enabled` setting must also allow inline suggestions.
+
+For testing, set `cocopi.debugLevel` to `events` or `payloads` and open the **Cocopi** output channel. Inline completion attempts log request metadata, selected model, context sizes, and stream event types. `payloads` also logs request/event payloads and can include surrounding editor text.
 
 ### Review local diagnostics
 
@@ -59,6 +69,9 @@ Diagnostics are intended for troubleshooting extension behavior. They are stored
 | `Cocopi: Sign Out` | Clears stored Cocopi credentials and closes reusable Codex WebSocket sessions. |
 | `Cocopi: Show Status` | Shows sign-in state, fallback model, usage-limit status, and tracker actions. |
 | `Cocopi: Set Fallback Model` | Sets `cocopi.model`, used when no selected Cocopi model is available. |
+| `Cocopi: Set Inline Completion Model` | Sets `cocopi.inlineCompletions.model`, used by Cocopi AI autocomplete. |
+| `Cocopi: Show Inline Completion Options` | Opens expanded inline autocomplete controls for state, model, settings, and debug logging. |
+| `Cocopi: Toggle Inline Completions` | Enables or disables Cocopi AI autocomplete with a confirmation popup. |
 | `Cocopi: Show Token Tracker` | Opens local token, cache, model, reasoning, transport, and usage-limit summaries. |
 | `Cocopi: Show Diagnostics` | Opens local redacted diagnostics for runtime anomalies. |
 | `Manage Cocopi` | Opens the compact Cocopi management menu. |
@@ -72,12 +85,22 @@ Diagnostics are intended for troubleshooting extension behavior. They are stored
 | `cocopi.model` | `gpt-5.5` | Fallback Codex model id. |
 | `cocopi.chatParticipantModelSource` | `selected` | Whether `@cocopi` uses VS Code's selected Cocopi model or the configured fallback. |
 | `cocopi.reasoningEffort` | `default` | Reasoning effort for Cocopi requests: `default`, `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. |
-| `cocopi.reasoningSummary` | `default` | Reasoning summary behavior: `default`, `auto`, `off`, `concise`, or `detailed`. |
+| `cocopi.reasoningSummary` | `auto` | Reasoning summary behavior: `auto`, `model-default`, `off`, `concise`, or `detailed`. |
 | `cocopi.serviceTier` | `auto` | Processing tier override: `auto`, `flex`, or `priority`. |
 | `cocopi.transport` | `websocket` | Responses transport: `websocket` or `sse`. |
 | `cocopi.tokenTracking` | `true` | Enables local Token Tracker entries. |
 | `cocopi.issueTracking` | `true` | Enables local Diagnostics entries. |
 | `cocopi.debugLevel` | `off` | Controls output-channel diagnostics. `payloads` can include prompt and output text; credentials are still redacted. |
+
+### Inline completion settings
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `cocopi.inlineCompletions.enabled` | `false` | Enables Cocopi AI autocomplete. Kept opt-in because it sends editor context as you type. |
+| `cocopi.inlineCompletions.model` | `auto` | Autocomplete model id. `auto` prefers a Spark-like model from the catalog when available, then falls back to `cocopi.model`. |
+| `cocopi.inlineCompletions.maxPrefixCharacters` | `6000` | Maximum characters before the cursor sent as completion context. |
+| `cocopi.inlineCompletions.maxSuffixCharacters` | `2000` | Maximum characters after the cursor sent as completion context. |
+| `cocopi.inlineCompletions.timeoutMs` | `10000` | Inline completion stream idle timeout. Set `0` to disable this timeout. |
 
 ### Advanced settings
 
@@ -102,6 +125,7 @@ Diagnostics are intended for troubleshooting extension behavior. They are stored
 - Cocopi redacts credentials from diagnostics and debug output.
 - Cocopi does not intentionally log bearer tokens, refresh tokens, ID tokens, or raw credentials.
 - `cocopi.debugLevel: payloads` can log prompt and output payload text. Keep it off unless debugging locally.
+- Inline completions are opt-in because they send limited surrounding editor text to the selected Codex model as you type.
 - `.env` is only for local development and live smoke tests; it is not used as runtime extension storage.
 
 ## Troubleshooting
@@ -109,6 +133,7 @@ Diagnostics are intended for troubleshooting extension behavior. They are stored
 - If requests fail after a successful sign-in, run **Cocopi: Show Status** to check usage-limit and fallback-model state.
 - If chat hangs, adjust `cocopi.streamIdleTimeoutMs` or switch `cocopi.transport` between `websocket` and `sse`.
 - If a selected model is not used by `@cocopi`, check `cocopi.chatParticipantModelSource`.
+- If inline completions do not appear, run **Cocopi: Toggle Inline Completions**, ensure VS Code's `editor.inlineSuggest.enabled` is enabled, then run **Cocopi: Set Inline Completion Model**. Set `cocopi.debugLevel` to `events` to confirm requests appear in the **Cocopi** output channel.
 - If you need detailed request diagnostics, temporarily set `cocopi.debugLevel` to `metadata` or `events`. Use `payloads` only for local debugging because it can include prompt and output text.
 
 ## Support

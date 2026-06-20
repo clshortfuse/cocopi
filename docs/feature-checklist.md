@@ -133,7 +133,9 @@ Status key:
 - `[x]` Report provider errors in VS Code-friendly form.
 - `[?]` VS Code/Copilot Chat persistence semantics for custom provider `LanguageModelDataPart` state across edit, retry, fork, export, and compaction flows.
 - `[?]` Marketplace restrictions for custom model providers.
-- `[x]` Provider registration and per-model configuration target the VS Code 1.120+ chat provider proposal surface.
+- `[x]` Provider registration and per-model configuration target the VS Code 1.125+ chat provider proposal surface.
+- `[x]` Mark Cocopi provider models as BYOK so VS Code treats them as user-credential-backed rather than Copilot/CAPI-backed.
+- `[x]` Tag the package for VS Code 1.125+ Language Models editor provider discovery.
 - `[~]` Default compaction strategy follows VS Code; future custom strategy options are documented but not implemented.
 
 #### Provider Hidden-State Carrier
@@ -152,6 +154,19 @@ To keep the provider path usable, Cocopi emits the completed Responses `response
 - `[x]` Stream response text back to chat.
 - `[x]` Report participant errors in VS Code-friendly form.
 - `[x]` `@cocopi` defaults to VS Code's selected Cocopi model and uses `cocopi.model` only as a fallback or explicit override.
+
+### Inline Completions
+
+- `[x]` Register a VS Code `InlineCompletionItemProvider` for file, untitled, and notebook-cell documents.
+- `[x]` Keep AI autocomplete opt-in with `cocopi.inlineCompletions.enabled` because it sends editor context while typing.
+- `[x]` Send bounded prefix/suffix context around the cursor to Codex Responses and return ghost-text insertions.
+- `[x]` Add `cocopi.inlineCompletions.model` and **Cocopi: Set Inline Completion Model** so autocomplete can use a dedicated model.
+- `[x]` Add **Cocopi: Toggle Inline Completions**, confirmation popups, compact status-bar hover links, a richer card-style click dashboard, native Chat status item details that mirror the same summary when the proposed API is available, and expanded **Inline Options** so users can configure autocomplete without editing JSON.
+- `[x]` Auto inline model selection prefers a Spark-like low-latency catalog model when available, then falls back to `cocopi.model`.
+- `[x]` Use VS Code cancellation tokens and inline-specific idle timeout for interactive autocomplete requests.
+- `[x]` Log inline completion request metadata and stream events when `cocopi.debugLevel` is enabled for manual testing.
+- `[~]` Inline completion usage is not yet represented in Token Tracker summaries.
+- `[ ]` Adopt VS Code's proposed `inlineCompletionsAdditions` metadata/model picker if it becomes publishable for this extension.
 
 ### Tool Bridge
 
@@ -189,4 +204,5 @@ The next slice should verify provider continuity and cache behavior in the real 
 
 1. Verify VS Code preserves Cocopi's custom `LanguageModelDataPart` across normal provider turns and provider tool follow-up turns.
 2. Investigate prompt-cache key and retention behavior now that participant request prefixes are more stable across turns.
-3. Add VS Code extension integration tests for participant metadata persistence in the real chat UI.
+3. Smoke-test inline completion latency and cancellation behavior against live Spark-like models.
+4. Add VS Code extension integration tests for participant metadata persistence and inline ghost-text rendering in the real UI.
