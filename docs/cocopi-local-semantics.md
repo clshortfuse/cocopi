@@ -105,6 +105,8 @@ Primary code/tests:
 
 When the model catalog has no model-provided `auto_compact_token_limit`, Cocopi advertises a fallback `maxInputTokens`.
 
+When the catalog does provide a lower `auto_compact_token_limit`, Cocopi exposes that value as the default VS Code 1.126 `contextSize` model configuration while keeping `maxInputTokens` at the full usable model window. When the catalog advertises `max_context_window` greater than the default `context_window`, Cocopi instead exposes the default and max windows as the `contextSize` choices. Accounts or API keys that do not receive that server metadata do not get a context-size selector.
+
 Current default: 90% of usable input budget after reserving `maxOutputTokens`.
 
 Why it exists: VS Code needs `maxInputTokens`/`maxOutputTokens` metadata to decide when to compact. Some Codex catalog entries do not provide an auto-compact limit.

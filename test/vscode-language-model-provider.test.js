@@ -215,13 +215,28 @@ test("provideLanguageModelChatInformation logs model-provided compaction limits"
   assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken()), [
     {
       ...modelInformation("gpt-5-codex", "GPT-5 Codex", "gpt-5-codex", { contextWindow: 100_000 }),
-      maxInputTokens: 64_000
+      maxInputTokens: 83_616,
+      configurationSchema: {
+        properties: {
+          contextSize: {
+            type: "number",
+            title: "Context Size",
+            description: "Controls how much chat context VS Code keeps before compacting Cocopi requests.",
+            enum: [64_000, 83_616],
+            enumItemLabels: ["64K", "83.6K"],
+            enumDescriptions: ["Default recommended context size.", "Longer sessions without earlier VS Code compaction."],
+            default: 64_000,
+            group: "tokens"
+          }
+        }
+      }
     }
   ]);
   assert.ok(logger.debugMessages.some((message) => message.includes("Cocopi language model compaction limit.")
     && message.includes("model=gpt-5-codex")
     && message.includes("source=model-provided")
-    && message.includes("maxInputTokens=64000")
+    && message.includes("defaultInputTokens=64000")
+    && message.includes("maxInputTokens=83616")
     && message.includes("maxOutputTokens=16384")
     && message.includes("contextWindow=100000")
     && message.includes("useModelDefaultCompactionLimit=true")
@@ -251,6 +266,7 @@ test("provideLanguageModelChatInformation logs fallback compaction limits", asyn
   assert.ok(logger.debugMessages.some((message) => message.includes("Cocopi language model compaction limit.")
     && message.includes("model=gpt-5-codex")
     && message.includes("source=fallback-full")
+    && message.includes("defaultInputTokens=83616")
     && message.includes("maxInputTokens=83616")
     && message.includes("maxOutputTokens=16384")
     && message.includes("contextWindow=100000")
@@ -767,8 +783,27 @@ test("languageModelInformationFromCodexModels can use model-provided auto-compac
     { id: "gpt-catalog", displayName: "GPT Catalog", contextWindow: 100_000, autoCompactTokenLimit: 64_000 }
   ], "gpt-catalog", { useModelDefaultCompactionLimit: true, compactionFallbackStrategy: "ninety-percent" });
 
-  assert.equal(model.maxInputTokens, 64_000);
+  assert.equal(model.maxInputTokens, 83_616);
   assert.equal(model.maxOutputTokens, 16_384);
+  const contextSize = /** @type {{ configurationSchema?: { properties?: Record<string, Record<string, unknown>> } }} */ (model).configurationSchema?.properties?.contextSize;
+  assert.deepEqual(contextSize?.enum, [64_000, 83_616]);
+  assert.deepEqual(contextSize?.enumItemLabels, ["64K", "83.6K"]);
+  assert.equal(contextSize?.default, 64_000);
+  assert.equal(contextSize?.group, "tokens");
+});
+
+test("languageModelInformationFromCodexModels can use server-advertised max context windows", () => {
+  const [model] = languageModelInformationFromCodexModels([
+    { id: "gpt-catalog", displayName: "GPT Catalog", contextWindow: 272_000, maxContextWindow: 1_000_000, autoCompactTokenLimit: null }
+  ], "gpt-catalog", { useModelDefaultCompactionLimit: true, compactionFallbackStrategy: "ninety-percent" });
+
+  assert.equal(model.maxInputTokens, 983_616);
+  assert.equal(model.maxOutputTokens, 16_384);
+  const contextSize = /** @type {{ configurationSchema?: { properties?: Record<string, Record<string, unknown>> } }} */ (model).configurationSchema?.properties?.contextSize;
+  assert.deepEqual(contextSize?.enum, [255_616, 983_616]);
+  assert.deepEqual(contextSize?.enumItemLabels, ["255.6K", "983.6K"]);
+  assert.equal(contextSize?.default, 255_616);
+  assert.equal(contextSize?.group, "tokens");
 });
 
 test("languageModelInformationFromCodexModels falls back to 90% without a model-provided limit", () => {

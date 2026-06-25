@@ -12,7 +12,7 @@ In this mode:
 
 - VS Code decides when a language-model conversation needs compaction.
 - Cocopi advertises model `maxInputTokens` and `maxOutputTokens` through `LanguageModelChatInformation`.
-- Cocopi uses the model-provided `auto_compact_token_limit` when available and enabled.
+- Cocopi uses server-provided context metadata only: `auto_compact_token_limit` can become the default VS Code 1.126 `contextSize` picker value, and `max_context_window > context_window` can become the default/max context-size choice. Accounts or API keys without that metadata do not show a context-size selector.
 - If no model-provided limit is available, Cocopi falls back to 90% of the usable input budget after reserving max output tokens.
 - Cocopi treats summary generation and summary replay as separate phases for diagnostics and continuation safety.
 - Cocopi does not replace VS Code's compacted replay with its own hidden transcript state.

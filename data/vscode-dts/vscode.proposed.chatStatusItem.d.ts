@@ -12,7 +12,7 @@ declare module 'vscode' {
 		readonly id: string;
 
 		/**
-		 * The main name of the entry, like 'Indexing Status'.
+		 * The main name of the entry, like 'Indexing Status'
 		 */
 		title: string | { label: string; link: string; helpText?: string };
 
@@ -48,7 +48,7 @@ declare module 'vscode' {
 		hide(): void;
 
 		/**
-		 * Dispose and free associated resources.
+		 * Dispose and free associated resources
 		 */
 		dispose(): void;
 	}

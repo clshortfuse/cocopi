@@ -133,9 +133,10 @@ Status key:
 - `[x]` Report provider errors in VS Code-friendly form.
 - `[?]` VS Code/Copilot Chat persistence semantics for custom provider `LanguageModelDataPart` state across edit, retry, fork, export, and compaction flows.
 - `[?]` Marketplace restrictions for custom model providers.
-- `[x]` Provider registration and per-model configuration target the VS Code 1.125+ chat provider proposal surface.
+- `[x]` Provider registration and per-model configuration target the VS Code 1.126 chat provider surface.
 - `[x]` Mark Cocopi provider models as BYOK so VS Code treats them as user-credential-backed rather than Copilot/CAPI-backed.
-- `[x]` Tag the package for VS Code 1.125+ Language Models editor provider discovery.
+- `[x]` Tag the package for VS Code 1.126+ Language Models editor provider discovery.
+- `[x]` Expose reasoning effort and recommended/full context-size choices through VS Code's unified model customization picker.
 - `[~]` Default compaction strategy follows VS Code; future custom strategy options are documented but not implemented.
 
 #### Provider Hidden-State Carrier

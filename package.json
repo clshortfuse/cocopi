@@ -388,7 +388,7 @@
     "languageModelThinkingPart"
   ],
   "engines": {
-    "vscode": "^1.125.0"
+    "vscode": "^1.126.0"
   },
   "exports": {
     ".": {

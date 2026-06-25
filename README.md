@@ -13,14 +13,14 @@ Use Cocopi when you want Codex-style responses without leaving VS Code: ask codi
 - **Use Cocopi from VS Code Chat** — pick a Cocopi model in the Chat model selector or mention `@cocopi` directly.
 - **Opt in to AI autocomplete** — enable Cocopi inline completions and choose a dedicated low-latency model for ghost text.
 - **Sign in from the editor** — complete the browser sign-in flow and keep runtime credentials in VS Code SecretStorage.
-- **Tune response behavior** — choose reasoning effort, reasoning summaries, service tier, and transport settings.
+- **Tune response behavior** — choose reasoning effort, context size, reasoning summaries, service tier, and transport settings.
 - **Track local usage** — review token usage, prompt-cache behavior, selected model, service tier, and transport details in Token Tracker.
 - **Diagnose safely** — inspect redacted local diagnostics when requests fail or backend responses look unexpected.
 - **Stay in flow** — use the Cocopi status-bar item for sign-in state, usage status, and quick access to Cocopi actions.
 
 ## Requirements
 
-- VS Code with the chat model provider support used by this extension. See `package.json` for the current engine range.
+- VS Code 1.126+ with the chat model provider support used by this extension. See `package.json` for the current engine range.
 - A signed-in account with access to the ChatGPT/Codex backend services Cocopi uses.
 - Internet access for authentication and model requests.
 
@@ -28,7 +28,7 @@ Backend availability, model access, rate limits, and exact capabilities depend o
 
 ## Get started
 
-1. Install Cocopi from a VSIX package or a published build. In VS Code 1.125+, published model-provider builds can also be found from the Language Models editor's **Install Model Providers** search.
+1. Install Cocopi from a VSIX package or a published build. In VS Code 1.126+, published model-provider builds can also be found from the Language Models editor's **Install Model Providers** search.
 2. Run **Cocopi: Sign In** from the command palette.
 3. Complete the browser sign-in flow.
 4. Open VS Code Chat and pick a Cocopi model, or type `@cocopi` in chat.
@@ -40,6 +40,8 @@ Backend availability, model access, rate limits, and exact capabilities depend o
 ### Pick a Cocopi model
 
 Open VS Code Chat and select a Cocopi model from the model picker. If no Cocopi model is selected, Cocopi can fall back to the configured `cocopi.model` value.
+
+In VS Code 1.126+, Cocopi model entries participate in the unified model customization picker. Models with Codex reasoning metadata show **Thinking Effort** options, and models expose **Context Size** choices only when the signed-in Codex catalog advertises them, such as a lower recommended auto-compaction limit or a larger `max_context_window` than the default `context_window`.
 
 ### Ask `@cocopi`
 
