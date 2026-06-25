@@ -125,6 +125,10 @@ test("registerCocopiCommands wires diagnostics webview commands", async () => {
   assert.match(vscode.panels[1].webview.html, /50 uncached input/u);
   assert.match(vscode.panels[1].webview.html, /Continuation/u);
   assert.match(vscode.panels[1].webview.html, /previous-response/u);
+  assert.match(vscode.panels[1].webview.html, /Current weekly cycle token totals/u);
+  assert.match(vscode.panels[1].webview.html, /Rolling 7d fallback/u);
+  assert.match(vscode.panels[1].webview.html, /API-metered units/u);
+  assert.match(vscode.panels[1].webview.html, /Raw Cocopi-local counters only/u);
   assert.match(vscode.panels[1].webview.html, /This extension local usage/u);
   assert.match(vscode.panels[1].webview.html, /Account quota depletion/u);
   assert.match(vscode.panels[1].webview.html, /This extension agent and session usage/u);
@@ -169,6 +173,7 @@ test("registerCocopiCommands wires diagnostics webview commands", async () => {
   assert.equal(vscode.panels[1].postedMessages[0].groups?.[0]?.sessionCumulativeTokens, 180);
   assert.match(vscode.panels[1].postedMessages[0].groups?.[0]?.sessionStats ?? "", /120 tokens · 100 uncached/u);
   assert.match(vscode.panels[1].postedMessages[0].analyticsHtml ?? "", /This extension local usage/u);
+  assert.match(vscode.panels[1].postedMessages[0].analyticsHtml ?? "", /Current weekly cycle token totals/u);
 
   vscode.panels[1].dispose();
   assert.equal(context.subscriptions.length, Object.keys(COCOPI_COMMANDS).length);

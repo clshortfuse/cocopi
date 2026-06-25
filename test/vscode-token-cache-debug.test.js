@@ -458,6 +458,11 @@ test("usage analytics aggregates local rows and quota depletion over time", asyn
     primary: {
       usedPercent: 35,
       windowMinutes: 300
+    },
+    secondary: {
+      usedPercent: 40,
+      windowMinutes: 10_080,
+      resetsAt: 1_777_640_400
     }
   }, {
     capturedAt: new Date("2026-04-30T12:00:00.000Z")
@@ -517,6 +522,25 @@ test("usage analytics aggregates local rows and quota depletion over time", asyn
     "gpt-b · low"
   ]);
   assert.deepEqual(analytics.timeline.series.map((series) => series.billableTokens), [1000, 1500]);
+  assert.equal(analytics.weeklyCycle.source, "rate-limit-reset");
+  assert.equal(analytics.weeklyCycle.sourceLabel, "Regular weekly");
+  assert.equal(analytics.weeklyCycle.cycleStart, "2026-04-24T13:00:00.000Z");
+  assert.equal(analytics.weeklyCycle.cycleEnd, "2026-05-01T13:00:00.000Z");
+  assert.equal(analytics.weeklyCycle.requestCount, 2);
+  assert.equal(analytics.weeklyCycle.usageKnownRequestCount, 2);
+  assert.equal(analytics.weeklyCycle.inputTokens, 3000);
+  assert.equal(analytics.weeklyCycle.cachedInputTokens, 800);
+  assert.equal(analytics.weeklyCycle.uncachedInputTokens, 2200);
+  assert.equal(analytics.weeklyCycle.outputTokens, 300);
+  assert.equal(analytics.weeklyCycle.apiMeteredTokens, 2500);
+  assert.equal(Math.round(analytics.weeklyCycle.outputTokensPerDay), 50);
+  assert.equal(analytics.weeklyCycle.projectedOutputTokens, 350);
+  assert.equal(analytics.weeklyCycle.projectedUncachedInputTokens, 2567);
+  assert.equal(analytics.weeklyCycle.projectedApiMeteredTokens, 2917);
+  assert.deepEqual(analytics.weeklyCycle.models.map((model) => [model.label, model.apiMeteredTokens]), [
+    ["gpt-b · low", 1500],
+    ["gpt-a · high", 1000]
+  ]);
   assert.equal(analytics.sessions[0]?.sessionId, "session-a");
   assert.equal(analytics.sessions[0]?.billableTokens, 2500);
   assert.equal(analytics.rateLimitTrends[0]?.deltaUsedPercent, 10);
