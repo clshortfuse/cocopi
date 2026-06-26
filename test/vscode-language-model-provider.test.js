@@ -4239,7 +4239,8 @@ function modelInformation(id, name, detail = id, options = {}) {
     maxOutputTokens,
     capabilities: {
       imageInput: options.imageInput ?? false,
-      toolCalling: true
+      toolCalling: true,
+      agentMode: true
     }
   };
 }
