@@ -11,6 +11,8 @@ This checklist is based on four inputs:
 - OpenAI Codex source as a clean-room behavioral reference for ChatGPT/Codex OAuth, model catalog calls, Responses request fields, streaming events, headers, and cloud task research targets.
 - Our project's own verified behavior: offline tests, live `/models` smoke, and live streaming `/responses` ISO datetime smoke against the ChatGPT Codex backend.
 
+For the user-visible VS Code Chat/Copilot feature matrix, adoption status, avoided APIs, and version-watch table, see [vscode-chat-feature-tracker.md](vscode-chat-feature-tracker.md).
+
 Keep it practical: update status as we verify behavior in tests, official documentation, VS Code API behavior, or live Codex behavior. Items marked `[?]` are deliberately not trusted yet.
 
 Status key:

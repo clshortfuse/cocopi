@@ -8,6 +8,8 @@ Codex CLI behavior is the minimum bar for Cocopi. Bridge code may adapt Codex se
 
 Use [feature-checklist.md](feature-checklist.md) as the running implementation checklist for Codex API features, VS Code chat features, and bridge gaps.
 
+Use [vscode-chat-feature-tracker.md](vscode-chat-feature-tracker.md) as the running table for VS Code Chat/Copilot user features, Cocopi adoption status, and version-by-version feature review.
+
 Use [cocopi-local-semantics.md](cocopi-local-semantics.md) as the inventory of Cocopi-specific bridge behavior, heuristics, diagnostics, and replacement preferences.
 
 Use [previous-response-continuation.md](previous-response-continuation.md) as the design note for `previous_response_id` continuation, VS Code compaction replay, and related token/cache diagnostics.
