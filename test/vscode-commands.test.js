@@ -302,6 +302,14 @@ test("Cocopi status action opens the dashboard webview", async (testContext) => 
   assert.match(vscode.panels[0].webview.html, /Regular weekly/u);
   assert.match(vscode.panels[0].webview.html, /94% left/u);
   assert.match(vscode.panels[0].webview.html, /Spark weekly/u);
+  assert.match(vscode.panels[0].webview.html, /Feature gates/u);
+  assert.match(vscode.panels[0].webview.html, /Inline autocomplete/u);
+  assert.match(vscode.panels[0].webview.html, /Token Tracker recording/u);
+  assert.match(vscode.panels[0].webview.html, /Runtime diagnostics/u);
+  assert.match(vscode.panels[0].webview.html, /Reasoning summaries/u);
+  assert.match(vscode.panels[0].webview.html, /data-setting="editor\.inlineSuggest\.enabled"/u);
+  assert.doesNotMatch(vscode.panels[0].webview.html, /Checkpoint file changes/u);
+  assert.doesNotMatch(vscode.panels[0].webview.html, /Context usage indicator/u);
   assert.match(vscode.panels[0].webview.html, /Fallback model/u);
   assert.match(vscode.panels[0].webview.html, /Inline autocomplete/u);
   assert.doesNotMatch(vscode.panels[0].webview.html, /\$\(check\)|\$\(server\)|\$\(sparkle\)|\$\(pulse\)|\$\(bug\)/u);
@@ -348,6 +356,47 @@ test("Cocopi native chat status item is registered when available", async () => 
   assert.equal(vscode.panels[0].viewType, "cocopiStatus");
   assert.match(vscode.panels[0].webview.html, /Edit common Cocopi settings here/u);
   assert.equal(vscode.quickPickItems.length, 0);
+});
+
+test("Cocopi dashboard reports features limited by user settings", async () => {
+  clearCocopiRateLimitSnapshots();
+  clearCocopiTokenCacheDebugSummaries();
+  const context = fakeContext();
+  const vscode = fakeVscode({
+    inlineCompletionsEnabled: true,
+    tokenTracking: false,
+    settings: {
+      "cocopi.editProgressIntervalMs": 0,
+      "cocopi.issueTracking": false,
+      "cocopi.reasoningSummary": "off",
+      "cocopi.toolStrict": false,
+      "cocopi.useModelDefaultCompactionLimit": false,
+      "editor.inlineSuggest.enabled": false
+    }
+  });
+  registerCocopiCommands(context, vscode);
+
+  await vscode.commands.callbacks.get(COCOPI_COMMANDS.status)?.();
+
+  const html = vscode.panels[0].webview.html;
+  assert.match(html, /Feature gates/u);
+  assert.match(html, /Inline autocomplete[\s\S]*Limited[\s\S]*editor\.inlineSuggest\.enabled/u);
+  assert.match(html, /Token Tracker recording[\s\S]*Disabled[\s\S]*cocopi\.tokenTracking/u);
+  assert.match(html, /Runtime diagnostics[\s\S]*Disabled[\s\S]*cocopi\.issueTracking/u);
+  assert.match(html, /Reasoning summaries[\s\S]*Disabled[\s\S]*cocopi\.reasoningSummary/u);
+  assert.match(html, /Tool schema strictness[\s\S]*Limited[\s\S]*cocopi\.toolStrict/u);
+  assert.match(html, /Edit progress updates[\s\S]*Disabled[\s\S]*cocopi\.editProgressIntervalMs/u);
+  assert.match(html, /Context budgeting[\s\S]*Limited[\s\S]*cocopi\.useModelDefaultCompactionLimit/u);
+  assert.match(html, /recommended true/u);
+  assert.doesNotMatch(html, /Checkpoint file changes/u);
+  assert.doesNotMatch(html, /Context usage indicator/u);
+  assert.doesNotMatch(html, /Native Chat status/u);
+
+  await vscode.panels[0].receiveMessage({ type: "openSettings", query: "cocopi.reasoningSummary" });
+  await vscode.panels[0].receiveMessage({ type: "openSettings", query: "unknown.setting" });
+
+  assert.deepEqual(vscode.executedCommands, ["workbench.action.openSettings"]);
+  assert.deepEqual(vscode.executedCommandArgs, [["cocopi.reasoningSummary"]]);
 });
 
 test("Cocopi status webview applies embedded settings immediately", async () => {
@@ -743,12 +792,22 @@ function fakeContext(secrets = new Map()) {
 }
 
 /**
- * @param {{ informationSelection?: string, warningSelection?: string, quickPickSelectionIndex?: number, tokenTracking?: boolean, inlineCompletionsEnabled?: boolean, chatStatus?: boolean }} [options]
+ * @param {{ informationSelection?: string, warningSelection?: string, quickPickSelectionIndex?: number, tokenTracking?: boolean, inlineCompletionsEnabled?: boolean, chatStatus?: boolean, settings?: Record<string, string | number | boolean> }} [options]
  */
 function fakeVscode(options = {}) {
   const configuration = new Map([["model", "gpt-current"]]);
+  const configuredSettingKeys = new Set();
+  for (const [key, value] of Object.entries(options.settings ?? {})) {
+    configuration.set(key, value);
+    configuredSettingKeys.add(key);
+  }
   if (typeof options.inlineCompletionsEnabled === "boolean") {
     configuration.set("inlineCompletions.enabled", options.inlineCompletionsEnabled);
+    configuredSettingKeys.add("cocopi.inlineCompletions.enabled");
+  }
+  if (typeof options.tokenTracking === "boolean") {
+    configuration.set("tokenTracking", options.tokenTracking);
+    configuredSettingKeys.add("cocopi.tokenTracking");
   }
   const vscode = {
     commands: {
@@ -784,7 +843,8 @@ function fakeVscode(options = {}) {
       }
     },
     workspace: {
-      getConfiguration() {
+      /** @param {string} [section] */
+      getConfiguration(section) {
         return {
           /**
            * @param {string} key
@@ -794,7 +854,16 @@ function fakeVscode(options = {}) {
             if (key === "tokenTracking" && typeof options.tokenTracking === "boolean") {
               return options.tokenTracking;
             }
-            return configuration.get(key) ?? defaultValue;
+            return configuration.get(key) ?? configuration.get(fullConfigurationKey(section, key)) ?? defaultValue;
+          },
+          /** @param {string} key */
+          inspect(key) {
+            const fullKey = fullConfigurationKey(section, key);
+            const value = configuration.get(fullKey) ?? configuration.get(key);
+            if (configuredSettingKeys.has(fullKey) || configuredSettingKeys.has(key)) {
+              return { globalValue: value };
+            }
+            return { defaultValue: value };
           },
           /**
            * @param {string} key
@@ -804,6 +873,7 @@ function fakeVscode(options = {}) {
           async update(key, value, target) {
             vscode.configurationUpdates.push({ key, value, target });
             configuration.set(key, value);
+            configuredSettingKeys.add(fullConfigurationKey(section, key));
           }
         };
       }
@@ -915,6 +985,14 @@ function fakeVscode(options = {}) {
   }
 
   return vscode;
+}
+
+/**
+ * @param {string | undefined} section
+ * @param {string} key
+ */
+function fullConfigurationKey(section, key) {
+  return section ? `${section}.${key}` : key;
 }
 
 function createPanel(viewType, title, showOptions, options) {
