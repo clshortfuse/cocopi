@@ -968,11 +968,9 @@ test("Cocopi chat handler logs response diagnostics and reports terminal failure
   assert.deepEqual(response.markdownValues, ["Cocopi request failed. See the Cocopi output channel for details."]);
   assert.equal(logger.errorMessages[0]?.message, "Chat request failed.");
   assert.match(String(logger.errorMessages[0]?.error), /Codex response incomplete/u);
-  assert.equal(logger.debugMessages.length, 2);
-  assert.match(logger.debugMessages[0], /Codex request input/u);
-  assert.match(logger.debugMessages[0], /inputItems=1/u);
-  assert.match(logger.debugMessages[1], /unknownKeys=new_field/u);
-  assert.match(logger.debugMessages[1], /cachedTokens=6/u);
+  assert.ok(logger.debugMessages.some((message) => /Extension host memory\./u.test(message) && /stage=history/u));
+  assert.ok(logger.debugMessages.some((message) => /Codex request input/u.test(message) && /inputItems=1/u.test(message)));
+  assert.ok(logger.debugMessages.some((message) => /unknownKeys=new_field/u.test(message) && /cachedTokens=6/u.test(message)));
   const summaries = readCocopiTokenCacheDebugSummaries();
   assert.equal(summaries.length, 1);
   assert.equal(summaries[0].cacheStatus, "hit");

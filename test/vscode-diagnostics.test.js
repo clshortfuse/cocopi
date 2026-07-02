@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
-import { COCOPI_OUTPUT_CHANNEL_NAME, createCocopiLogger, logCodexFailurePayloadDiagnostics, logCodexRequestDiagnostics, logCodexResponseEventDiagnostics, logCodexTokenCacheSummary, logCodexWebSocketContinuationDecision, readCodexUsageSummary, redactCocopiLogText, summarizeCodexRequestBodyForDiagnostics } from "../lib/vscode/diagnostics.js";
+import { COCOPI_OUTPUT_CHANNEL_NAME, createCocopiLogger, logCodexFailurePayloadDiagnostics, logCodexRequestDiagnostics, logCodexResponseEventDiagnostics, logCodexTokenCacheSummary, logCodexWebSocketContinuationDecision, logCocopiMemoryDiagnostics, readCodexUsageSummary, redactCocopiLogText, summarizeCodexRequestBodyForDiagnostics } from "../lib/vscode/diagnostics.js";
 import { clearCocopiIssues, readCocopiIssues } from "../lib/vscode/issues.js";
 import { clearCocopiTokenCacheDebugSummaries, readCocopiTokenCacheDebugSummaries, recordCocopiTokenCacheSummary } from "../lib/vscode/token-cache-debug.js";
 
@@ -416,6 +419,50 @@ test("createCocopiLogger writes redacted lines to the Cocopi output channel", ()
   assert.doesNotMatch(vscode.lines.join("\n"), /access-token-value|secret-token/u);
 });
 
+test("logCocopiMemoryDiagnostics reports extension host heap fields", () => {
+  const logger = fakeLogger();
+
+  logCocopiMemoryDiagnostics(logger, "metadata", {
+    source: "language-model",
+    hostRequestIndex: 7,
+    sessionId: "session-id",
+    stage: "request-state",
+    model: "gpt-test",
+    inputItems: 3,
+    messages: 2,
+    cocopiDataBytes: 4096,
+    continuationAnchors: 1,
+    stateRestored: true
+  });
+
+  assert.equal(logger.debugMessages.length, 1);
+  assert.match(logger.debugMessages[0], /Extension host memory\./u);
+  assert.match(logger.debugMessages[0], /source=language-model/u);
+  assert.match(logger.debugMessages[0], /hostRequest=7/u);
+  assert.match(logger.debugMessages[0], /sessionId=session-id/u);
+  assert.match(logger.debugMessages[0], /stage=request-state/u);
+  assert.match(logger.debugMessages[0], /model=gpt-test/u);
+  assert.match(logger.debugMessages[0], /inputItems=3/u);
+  assert.match(logger.debugMessages[0], /messages=2/u);
+  assert.match(logger.debugMessages[0], /cocopiDataBytes=4096/u);
+  assert.match(logger.debugMessages[0], /continuationAnchors=1/u);
+  assert.match(logger.debugMessages[0], /stateRestored=true/u);
+  assert.match(logger.debugMessages[0], /heapUsedBytes=\d+/u);
+  assert.match(logger.debugMessages[0], /heapUsedMiB=\d+\.\d/u);
+  assert.match(logger.debugMessages[0], /rssBytes=\d+/u);
+});
+
+test("logCocopiMemoryDiagnostics is debug-gated unless forced", () => {
+  const logger = fakeLogger();
+
+  logCocopiMemoryDiagnostics(logger, "off", { source: "manual", stage: "command" });
+  assert.deepEqual(logger.debugMessages, []);
+
+  logCocopiMemoryDiagnostics(logger, "off", { source: "manual", stage: "command" }, { force: true, level: "info" });
+  assert.equal(logger.infoMessages.length, 1);
+  assert.match(logger.infoMessages[0], /Extension host memory\./u);
+});
+
 test("logCodexResponseEventDiagnostics reports usage cache and unknown response keys", () => {
   const logger = fakeLogger();
 
@@ -651,25 +698,159 @@ test("payload debug level logs failure payloads", () => {
   assert.ok(logger.debugMessages.some((message) => /Codex error event payload\./u.test(message) && /debug failing backend error/u.test(message)));
 });
 
-test("payload debug level chunks large payloads without truncating", () => {
+test("payload debug level logs small raw error payload text inline", () => {
   const logger = fakeLogger();
-  const outputText = "x".repeat(20_000);
+  const error = new Error("failed");
+  Object.defineProperty(error, "eventData", {
+    value: "debug raw backend error"
+  });
 
-  logCodexResponseEventDiagnostics(logger, "payloads", {
+  logCodexFailurePayloadDiagnostics(logger, "payloads", error);
+
+  assert.ok(logger.debugMessages.some((message) => /Codex error raw payload\./u.test(message) && /debug raw backend error/u.test(message)));
+});
+
+test("payload debug level spills oversized request payload text to a sidecar file", (testContext) => {
+  const logDirectory = mkdtempSync(path.join(tmpdir(), "cocopi-diagnostics-"));
+  testContext.after(() => rmSync(logDirectory, { recursive: true, force: true }));
+  const vscode = fakeVscode();
+  const logger = createCocopiLogger(vscode, { logUri: { fsPath: logDirectory } });
+  const promptText = "p".repeat(30_000);
+  const requestBody = {
+    model: "gpt-test",
+    input: [{ role: "user", content: [{ type: "input_text", text: promptText }] }]
+  };
+
+  logCodexRequestDiagnostics(logger, "payloads", requestBody);
+
+  const payload = vscode.lines.find((message) => /Codex request payload\./u.test(message));
+  assert.ok(payload);
+  assert.match(payload, /payloadFile="/u);
+  assert.match(payload, /payloadStored=true/u);
+  assert.match(payload, /chars=\d+/u);
+  assert.match(payload, /maxChars=24000/u);
+  assert.match(payload, /bytes=\d+/u);
+  assert.match(payload, /digest=sha256:[0-9a-f]{12}/u);
+  assert.match(payload, /reason=payload-size-limit/u);
+  assert.doesNotMatch(payload, new RegExp(promptText, "u"));
+
+  const payloadRecord = readPayloadSidecarRecord(payload);
+  assert.equal(payloadRecord.prefix, "Codex request payload.");
+  assert.equal(payloadRecord.chars, JSON.stringify(requestBody).length);
+  assert.match(payloadRecord.digest, /^sha256:[0-9a-f]{12}$/u);
+  assert.equal(payloadRecord.reason, "payload-size-limit");
+  assert.deepEqual(payloadRecord.payload, requestBody);
+});
+
+test("payload debug level does not fallback to output-channel chunks when sidecar is unavailable", () => {
+  const logger = fakeLogger();
+  const promptText = "p".repeat(30_000);
+
+  logCodexRequestDiagnostics(logger, "payloads", {
+    model: "gpt-test",
+    input: [{ role: "user", content: [{ type: "input_text", text: promptText }] }]
+  });
+
+  const payload = logger.debugMessages.find((message) => /Codex request payload\./u.test(message));
+  assert.ok(payload);
+  assert.match(payload, /payloadFile=unavailable/u);
+  assert.match(payload, /payloadStored=false/u);
+  assert.match(payload, /chars=\d+/u);
+  assert.match(payload, /maxChars=24000/u);
+  assert.match(payload, /digest=sha256:[0-9a-f]{12}/u);
+  assert.doesNotMatch(payload, /fallback=output-channel/u);
+  assert.doesNotMatch(payload, new RegExp(promptText, "u"));
+  assert.equal(logger.debugMessages.some((message) => /Codex request payload\. chunk=/u.test(message)), false);
+});
+
+test("payload debug level spills oversized stream event payload text to a sidecar file", (testContext) => {
+  const logDirectory = mkdtempSync(path.join(tmpdir(), "cocopi-diagnostics-"));
+  testContext.after(() => rmSync(logDirectory, { recursive: true, force: true }));
+  const vscode = fakeVscode();
+  const logger = createCocopiLogger(vscode, { logUri: { fsPath: logDirectory } });
+  const outputText = "x".repeat(30_000);
+  const event = {
     type: "response.completed",
     response: {
       id: "resp-large",
       output_text: outputText
     }
+  };
+
+  logCodexResponseEventDiagnostics(logger, "payloads", event);
+
+  const payload = vscode.lines.find((message) => /Codex stream event payload\./u.test(message));
+  assert.ok(payload);
+  assert.match(payload, /type=response\.completed/u);
+  assert.match(payload, /payloadFile="/u);
+  assert.match(payload, /payloadStored=true/u);
+  assert.match(payload, /chars=\d+/u);
+  assert.match(payload, /maxChars=24000/u);
+  assert.match(payload, /bytes=\d+/u);
+  assert.match(payload, /digest=sha256:[0-9a-f]{12}/u);
+  assert.match(payload, /reason=stream-payload-size-limit/u);
+  assert.doesNotMatch(payload, new RegExp(outputText, "u"));
+
+  const payloadRecord = readPayloadSidecarRecord(payload);
+  assert.equal(payloadRecord.prefix, "Codex stream event payload. type=response.completed");
+  assert.equal(payloadRecord.chars, JSON.stringify(event).length);
+  assert.match(payloadRecord.digest, /^sha256:[0-9a-f]{12}$/u);
+  assert.equal(payloadRecord.reason, "stream-payload-size-limit");
+  assert.deepEqual(payloadRecord.payload, event);
+});
+
+test("payload debug level spills oversized raw error payload text to a sidecar file", (testContext) => {
+  const logDirectory = mkdtempSync(path.join(tmpdir(), "cocopi-diagnostics-"));
+  testContext.after(() => rmSync(logDirectory, { recursive: true, force: true }));
+  const vscode = fakeVscode();
+  const logger = createCocopiLogger(vscode, { logUri: { fsPath: logDirectory } });
+  const rawPayload = "r".repeat(30_000);
+  const error = new Error("failed");
+  Object.defineProperty(error, "eventData", {
+    value: rawPayload
   });
 
-  const header = logger.debugMessages.find((message) => /Codex stream event payload\. chunks=/u.test(message));
-  assert.ok(header);
-  const chunks = logger.debugMessages.filter((message) => /Codex stream event payload\. chunk=/u.test(message));
-  assert.ok(chunks.length > 1);
-  assert.equal(chunks.some((message) => /\[truncated chars=/u.test(message)), false);
-  const reconstructed = chunks.map((message) => message.replace(/^Codex stream event payload\. chunk=\d+\/\d+ /u, "")).join("");
-  assert.match(reconstructed, new RegExp(`output_text":"${outputText}`, "u"));
+  logCodexFailurePayloadDiagnostics(logger, "payloads", error);
+
+  const payload = vscode.lines.find((message) => /Codex error raw payload\./u.test(message));
+  assert.ok(payload);
+  assert.match(payload, /payloadFile="/u);
+  assert.match(payload, /payloadStored=true/u);
+  assert.match(payload, /chars=30000/u);
+  assert.match(payload, /maxChars=24000/u);
+  assert.match(payload, /bytes=\d+/u);
+  assert.match(payload, /digest=sha256:[0-9a-f]{12}/u);
+  assert.match(payload, /reason=raw-payload-size-limit/u);
+  assert.equal(payload.includes(rawPayload), false);
+
+  const payloadRecord = readPayloadSidecarRecord(payload);
+  assert.equal(payloadRecord.prefix, "Codex error raw payload.");
+  assert.equal(payloadRecord.chars, rawPayload.length);
+  assert.match(payloadRecord.digest, /^sha256:[0-9a-f]{12}$/u);
+  assert.equal(payloadRecord.reason, "raw-payload-size-limit");
+  assert.equal(payloadRecord.payload, rawPayload);
+});
+
+test("payload debug level does not fallback to output-channel chunks for raw payloads when sidecar is unavailable", () => {
+  const logger = fakeLogger();
+  const rawPayload = "r".repeat(30_000);
+  const error = new Error("failed");
+  Object.defineProperty(error, "eventData", {
+    value: rawPayload
+  });
+
+  logCodexFailurePayloadDiagnostics(logger, "payloads", error);
+
+  const payload = logger.debugMessages.find((message) => /Codex error raw payload\./u.test(message));
+  assert.ok(payload);
+  assert.match(payload, /payloadFile=unavailable/u);
+  assert.match(payload, /payloadStored=false/u);
+  assert.match(payload, /chars=30000/u);
+  assert.match(payload, /maxChars=24000/u);
+  assert.match(payload, /digest=sha256:[0-9a-f]{12}/u);
+  assert.match(payload, /reason=raw-payload-size-limit/u);
+  assert.equal(payload.includes(rawPayload), false);
+  assert.equal(logger.debugMessages.some((message) => /Codex error raw payload\. chunk=/u.test(message)), false);
 });
 
 function fakeVscode() {
@@ -698,15 +879,28 @@ function fakeVscode() {
   return vscode;
 }
 
+/** @param {string} payloadLine */
+function readPayloadSidecarRecord(payloadLine) {
+  const pathMatch = /payloadFile=("[^"]+")/u.exec(payloadLine);
+  assert.ok(pathMatch);
+  const payloadPath = JSON.parse(pathMatch[1]);
+  return JSON.parse(readFileSync(payloadPath, "utf8").trim());
+}
+
 function fakeLogger() {
   return {
     /** @type {string[]} */
     debugMessages: [],
+    /** @type {string[]} */
+    infoMessages: [],
     /** @param {string} message */
     debug(message) {
       this.debugMessages.push(message);
     },
-    info() {},
+    /** @param {string} message */
+    info(message) {
+      this.infoMessages.push(message);
+    },
     error() {},
     dispose() {}
   };

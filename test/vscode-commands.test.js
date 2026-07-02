@@ -84,6 +84,10 @@ test("registerCocopiCommands wires diagnostics webview commands", async () => {
   assert.match(vscode.panels[0].webview.html, /<td title="\d{4}-\d{2}-\d{2}T[^"]+Z">[^<]+<\/td>/u);
   assert.doesNotMatch(vscode.panels[0].webview.html, /<td>\d{4}-\d{2}-\d{2}T[^<]+Z<\/td>/u);
   assert.doesNotMatch(vscode.panels[0].webview.html, /location\.reload/u);
+  assert.match(vscode.panels[0].webview.html, /Extension host memory/u);
+  assert.match(vscode.panels[0].webview.html, /Heap used/u);
+  assert.match(vscode.panels[0].webview.html, /Captured from the VS Code extension host process/u);
+  assert.match(vscode.panels[0].webview.html, /refreshDiagnostics/u);
   recordCocopiIssue({
     severity: "info",
     category: "runtime",
@@ -302,6 +306,7 @@ test("Cocopi status action opens the dashboard webview", async (testContext) => 
   assert.match(vscode.panels[0].webview.html, /Regular weekly/u);
   assert.match(vscode.panels[0].webview.html, /94% left/u);
   assert.match(vscode.panels[0].webview.html, /Spark weekly/u);
+  assert.doesNotMatch(vscode.panels[0].webview.html, /Extension host memory/u);
   assert.match(vscode.panels[0].webview.html, /Feature gates/u);
   assert.match(vscode.panels[0].webview.html, /Inline autocomplete/u);
   assert.match(vscode.panels[0].webview.html, /Token Tracker recording/u);

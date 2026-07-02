@@ -1108,12 +1108,12 @@ test("CodexResponsesWebSocketSession diagnoses input prefix mismatches without p
   assert.equal(decisions.length, 1);
   assert.equal(decisions[0]?.action, "skipped");
   assert.equal(decisions[0]?.reason, "input-prefix-mismatch");
-  assert.equal(decisions[0]?.inputPrefixMatchingItems, 0);
-  assert.equal(decisions[0]?.inputPrefixMismatchIndex, 0);
-  assert.match(decisions[0]?.inputPrefixExpected ?? "", /message:user:content=1:input_text:text:22ch\/sha256:/u);
-  assert.match(decisions[0]?.inputPrefixActual ?? "", /message:user:content=1:input_text:text:21ch\/sha256:/u);
-  assert.match(decisions[0]?.inputPrefixExpectedDigest ?? "", /^sha256:[0-9a-f]{12}$/u);
-  assert.match(decisions[0]?.inputPrefixActualDigest ?? "", /^sha256:[0-9a-f]{12}$/u);
+  assert.equal(decisions[0]?.inputPrefixMatchingItems, undefined);
+  assert.equal(decisions[0]?.inputPrefixMismatchIndex, undefined);
+  assert.equal(decisions[0]?.inputPrefixExpected, undefined);
+  assert.equal(decisions[0]?.inputPrefixActual, undefined);
+  assert.match(decisions[0]?.inputPrefixExpectedDigest ?? "", /^sha256:[0-9a-f]{64}$/u);
+  assert.match(decisions[0]?.inputPrefixActualDigest ?? "", /^sha256:[0-9a-f]{64}$/u);
   assert.doesNotMatch(JSON.stringify(decisions[0]), /original secret prompt|changed secret prompt|secret output/u);
 
   session.dispose();
@@ -1247,11 +1247,7 @@ test("CodexResponsesWebSocketSession continues through tool request state change
       reason: "matched-prefix",
       inputItems: 3,
       baselineItems: 2,
-      deltaItems: 1,
-      requestStateChanges: [
-        "tools.added:Build_CMakeTools",
-        "tools.removed:activate_cmake_project_management_tools"
-      ]
+      deltaItems: 1
     }
   ]);
   session.dispose();
