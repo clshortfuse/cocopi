@@ -174,6 +174,25 @@ test("Cocopi chat handler streams reasoning summary deltas", async (testContext)
   assert.deepEqual(response.markdownValues, ["Looking up context."]);
 });
 
+test("Cocopi chat handler strips split trailing reasoning summary html comment paragraphs", async (testContext) => {
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  const response = fakeChatResponseStream();
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.reasoning_summary_text.delta", item_id: "rs-1", output_index: 0, summary_index: 0, delta: "**heading**\n\n<!--" }),
+    sseData({ type: "response.reasoning_summary_text.delta", item_id: "rs-1", output_index: 0, summary_index: 0, delta: " -->" }),
+    sseData({ type: "response.completed", response: { id: "resp-test" } })
+  ])));
+  const handler = createCocopiChatRequestHandler(context, fakeVscode(configurationValues({ model: "gpt-test" })));
+
+  await Promise.resolve(handler(fakeChatRequest("inspect"), fakeChatContext(), response, fakeCancellationToken()));
+
+  assert.deepEqual(response.markdownValues, ["**heading**\n\n"]);
+});
+
 test("Cocopi chat handler streams reasoning summary deltas as thinking parts when supported", async (testContext) => {
   const context = fakeContext(new Map([
     [CODEX_SECRET_KEYS.accessToken, "access-token"],
@@ -311,7 +330,8 @@ test("Cocopi chat handler streams follow-up reasoning as thinking parts when sup
         sseData({ type: "response.completed", response: {} })
       ])
       : eventStreamResponse([
-        sseData({ type: "response.reasoning_summary_text.delta", item_id: "rs-2", output_index: 0, summary_index: 0, delta: "Reviewing tool output." }),
+        sseData({ type: "response.reasoning_summary_text.delta", item_id: "rs-2", output_index: 0, summary_index: 0, delta: "**heading**\n\n<!--" }),
+        sseData({ type: "response.reasoning_summary_text.delta", item_id: "rs-2", output_index: 0, summary_index: 0, delta: " -->" }),
         sseData({ type: "response.completed", response: {} })
       ]);
   }));
@@ -320,7 +340,7 @@ test("Cocopi chat handler streams follow-up reasoning as thinking parts when sup
   await Promise.resolve(handler(fakeChatRequest("read package", { toolReferences: [{ name: "read_file" }] }), fakeChatContext(), response, fakeCancellationToken()));
 
   assert.deepEqual(response.markdownValues, []);
-  assert.deepEqual(response.pushedParts.filter((part) => part instanceof ChatResponseThinkingProgressPart).map((part) => part.value), ["Reviewing tool output."]);
+  assert.deepEqual(response.pushedParts.filter((part) => part instanceof ChatResponseThinkingProgressPart).map((part) => part.value), ["**heading**\n\n"]);
 });
 
 test("Cocopi chat handler logs token/cache summaries for successful responses", async (testContext) => {
