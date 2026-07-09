@@ -2,7 +2,7 @@ import { access, readFile } from "node:fs/promises";
 
 import { COCOPI_CHAT_PARTICIPANT_ID } from "../lib/vscode/chat-participant.js";
 import { COCOPI_COMMANDS } from "../lib/vscode/commands.js";
-import { COCOPI_AUTH_MODES, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_INLINE_COMPLETION_MODEL_AUTO, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, DEFAULT_EDIT_PROGRESS_INTERVAL_MS, DEFAULT_INLINE_COMPLETION_MAX_PREFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_MAX_SUFFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS } from "../lib/vscode/configuration.js";
+import { COCOPI_AUTH_MODES, COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_INLINE_COMPLETION_MODEL_AUTO, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS, DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS, DEFAULT_EDIT_PROGRESS_INTERVAL_MS, DEFAULT_INLINE_COMPLETION_MAX_PREFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_MAX_SUFFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS } from "../lib/vscode/configuration.js";
 import { COCOPI_LANGUAGE_MODEL_VENDOR } from "../lib/vscode/language-model-provider.js";
 import { DEFAULT_CODEX_API_BASE_URL, DEFAULT_CODEX_MODEL } from "../lib/codex-api/config.js";
 
@@ -93,6 +93,15 @@ function checkManifest(manifest) {
   assertConfigurationProperty(properties, "cocopi.tokenTrackerTimelineMode", "string", COCOPI_TOKEN_TRACKER_TIMELINE_MODES.both);
   assertConfigurationProperty(properties, "cocopi.useModelDefaultCompactionLimit", "boolean", true);
   assertConfigurationProperty(properties, "cocopi.compactionFallbackStrategy", "string", COCOPI_COMPACTION_FALLBACK_STRATEGIES.ninetyPercent);
+  assertConfigurationProperty(properties, "cocopi.chatInstructionsPlacement", "string", COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS.append);
+  assertConfigurationProperty(properties, "cocopi.chatRegexFlags", "string", "g");
+  assertConfigurationProperty(properties, "cocopi.chatInstructionsRegexReplacements", "object", DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS);
+  assertConfigurationProperty(properties, "cocopi.chatToolDescriptionRegexReplacements", "object", DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS);
+  assertPropertyAbsent(properties, "cocopi.chatInstructionsMode", "legacy chat instructions mode setting");
+  assertPropertyAbsent(properties, "cocopi.chatInstructionsRecommendedFallback", "legacy chat instructions recommended fallback setting");
+  assertPropertyAbsent(properties, "cocopi.chatInstructionsRegexFlags", "legacy chat instructions regex flags setting");
+  assertPropertyAbsent(properties, "cocopi.chatInstructionsRegexPattern", "legacy chat instructions regex pattern setting");
+  assertPropertyAbsent(properties, "cocopi.chatInstructionsRegexReplacement", "legacy chat instructions regex replacement setting");
 
   const commands = readArray(contributes.commands, "contributes.commands");
   assertIncludesCommand(commands, COCOPI_COMMANDS.manage);
@@ -188,12 +197,12 @@ async function assertRequiredFilesExist() {
  * @param {Record<string, import("../data/Codex.js").CodexJsonValue>} properties
  * @param {string} key
  * @param {string} expectedType
- * @param {string | number | boolean} expectedDefault
+ * @param {import("../data/Codex.js").CodexJsonValue} expectedDefault
  */
 function assertConfigurationProperty(properties, key, expectedType, expectedDefault) {
   const property = readRecord(properties[key], key);
   assertEqual(property.type, expectedType, `${key} type`);
-  assertEqual(property.default, expectedDefault, `${key} default`);
+  assertEqual(JSON.stringify(property.default), JSON.stringify(expectedDefault), `${key} default`);
 }
 
 /**

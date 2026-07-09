@@ -110,11 +110,11 @@ Diagnostics are intended for troubleshooting extension behavior. They are stored
 | --- | --- | --- |
 | `cocopi.apiBaseUrl` | `https://chatgpt.com/backend-api/codex` | Base URL for the ChatGPT Codex backend API. |
 | `cocopi.authMode` | `secretStorage` | Credential source for runtime requests. |
-| `cocopi.chatInstructions` | empty | Additional instructions to apply to Cocopi chat requests. |
-| `cocopi.chatInstructionsMode` | `optional` | How to merge `cocopi.chatInstructions` with built-in chat instructions: `optional`, `replace`, `append`, or `regex`. |
-| `cocopi.chatInstructionsRegexPattern` | empty | Pattern used when `cocopi.chatInstructionsMode` is `regex`. |
-| `cocopi.chatInstructionsRegexReplacement` | empty | Replacement text used when `cocopi.chatInstructionsMode` is `regex`. |
-| `cocopi.chatInstructionsRegexFlags` | `g` | Regex flags used with `cocopi.chatInstructionsRegexPattern`. |
+| `cocopi.chatInstructions` | empty | Custom instructions to apply to Cocopi chat requests. |
+| `cocopi.chatInstructionsPlacement` | `append` | How to place `cocopi.chatInstructions`: append to source instructions, replace source instructions, or turn custom instructions off. |
+| `cocopi.chatRegexFlags` | `g` | Regex flags used with Cocopi chat instruction and tool description replacement maps. |
+| `cocopi.chatInstructionsRegexReplacements` | built-in regex map | Regex pattern-to-replacement entries always applied to chat instruction text. User entries add patterns or override defaults by using the same pattern key. Set a default pattern to empty text to disable that replacement. |
+| `cocopi.chatToolDescriptionRegexReplacements` | built-in regex map | Regex pattern-to-replacement entries always applied to VS Code tool descriptions. User entries add patterns or override defaults by using the same pattern key. Set a default pattern to empty text to disable that replacement. |
 | `cocopi.editProgressIntervalMs` | `30000` | Elapsed-time edit progress cadence in milliseconds. Set `0` to disable timed edit progress. |
 | `cocopi.streamIdleTimeoutMs` | `120000` | Stream idle timeout in milliseconds. Set `0` to disable. |
 | `cocopi.useModelDefaultCompactionLimit` | `true` | Uses the model-provided auto-compaction limit when available. |
@@ -177,6 +177,16 @@ Regenerate PNG artwork and the status icon font from the SVG sources with:
 ```powershell
 npm run assets:render
 ```
+
+## Maintainer docs
+
+If you are working on Cocopi itself and need the rationale behind bridge behavior or host-specific workarounds, start with these docs:
+
+- [docs/cocopi-local-semantics.md](./docs/cocopi-local-semantics.md) for Cocopi-specific behavior, heuristics, host quirks, and rationale.
+- [docs/previous-response-continuation.md](./docs/previous-response-continuation.md) for `previous_response_id`, replay restoration, and continuation decisions.
+- [docs/compaction-strategy.md](./docs/compaction-strategy.md) for VS Code compaction behavior and parity goals.
+- [docs/testing.md](./docs/testing.md) for validation scope and test commands.
+- [docs/construction-plan.md](./docs/construction-plan.md) for broader implementation constraints and project direction.
 
 ## Notes
 

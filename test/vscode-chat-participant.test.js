@@ -101,7 +101,7 @@ test("Cocopi chat handler streams Codex text deltas", async (testContext) => {
   assert.equal(calls[0].options.signal?.aborted, false);
   const body = JSON.parse(String(calls[0].options.body));
   assert.equal(body.model, "gpt-selected");
-  assert.equal(body.instructions, undefined);
+  assert.equal(body.instructions, "You are Cocopi, a coding assistant running in VS Code. Follow the user's request.");
   assert.equal(body.service_tier, "priority");
   assert.deepEqual(body.reasoning, { summary: "auto" });
   assert.equal(body.input[0].content[0].text, "say hello");
@@ -115,6 +115,45 @@ test("Cocopi chat handler streams Codex text deltas", async (testContext) => {
     client: "cocopi",
     source: "chat"
   });
+});
+
+test("Cocopi chat handler rewrites VS Code tool completion summaries", async (testContext) => {
+  /** @type {Array<{ url: string, options: RequestInit & { headers: Record<string, string>, body?: string | null } }>} */
+  const calls = [];
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  const response = fakeChatResponseStream();
+  const vscode = fakeVscode(configurationValues({ model: "gpt-test" }));
+  vscode.lm.tools = [{
+    name: "task_complete",
+    description: "Do not restate the summary in your message text — it is shown to the user directly.",
+    inputSchema: { type: "object" },
+    tags: []
+  }];
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
+    calls.push({
+      url: String(url),
+      options: /** @type {RequestInit & { headers: Record<string, string>, body?: string | null }} */ (options)
+    });
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "Done." }),
+      sseData({ type: "response.completed", response: { id: "resp-tool-description" } })
+    ]);
+  }));
+  const handler = createCocopiChatRequestHandler(context, vscode);
+
+  await Promise.resolve(handler(
+    fakeChatRequest("finish", { toolReferences: [{ name: "task_complete" }], toolInvocationToken: "tool-token" }),
+    fakeChatContext(),
+    response,
+    fakeCancellationToken()
+  ));
+
+  const requestBody = JSON.parse(String(calls[0].options.body));
+  assert.equal(requestBody.tools[0].description, "Before calling this tool, emit the completion summary as normal assistant-visible final-answer content. The tool summary is host metadata and must not be the only user-facing completion summary.");
 });
 
 test("Cocopi chat handler streams reasoning summary deltas", async (testContext) => {
@@ -987,7 +1026,7 @@ test("Cocopi chat handler records issues for missing instructions errors", async
   assert.equal(issues[0].category, "response-stream");
   assert.equal(issues[0].metadata.source, "chat");
   assert.equal(issues[0].metadata.transport, "sse");
-  assert.equal(issues[0].metadata.hasTopLevelInstructions, false);
+  assert.equal(issues[0].metadata.hasTopLevelInstructions, true);
 });
 
 test("Cocopi chat handler logs response diagnostics and reports terminal failures", async (testContext) => {
@@ -1189,10 +1228,10 @@ function fakeConfiguration(options = {}) {
     tokenTrackerTimelineMode: "both",
     toolStrict: true,
     chatInstructions: "",
-    chatInstructionsMode: "optional",
-    chatInstructionsRegexPattern: ".*",
-    chatInstructionsRegexReplacement: "",
-    chatInstructionsRegexFlags: "",
+    chatInstructionsPlacement: "replace",
+    chatRegexFlags: "",
+    chatInstructionsRegexReplacements: {},
+    chatToolDescriptionRegexReplacements: {},
     inlineCompletions: {
       enabled: false,
       model: "auto",

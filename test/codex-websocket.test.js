@@ -12,6 +12,7 @@ import {
   responseCreateWebSocketMessage
 } from "../lib/codex-api/websocket.js";
 import { closeCodexResponseWebSocketSessions, fetchCodexResponseStreamWithAuthRefresh } from "../lib/vscode/codex-request.js";
+import { DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS, DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS } from "../lib/vscode/configuration.js";
 
 /** @typedef {import("../data/Codex.js").CodexResponseStreamEvent} CodexResponseStreamEvent */
 
@@ -1374,10 +1375,10 @@ function fakeRuntime(options) {
       tokenTrackerTimelineMode: "both",
       toolStrict: true,
       chatInstructions: "",
-      chatInstructionsMode: "optional",
-      chatInstructionsRegexPattern: "",
-      chatInstructionsRegexReplacement: "",
-      chatInstructionsRegexFlags: "g",
+      chatInstructionsPlacement: "append",
+      chatRegexFlags: "g",
+      chatInstructionsRegexReplacements: DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS,
+      chatToolDescriptionRegexReplacements: DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
       inlineCompletions: {
         enabled: false,
         model: "auto",

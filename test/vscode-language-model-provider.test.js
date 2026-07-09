@@ -2183,7 +2183,7 @@ test("provideLanguageModelChatResponse replaces VS Code instruction preamble whe
     [CODEX_SECRET_KEYS.idToken, "id-token"]
   ])), fakeVscode(configurationValues({
     chatInstructions: "Use concise replacement instructions.",
-    chatInstructionsMode: "replace"
+    chatInstructionsPlacement: "replace"
   })));
 
   await provider.provideLanguageModelChatResponse(
@@ -3853,6 +3853,42 @@ test("provideLanguageModelChatResponse sends tools and streams tool calls from a
   assert.equal(body.parallel_tool_calls, false);
   assert.ok(requestOptions);
   assert.equal(/** @type {Record<string, string>} */ (requestOptions.headers).Accept, "text/event-stream");
+});
+
+test("provideLanguageModelChatResponse rewrites VS Code tool completion summaries", async (testContext) => {
+  /** @type {RequestInit | undefined} */
+  let requestOptions;
+  const progress = fakeProgress();
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    requestOptions = options;
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "Done." }),
+      sseData({ type: "response.completed", response: { id: "resp-tool-description" } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode());
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-test"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "finish")],
+    fakeResponseOptions({
+      toolMode: 2,
+      tools: [{
+        name: "task_complete",
+        description: "Do not restate the summary in your message text — it is shown to the user directly.",
+        inputSchema: { type: "object" }
+      }]
+    }),
+    progress,
+    fakeCancellationToken()
+  );
+
+  const body = JSON.parse(String(requestOptions?.body));
+  assert.equal(body.tools[0].description, "Before calling this tool, emit the completion summary as normal assistant-visible final-answer content. The tool summary is host metadata and must not be the only user-facing completion summary.");
 });
 
 test("provideLanguageModelChatResponse streams auto tool-capable requests on custom endpoints", async (testContext) => {

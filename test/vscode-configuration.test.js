@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { DEFAULT_CODEX_API_BASE_URL, DEFAULT_CODEX_MODEL } from "../lib/codex-api/config.js";
-import { COCOPI_AUTH_MODES, COCOPI_CHAT_INSTRUCTIONS_MODES, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_DEBUG_LEVELS, COCOPI_INLINE_COMPLETION_MODEL_AUTO, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_SERVICE_TIERS, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS, DEFAULT_EDIT_PROGRESS_INTERVAL_MS, DEFAULT_INLINE_COMPLETION_MAX_PREFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_MAX_SUFFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS, codexReasoningFromCocopiOptions, codexServiceTierFromCocopiOptions, codexToolOptionsFromCocopiOptions, readCocopiConfiguration, resolveChatParticipantInstructions } from "../lib/vscode/configuration.js";
+import { COCOPI_AUTH_MODES, COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_DEBUG_LEVELS, COCOPI_INLINE_COMPLETION_MODEL_AUTO, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_SERVICE_TIERS, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS, DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS, DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS, DEFAULT_EDIT_PROGRESS_INTERVAL_MS, DEFAULT_INLINE_COMPLETION_MAX_PREFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_MAX_SUFFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS, codexReasoningFromCocopiOptions, codexServiceTierFromCocopiOptions, codexToolOptionsFromCocopiOptions, readCocopiConfiguration, resolveChatParticipantInstructions } from "../lib/vscode/configuration.js";
 
 test("readCocopiConfiguration reads defaults", () => {
   assert.deepEqual(readCocopiConfiguration(fakeVscodeConfiguration()), {
@@ -24,10 +24,10 @@ test("readCocopiConfiguration reads defaults", () => {
     editProgressIntervalMs: DEFAULT_EDIT_PROGRESS_INTERVAL_MS,
     streamIdleTimeoutMs: DEFAULT_STREAM_IDLE_TIMEOUT_MS,
     chatInstructions: DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS,
-    chatInstructionsMode: COCOPI_CHAT_INSTRUCTIONS_MODES.optional,
-    chatInstructionsRegexPattern: "",
-    chatInstructionsRegexReplacement: "",
-    chatInstructionsRegexFlags: "g",
+    chatInstructionsPlacement: COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS.append,
+    chatRegexFlags: "g",
+    chatInstructionsRegexReplacements: DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS,
+    chatToolDescriptionRegexReplacements: DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
     inlineCompletions: {
       enabled: false,
       model: COCOPI_INLINE_COMPLETION_MODEL_AUTO,
@@ -59,10 +59,17 @@ test("readCocopiConfiguration normalizes configured values", () => {
     editProgressIntervalMs: 2345.67,
     streamIdleTimeoutMs: 1234.56,
     chatInstructions: "Use a pirate accent and concise responses.",
-    chatInstructionsMode: "append",
-    chatInstructionsRegexPattern: "assistant",
-    chatInstructionsRegexReplacement: "model",
-    chatInstructionsRegexFlags: "gi",
+    chatInstructionsPlacement: "replace",
+    chatRegexFlags: "gi",
+    chatInstructionsRegexReplacements: {
+      "": "ignored",
+      "summary": "final answer",
+      " tool metadata": "leading-space pattern",
+      "tool metadata": "host metadata"
+    },
+    chatToolDescriptionRegexReplacements: {
+      "Do not restate": "Emit visible summary first"
+    },
     "inlineCompletions.enabled": true,
     "inlineCompletions.model": "gpt-5-spark",
     "inlineCompletions.maxPrefixCharacters": 1234.56,
@@ -91,10 +98,18 @@ test("readCocopiConfiguration normalizes configured values", () => {
     editProgressIntervalMs: 2345,
     streamIdleTimeoutMs: 1234,
     chatInstructions: "Use a pirate accent and concise responses.",
-    chatInstructionsMode: COCOPI_CHAT_INSTRUCTIONS_MODES.append,
-    chatInstructionsRegexPattern: "assistant",
-    chatInstructionsRegexReplacement: "model",
-    chatInstructionsRegexFlags: "gi",
+    chatInstructionsPlacement: COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS.replace,
+    chatRegexFlags: "gi",
+    chatInstructionsRegexReplacements: {
+      ...DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS,
+      "summary": "final answer",
+      " tool metadata": "leading-space pattern",
+      "tool metadata": "host metadata"
+    },
+    chatToolDescriptionRegexReplacements: {
+      ...DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
+      "Do not restate": "Emit visible summary first"
+    },
     inlineCompletions: {
       enabled: true,
       model: "gpt-5-spark",
@@ -118,6 +133,7 @@ test("readCocopiConfiguration falls back from blank and disabled values", () => 
     chatParticipantModelSource: "unsupported",
     transport: "unsupported",
     debugLevel: "unsupported",
+    chatInstructionsPlacement: "unsupported",
     tokenTrackerTimelineDays: 0,
     tokenTrackerTimelineMode: "unsupported",
     editProgressIntervalMs: 0,
@@ -150,10 +166,10 @@ test("readCocopiConfiguration falls back from blank and disabled values", () => 
     editProgressIntervalMs: undefined,
     streamIdleTimeoutMs: undefined,
     chatInstructions: DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS,
-    chatInstructionsMode: COCOPI_CHAT_INSTRUCTIONS_MODES.optional,
-    chatInstructionsRegexPattern: "",
-    chatInstructionsRegexReplacement: "",
-    chatInstructionsRegexFlags: "g",
+    chatInstructionsPlacement: COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS.append,
+    chatRegexFlags: "g",
+    chatInstructionsRegexReplacements: DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS,
+    chatToolDescriptionRegexReplacements: DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
     inlineCompletions: {
       enabled: false,
       model: COCOPI_INLINE_COMPLETION_MODEL_AUTO,
@@ -355,27 +371,39 @@ test("codexToolOptionsFromCocopiOptions maps strict defaults and request overrid
   }), { strict: false });
 });
 
-test("resolveChatParticipantInstructions applies modes", () => {
+test("resolveChatParticipantInstructions applies placement and regex maps", () => {
   const configuration = readCocopiConfiguration(fakeVscodeConfiguration(configurationValues({
     chatInstructions: "Use concise responses.",
-    chatInstructionsMode: "append",
-    chatInstructionsRegexPattern: "coding",
-    chatInstructionsRegexReplacement: "coding & architecture"
+    chatInstructionsPlacement: "append",
+    chatInstructionsRegexReplacements: {
+      "coding": "coding & architecture"
+    }
   })));
 
   const base = "Custom base instructions for integration tests.";
-  assert.equal(resolveChatParticipantInstructions(base, { ...configuration, chatInstructionsMode: COCOPI_CHAT_INSTRUCTIONS_MODES.optional }), undefined);
-  assert.equal(resolveChatParticipantInstructions(base, { ...configuration, chatInstructionsMode: COCOPI_CHAT_INSTRUCTIONS_MODES.replace }), "Use concise responses.");
-  assert.equal(resolveChatParticipantInstructions(base, { ...configuration, chatInstructionsMode: COCOPI_CHAT_INSTRUCTIONS_MODES.append }), `${base}\n\nUse concise responses.`);
-  assert.equal(resolveChatParticipantInstructions(base, {
+  assert.equal(resolveChatParticipantInstructions(base, { ...configuration, chatInstructionsPlacement: COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS.off }), base);
+  assert.equal(resolveChatParticipantInstructions(base, { ...configuration, chatInstructionsPlacement: COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS.replace }), "Use concise responses.");
+  assert.equal(resolveChatParticipantInstructions(base, { ...configuration, chatInstructionsPlacement: COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS.append }), `${base}\n\nUse concise responses.`);
+  assert.equal(resolveChatParticipantInstructions("coding summary", {
     ...configuration,
-    chatInstructionsMode: COCOPI_CHAT_INSTRUCTIONS_MODES.regex,
-    chatInstructionsRegexPattern: "coding",
-    chatInstructionsRegexReplacement: "coding & architecture"
-  }), base.replace("coding", "coding & architecture"));
+    chatInstructionsPlacement: COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS.off,
+    chatInstructionsRegexReplacements: {
+      "coding": "engineering",
+      "summary": "final answer"
+    }
+  }), "engineering final answer");
 });
+
+test("default instruction rewrites do not suppress visible commentary work notes", () => {
+  const defaultReplacementText = Object.values(DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS).join("\n");
+
+  assert.match(defaultReplacementText, /not only as tool metadata/u);
+  assert.doesNotMatch(defaultReplacementText, /Commentary, thinking, reasoning/u);
+  assert.doesNotMatch(defaultReplacementText, /must stay in hidden reasoning/u);
+});
+
 /**
- * @param {Map<string, string | number | boolean>} [values]
+ * @param {Map<string, unknown>} [values]
  */
 function fakeVscodeConfiguration(values = new Map()) {
   return {
@@ -400,10 +428,10 @@ function fakeVscodeConfiguration(values = new Map()) {
 }
 
 /**
- * @param {Record<string, string | number | boolean>} record
+ * @param {Record<string, unknown>} record
  */
 function configurationValues(record) {
-  /** @type {Map<string, string | number | boolean>} */
+  /** @type {Map<string, unknown>} */
   const values = new Map();
   for (const [key, value] of Object.entries(record)) {
     values.set(key, value);

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "supportedVsCodeVersions": {
+    "1.127.0": {
+      "source": {
+        "vscodeVersion": "1.127.0",
+        "copilotExtensionVersion": "0.55.0",
+        "copilotSourcePath": "src/extension/intents/node/toolCallingLoop.ts",
+        "installedToolDescriptionEvidence": [
+          "out/vs/workbench/workbench.desktop.main.js",
+          "out/vs/workbench/api/node/extensionHostProcess.js",
+          "out/vs/workbench/api/worker/extensionHostWorkerMain.js",
+          "out/vs/sessions/sessions.desktop.main.js"
+        ],
+        "observedInstructionSignals": [
+          "When you ARE done, first provide a brief text summary of what was accomplished, then call task_complete. Both the summary message and the tool call are required.",
+          "IMPORTANT: Before calling task_complete, you MUST provide a brief text summary of what was accomplished in your message. The task is not complete until both the summary and the task_complete call are present.",
+          "Do not restate the summary in your message text — it is shown to the user directly."
+        ]
+      },
+      "instructionRegexReplacements": {
+        "When you ARE done, first provide a brief text summary of what was accomplished, then call task_complete\\. Both the summary message and the tool call are required\\.": "When you are done, first emit one concise user-facing completion summary as normal assistant-visible final-answer content, then call task_complete. Both the visible summary message and the tool call are required.",
+        "IMPORTANT: Before calling task_complete, you MUST provide a brief text summary of what was accomplished in your message\\. The task is not complete until both the summary and the task_complete call are present\\.": "IMPORTANT: Before calling task_complete, provide the completion summary as user-facing assistant message text, not only as tool metadata. The task is not complete until both the visible summary and the task_complete call are present."
+      },
+      "toolDescriptionRegexReplacements": {
+        "Do not restate the summary in your message text — it is shown to the user directly\\.": "Before calling this tool, emit the completion summary as normal assistant-visible final-answer content. The tool summary is host metadata and must not be the only user-facing completion summary."
+      }
+    }
+  }
+}

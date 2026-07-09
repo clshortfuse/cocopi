@@ -132,6 +132,26 @@ Primary code/tests:
 - `lib/vscode/language-model-provider.js`
 - `test/vscode-language-model-provider.test.js`
 
+### VS Code/Copilot Task-Completion Instruction Rewrites
+
+Cocopi applies built-in regex replacements to known VS Code/Copilot instruction and tool-description text around `task_complete`, then overlays user-configured regex replacements on top.
+
+The built-in replacements specifically rewrite host wording that can imply the model should avoid emitting a visible completion summary in normal assistant text, or that the tool payload alone is the real user-facing summary.
+
+Why it exists: Cocopi needs the final completion summary to remain visible in the chat transcript before `task_complete` is called. Some observed VS Code/Copilot instruction text and tool descriptions are awkward for that requirement because they can push the model toward treating the tool payload as the real summary and the visible chat text as optional.
+
+The replacements must not tell the model to hide or avoid commentary/work-note output. They only clarify that the final completion summary cannot live solely in `task_complete` metadata.
+
+Risk: this is version-sensitive text rewriting against upstream host wording, not a first-class API contract. It should stay evidence-backed, narrow, and easy for users to override or disable. Replacements must only target known host instruction/tool text, never arbitrary user prompt content.
+
+Primary code/tests:
+
+- `data/vscode-instruction-overrides.json`
+- `lib/vscode/configuration.js`
+- `lib/vscode/language-model-provider.js`
+- `test/vscode-configuration.test.js`
+- `test/vscode-language-model-provider.test.js`
+
 ### Tool Bridge Repairs
 
 Cocopi mutates or repairs some tool-related data before sending it to Codex:
@@ -161,6 +181,23 @@ Cocopi maps Codex reasoning summary or reasoning text deltas into VS Code `Langu
 Why it exists: Codex reasoning events and VS Code thinking UI are different surfaces.
 
 Risk: close-state conventions are Cocopi-owned unless VS Code documents a stronger end marker. UI behavior can change across VS Code versions.
+
+Primary code/tests:
+
+- `lib/vscode/language-model-provider.js`
+- `lib/vscode/chat-participant.js`
+- `test/vscode-language-model-provider.test.js`
+- `test/vscode-chat-participant.test.js`
+
+### Commentary Is Visible Output, Not Thinking
+
+Cocopi treats assistant output text with Codex `phase: "commentary"` as visible assistant progress/commentary. In the language-model provider path it renders as a visible `Commentary` details block even when VS Code supports native thinking parts. In the `@cocopi` chat participant path it also renders as visible markdown commentary.
+
+Only Codex reasoning events such as `response.reasoning_summary_text.delta` and `response.reasoning_text.delta` are mapped to VS Code thinking UI.
+
+Why it exists: commentary-phase output is still assistant-visible text meant for the user, while reasoning events are the closest match to VS Code's separate thinking surface. Rendering commentary as thinking made ordinary progress text appear semantically hidden or internal when it was actually part of the visible answer flow.
+
+Risk: this depends on the current meaning of Codex output-item `phase` values. If upstream changes commentary semantics or exposes a stronger host-facing distinction, Cocopi may need to revisit the mapping.
 
 Primary code/tests:
 

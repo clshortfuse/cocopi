@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { CODEX_CLIENT_VERSION, DEFAULT_CODEX_API_BASE_URL, DEFAULT_CODEX_MODEL } from "../lib/codex-api/config.js";
+import { DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS, DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS } from "../lib/vscode/configuration.js";
 import { CODEX_SECRET_KEYS } from "../lib/vscode/secret-storage.js";
 import { readCocopiRuntime } from "../lib/vscode/runtime.js";
 
@@ -38,10 +39,10 @@ test("readCocopiRuntime combines configuration with SecretStorage auth", async (
       tokenTrackerTimelineMode: "both",
       toolStrict: true,
       chatInstructions: "",
-      chatInstructionsMode: "optional",
-      chatInstructionsRegexPattern: "",
-      chatInstructionsRegexReplacement: "",
-      chatInstructionsRegexFlags: "g",
+      chatInstructionsPlacement: "append",
+      chatRegexFlags: "g",
+      chatInstructionsRegexReplacements: DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS,
+      chatToolDescriptionRegexReplacements: DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
       inlineCompletions: {
         enabled: false,
         model: "auto",
@@ -82,10 +83,10 @@ test("readCocopiRuntime returns signed-out runtime state", async () => {
       tokenTrackerTimelineMode: "both",
       toolStrict: true,
       chatInstructions: "",
-      chatInstructionsMode: "optional",
-      chatInstructionsRegexPattern: "",
-      chatInstructionsRegexReplacement: "",
-      chatInstructionsRegexFlags: "g",
+      chatInstructionsPlacement: "append",
+      chatRegexFlags: "g",
+      chatInstructionsRegexReplacements: DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS,
+      chatToolDescriptionRegexReplacements: DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
       inlineCompletions: {
         enabled: false,
         model: "auto",
