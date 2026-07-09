@@ -27,8 +27,10 @@ const reasoningRequestPayloadFixtures = JSON.parse(await readFile(new URL("fixtu
 
 const LanguageModelChatMessageRole = Object.freeze({ User: 1, Assistant: 2 });
 const LanguageModelChatToolMode = Object.freeze({ Auto: 1, Required: 2 });
-const COCOPI_STATEFUL_MARKER_PAYLOAD_PREFIX = "cocopi:response-items:v1:";
-const COCOPI_STATEFUL_MARKER_METADATA_PREFIX = "cocopi:state:v2:";
+const COCOPI_LEGACY_STATEFUL_MARKER_PAYLOAD_PREFIX = "cocopi:response-items:v1:";
+const COCOPI_LEGACY_STATEFUL_MARKER_METADATA_PREFIX = "cocopi:state:v2:";
+const COCOPI_VERSIONED_STATEFUL_MARKER_METADATA_PREFIX = "cocopi:state:v3:";
+const COCOPI_STATEFUL_MARKER_PREFIX = "cocopi:state:";
 const COCOPI_MODEL_CATALOG_STORAGE_KEY = "cocopi.modelCatalog.v1";
 
 class LanguageModelTextPart {
@@ -1089,7 +1091,60 @@ test("codexInputFromLanguageModelMessages ignores assistant image data parts", (
   ]);
 });
 
-test("codexRequestStateFromLanguageModelMessages replays matching stateful marker items in message order", () => {
+test("codexInputFromLanguageModelMessages omits assistant reasoning summary parts from visible replay", () => {
+  assert.deepEqual(codexInputFromLanguageModelMessages([
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
+      new LanguageModelThinkingPart("**Continuing task.** Need update tests.", "rs-1:summary:0", {
+        openai_event_type: "response.reasoning_summary_text.delta",
+        openai_item_id: "rs-1"
+      }),
+      new LanguageModelTextPart("Preparing patch for language-model-provider.js.")
+    ])
+  ], { LanguageModelChatMessageRole }), [
+    { role: "assistant", content: [{ type: "output_text", text: "Preparing patch for language-model-provider.js." }] }
+  ]);
+});
+
+test("codexInputFromLanguageModelMessages preserves commentary thinking parts in visible replay", () => {
+  assert.deepEqual(codexInputFromLanguageModelMessages([
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
+      new LanguageModelThinkingPart("Planning descriptor copy.", "msg-plan:output:0", {
+        openai_event_type: "response.output_text.delta",
+        openai_item_id: "msg-plan",
+        openai_phase: "commentary"
+      })
+    ])
+  ], { LanguageModelChatMessageRole }), [
+    { role: "assistant", content: [{ type: "output_text", text: "Planning descriptor copy." }] }
+  ]);
+});
+
+test("codexInputFromLanguageModelMessages preserves commentary and final answer while omitting reasoning summary", () => {
+  assert.deepEqual(codexInputFromLanguageModelMessages([
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
+      new LanguageModelThinkingPart("Inspecting files.", "rs-1:summary:0", {
+        openai_event_type: "response.reasoning_summary_text.delta",
+        openai_item_id: "rs-1"
+      }),
+      new LanguageModelThinkingPart("Planning descriptor copy.", "msg-plan:output:0", {
+        openai_event_type: "response.output_text.delta",
+        openai_item_id: "msg-plan",
+        openai_phase: "commentary"
+      }),
+      new LanguageModelTextPart("Done.")
+    ])
+  ], { LanguageModelChatMessageRole }), [
+    {
+      role: "assistant",
+      content: [
+        { type: "output_text", text: "Planning descriptor copy." },
+        { type: "output_text", text: "Done." }
+      ]
+    }
+  ]);
+});
+
+test("codexRequestStateFromLanguageModelMessages ignores legacy stateful marker items in message order", () => {
   assert.deepEqual(codexRequestStateFromLanguageModelMessages([
     fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "read package metadata"),
     fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
@@ -1109,7 +1164,6 @@ test("codexRequestStateFromLanguageModelMessages replays matching stateful marke
   ], "gpt-test", { LanguageModelChatMessageRole }), {
     input: [
       { role: "user", content: [{ type: "input_text", text: "read package metadata" }] },
-      { type: "reasoning", id: "rs-1", encrypted_content: "encrypted-reasoning" },
       { role: "assistant", content: [{ type: "output_text", text: "I will inspect the package." }] },
       { type: "function_call", call_id: "call-1", name: "read_file", arguments: jsonString({ path: "package.json" }) },
       { type: "function_call_output", call_id: "call-1", output: jsonString({ name: "cocopi" }) },
@@ -1118,7 +1172,75 @@ test("codexRequestStateFromLanguageModelMessages replays matching stateful marke
   });
 });
 
-test("codexRequestStateFromLanguageModelMessages sanitizes stateful marker replay items", () => {
+test("codexRequestStateFromLanguageModelMessages ignores hidden-progress-looking legacy marker text", () => {
+  const logger = fakeLogger();
+
+  assert.deepEqual(codexRequestStateFromLanguageModelMessages([
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
+      statefulMarkerDataPart("gpt-test", [
+        { role: "assistant", content: [{ type: "output_text", text: "**Continuing task.** Need update tests." }] }
+      ])
+    ])
+  ], "gpt-test", { LanguageModelChatMessageRole }, { debugLevel: "metadata", logger }), {
+    input: []
+  });
+  assert.ok(logger.debugMessages.some((message) => message.includes("event=ignored") && message.includes("reason=legacy-marker-v1")));
+});
+
+test("codexRequestStateFromLanguageModelMessages migrates legacy v2 metadata markers", () => {
+  const logger = fakeLogger();
+  const sessionId = "cocopi-language-model-00000000-0000-4000-8000-000000000001";
+
+  assert.deepEqual(codexRequestStateFromLanguageModelMessages([
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
+      legacyStatefulMarkerMetadataDataPart("gpt-test", { sessionId, hostRequestIndex: 4 }),
+      new LanguageModelTextPart("visible answer")
+    ])
+  ], "gpt-test", { LanguageModelChatMessageRole }, { debugLevel: "metadata", logger }), {
+    input: [
+      { role: "assistant", content: [{ type: "output_text", text: "visible answer" }] }
+    ],
+    sessionId,
+    hostRequestIndex: 4
+  });
+  assert.ok(logger.debugMessages.some((message) => message.includes("event=migrated") && message.includes("fromVersion=2") && message.includes("toVersion=3")));
+});
+
+test("codexRequestStateFromLanguageModelMessages reads versioned v3 metadata markers", () => {
+  const sessionId = "cocopi-language-model-00000000-0000-4000-8000-000000000001";
+
+  assert.deepEqual(codexRequestStateFromLanguageModelMessages([
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
+      versionedStatefulMarkerMetadataDataPart("gpt-test", { sessionId }),
+      new LanguageModelTextPart("continue")
+    ])
+  ], "gpt-test", { LanguageModelChatMessageRole }), {
+    input: [
+      { role: "user", content: [{ type: "input_text", text: "continue" }] }
+    ],
+    sessionId
+  });
+});
+
+test("codexRequestStateFromLanguageModelMessages rejects future marker versions", () => {
+  const logger = fakeLogger();
+  const sessionId = "cocopi-language-model-00000000-0000-4000-8000-000000000001";
+  const futureMarker = `${COCOPI_STATEFUL_MARKER_PREFIX}${base64UrlEncodeUtf8(JSON.stringify({ version: 4, sessionId }))}`;
+
+  assert.deepEqual(codexRequestStateFromLanguageModelMessages([
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
+      new LanguageModelDataPart(new TextEncoder().encode(`gpt-test\\${futureMarker}`), COCOPI_STATEFUL_MARKER_MIME),
+      new LanguageModelTextPart("continue")
+    ])
+  ], "gpt-test", { LanguageModelChatMessageRole }, { debugLevel: "metadata", logger }), {
+    input: [
+      { role: "user", content: [{ type: "input_text", text: "continue" }] }
+    ]
+  });
+  assert.ok(logger.debugMessages.some((message) => message.includes("event=decode-failed") && message.includes("reason=unsupported-state-version") && message.includes("version=4")));
+});
+
+test("codexRequestStateFromLanguageModelMessages ignores legacy marker replay items instead of sanitizing", () => {
   assert.deepEqual(codexRequestStateFromLanguageModelMessages([
     fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "read package metadata"),
     fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
@@ -1158,10 +1280,6 @@ test("codexRequestStateFromLanguageModelMessages sanitizes stateful marker repla
   ], "gpt-test", { LanguageModelChatMessageRole }), {
     input: [
       { role: "user", content: [{ type: "input_text", text: "read package metadata" }] },
-      { role: "assistant", content: [{ type: "output_text", text: "done" }], phase: "final_answer" },
-      { type: "reasoning", id: "rs-1", encrypted_content: "encrypted-reasoning" },
-      { type: "function_call", call_id: "call-1", name: "read_file", arguments: jsonString({ path: "package.json" }) },
-      { type: "function_call_output", call_id: "call-1", output: jsonString({ name: "cocopi" }) },
       { role: "user", content: [{ type: "input_text", text: "continue" }] }
     ]
   });
@@ -1172,11 +1290,8 @@ test("codexRequestStateFromLanguageModelMessages drops unpaired tool replay item
 
   assert.deepEqual(codexRequestStateFromLanguageModelMessages([
     fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
-      statefulMarkerDataPart("gpt-test", [
-        { type: "reasoning", id: "rs-1", encrypted_content: "encrypted-reasoning" },
-        { type: "function_call", call_id: "call-paired", name: "read_file", arguments: jsonString({ path: "package.json" }) },
-        { type: "function_call", call_id: "call-missing-output", name: "read_file", arguments: jsonString({ path: "README.md" }) }
-      ])
+      new LanguageModelToolCallPart("call-paired", "read_file", { path: "package.json" }),
+      new LanguageModelToolCallPart("call-missing-output", "read_file", { path: "README.md" })
     ]),
     fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
       new LanguageModelToolResultPart("call-paired", [new LanguageModelTextPart(jsonString({ name: "cocopi" }))]),
@@ -1184,7 +1299,6 @@ test("codexRequestStateFromLanguageModelMessages drops unpaired tool replay item
     ])
   ], "gpt-test", { LanguageModelChatMessageRole }), {
     input: [
-      { type: "reasoning", id: "rs-1", encrypted_content: "encrypted-reasoning" },
       { type: "function_call", call_id: "call-paired", name: "read_file", arguments: jsonString({ path: "package.json" }) },
       { type: "function_call_output", call_id: "call-paired", output: jsonString({ name: "cocopi" }) }
     ]
@@ -1203,14 +1317,11 @@ test("codexRequestStateFromLanguageModelMessages restores the Cocopi session id 
   assert.deepEqual(codexRequestStateFromLanguageModelMessages([
     fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "read package metadata"),
     fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
-      statefulMarkerDataPart("gpt-test", [
-        { type: "reasoning", id: "rs-1", encrypted_content: "encrypted-reasoning" }
-      ], { sessionId })
+      statefulMarkerMetadataDataPart("gpt-test", { sessionId })
     ])
   ], "gpt-test", { LanguageModelChatMessageRole }), {
     input: [
-      { role: "user", content: [{ type: "input_text", text: "read package metadata" }] },
-      { type: "reasoning", id: "rs-1", encrypted_content: "encrypted-reasoning" }
+      { role: "user", content: [{ type: "input_text", text: "read package metadata" }] }
     ],
     sessionId
   });
@@ -1221,14 +1332,11 @@ test("codexRequestStateFromLanguageModelMessages restores the host request index
 
   assert.deepEqual(codexRequestStateFromLanguageModelMessages([
     fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
-      statefulMarkerDataPart("gpt-test", [
-        { type: "reasoning", id: "rs-1", encrypted_content: "encrypted-reasoning" }
-      ], { sessionId, hostRequestIndex: 7 })
+      statefulMarkerMetadataDataPart("gpt-test", { sessionId, hostRequestIndex: 7 })
     ]),
     fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "continue")
   ], "gpt-test", { LanguageModelChatMessageRole }), {
     input: [
-      { type: "reasoning", id: "rs-1", encrypted_content: "encrypted-reasoning" },
       { role: "user", content: [{ type: "input_text", text: "continue" }] }
     ],
     sessionId,
@@ -1240,25 +1348,18 @@ test("codexRequestStateFromLanguageModelMessages restores persistent continuatio
   const sessionId = "cocopi-language-model-00000000-0000-4000-8000-000000000001";
   const firstUserItem = { role: "user", content: [{ type: "input_text", text: "first" }] };
   const assistantItem = { role: "assistant", content: [{ type: "output_text", text: "done" }] };
-  const requestState = {
-    model: "gpt-test",
-    stream: true,
-    prompt_cache_key: sessionId,
-    client_metadata: {
-      "x-codex-installation-id": "cocopi-language-model",
-      "x-cocopi-session-id": sessionId,
-      "x-cocopi-source": "language-model"
-    }
-  };
+  const anchor = codexContinuationAnchorFromInputItems("resp-one", [firstUserItem], [assistantItem]);
 
   assert.deepEqual(codexRequestStateFromLanguageModelMessages([
     fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "first"),
     fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
-      statefulMarkerDataPart("gpt-test", [assistantItem], {
+      statefulMarkerMetadataDataPart("gpt-test", {
         sessionId,
-        responseId: "resp-one",
-        requestState
-      })
+        responseId: anchor.responseId,
+        baselineItems: anchor.baselineItems,
+        baselineDigest: anchor.baselineDigest
+      }),
+      new LanguageModelTextPart("done")
     ]),
     fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "second")
   ], "gpt-test", { LanguageModelChatMessageRole }), {
@@ -1268,14 +1369,11 @@ test("codexRequestStateFromLanguageModelMessages restores persistent continuatio
       { role: "user", content: [{ type: "input_text", text: "second" }] }
     ],
     sessionId,
-    continuationAnchors: [{
-      ...codexContinuationAnchorFromInputItems("resp-one", [firstUserItem], [assistantItem]),
-      requestState
-    }]
+    continuationAnchors: [anchor]
   });
 });
 
-test("codexRequestStateFromLanguageModelMessages restores compact v2 anchors from visible chat", () => {
+test("codexRequestStateFromLanguageModelMessages restores compact v3 anchors from visible chat", () => {
   const sessionId = "cocopi-language-model-00000000-0000-4000-8000-000000000001";
   const firstUserItem = { role: "user", content: [{ type: "input_text", text: "first" }] };
   const assistantItem = { role: "assistant", content: [{ type: "output_text", text: "done" }] };
@@ -1310,21 +1408,22 @@ test("codexRequestStateFromLanguageModelMessages keeps only the newest restored 
   const expectedInput = [
     { role: "user", content: [{ type: "input_text", text: "first" }] }
   ];
-  const requestState = {
-    model: "gpt-test",
-    stream: true,
-    input: []
-  };
+  /** @type {ReturnType<typeof codexContinuationAnchorFromInputItems>[]} */
+  const anchors = [];
 
   for (let index = 0; index < 10; index += 1) {
     const assistantItem = { role: "assistant", content: [{ type: "output_text", text: `done ${index}` }] };
+    const anchor = codexContinuationAnchorFromInputItems(`resp-${index}`, expectedInput, [assistantItem]);
+    anchors.push(anchor);
     expectedInput.push(assistantItem);
     messages.push(fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
-      statefulMarkerDataPart("gpt-test", [assistantItem], {
+      statefulMarkerMetadataDataPart("gpt-test", {
         sessionId,
-        responseId: `resp-${index}`,
-        requestState
-      })
+        responseId: anchor.responseId,
+        baselineItems: anchor.baselineItems,
+        baselineDigest: anchor.baselineDigest
+      }),
+      new LanguageModelTextPart(`done ${index}`)
     ]));
   }
 
@@ -1333,7 +1432,7 @@ test("codexRequestStateFromLanguageModelMessages keeps only the newest restored 
   assert.deepEqual(state.input, expectedInput);
   assert.equal(state.sessionId, sessionId);
   assert.deepEqual(state.continuationAnchors?.map((anchor) => anchor.responseId), ["resp-9"]);
-  assert.deepEqual(state.continuationAnchors?.map((anchor) => anchor.baselineItems), [11]);
+  assert.deepEqual(state.continuationAnchors?.map((anchor) => anchor.baselineItems), [anchors.at(-1)?.baselineItems]);
   assert.equal("input" in (state.continuationAnchors?.[0] ?? {}), false);
   assert.equal("responseItems" in (state.continuationAnchors?.[0] ?? {}), false);
 });
@@ -1343,18 +1442,17 @@ test("codexRequestStateFromLanguageModelMessages carries stateful markers across
 
   assert.deepEqual(codexRequestStateFromLanguageModelMessages([
     fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "read package metadata"),
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
+      new LanguageModelToolCallPart("call-1", "read_file", { path: "package.json" })
+    ]),
     fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
-      statefulMarkerDataPart("gpt-5.5:fast", [
-        { type: "reasoning", id: "rs-1", encrypted_content: "encrypted-reasoning" },
-        { type: "function_call", call_id: "call-1", name: "read_file", arguments: jsonString({ path: "package.json" }) }
-      ], { sessionId }),
+      statefulMarkerMetadataDataPart("gpt-5.5:fast", { sessionId }),
       new LanguageModelToolResultPart("call-1", [new LanguageModelTextPart(jsonString({ name: "cocopi" }))])
     ]),
     fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "continue")
   ], "gpt-5.5", { LanguageModelChatMessageRole }), {
     input: [
       { role: "user", content: [{ type: "input_text", text: "read package metadata" }] },
-      { type: "reasoning", id: "rs-1", encrypted_content: "encrypted-reasoning" },
       { type: "function_call", call_id: "call-1", name: "read_file", arguments: jsonString({ path: "package.json" }) },
       { type: "function_call_output", call_id: "call-1", output: jsonString({ name: "cocopi" }) },
       { role: "user", content: [{ type: "input_text", text: "continue" }] }
@@ -1369,19 +1467,12 @@ test("codexRequestStateFromLanguageModelMessages restores Cocopi markers replaye
   assert.deepEqual(codexRequestStateFromLanguageModelMessages([
     fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "read package metadata"),
     fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
-      statefulMarkerDataPart("gpt-test", [
-        { type: "reasoning", id: "rs-1", encrypted_content: "encrypted-reasoning" },
-        { type: "function_call", call_id: "call-1", name: "read_file", arguments: jsonString({ path: "package.json" }) }
-      ], { sessionId }),
-      new LanguageModelToolResultPart("call-1", [new LanguageModelTextPart(jsonString({ name: "cocopi" }))])
+      statefulMarkerMetadataDataPart("gpt-test", { sessionId })
     ]),
     fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "continue")
   ], "gpt-test", { LanguageModelChatMessageRole }), {
     input: [
       { role: "user", content: [{ type: "input_text", text: "read package metadata" }] },
-      { type: "reasoning", id: "rs-1", encrypted_content: "encrypted-reasoning" },
-      { type: "function_call", call_id: "call-1", name: "read_file", arguments: jsonString({ path: "package.json" }) },
-      { type: "function_call_output", call_id: "call-1", output: jsonString({ name: "cocopi" }) },
       { role: "user", content: [{ type: "input_text", text: "continue" }] }
     ],
     sessionId
@@ -1393,7 +1484,7 @@ test("codexRequestStateFromLanguageModelMessages restores session ids from empty
 
   assert.deepEqual(codexRequestStateFromLanguageModelMessages([
     fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
-      statefulMarkerDataPart("gpt-test", [], { sessionId })
+      statefulMarkerMetadataDataPart("gpt-test", { sessionId })
     ]),
     fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "continue")
   ], "gpt-test", { LanguageModelChatMessageRole }), {
@@ -1409,7 +1500,7 @@ test("codexRequestStateFromLanguageModelMessages keeps assistant text beside emp
 
   assert.deepEqual(codexRequestStateFromLanguageModelMessages([
     fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
-      statefulMarkerDataPart("gpt-test", [], { sessionId }),
+      statefulMarkerMetadataDataPart("gpt-test", { sessionId }),
       new LanguageModelTextPart("visible answer")
     ]),
     fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "continue")
@@ -1422,7 +1513,7 @@ test("codexRequestStateFromLanguageModelMessages keeps assistant text beside emp
   });
 });
 
-test("codexRequestStateFromLanguageModelMessages decodes large legacy markers and prunes visible duplicates", () => {
+test("codexRequestStateFromLanguageModelMessages strips large legacy replay and migrates safe metadata", () => {
   const logger = fakeLogger();
   const sessionId = "cocopi-language-model-00000000-0000-4000-8000-000000000001";
   const largeText = "x".repeat(70 * 1024);
@@ -1440,13 +1531,12 @@ test("codexRequestStateFromLanguageModelMessages decodes large legacy markers an
   ], "gpt-test", { LanguageModelChatMessageRole }, { debugLevel: "metadata", logger }), {
     input: [
       { role: "user", content: [{ type: "input_text", text: "first" }] },
-      { type: "reasoning", id: "rs-1", encrypted_content: "encrypted-reasoning" },
       { role: "assistant", content: [{ type: "output_text", text: largeText }] },
       { role: "user", content: [{ type: "input_text", text: "continue" }] }
     ],
     sessionId
   });
-  assert.ok(logger.debugMessages.some((message) => message.includes("event=decoded") && message.includes("prunedItems=1")));
+  assert.ok(logger.debugMessages.some((message) => message.includes("event=migrated") && message.includes("fromVersion=1") && message.includes("droppedResponseItems=true")));
 });
 
 test("codexRequestStateFromLanguageModelMessages keeps compaction summaries in message order", () => {
@@ -1465,7 +1555,6 @@ test("codexRequestStateFromLanguageModelMessages keeps compaction summaries in m
   ], "gpt-test", { LanguageModelChatMessageRole }, { issueTracking: false }), {
     input: [
       { role: "user", content: [{ type: "input_text", text: "read package metadata" }] },
-      { type: "reasoning", id: "rs-old", encrypted_content: "encrypted-reasoning" },
       { role: "user", content: [{ type: "input_text", text: "<conversation-summary>\nOld work was summarized.\n</conversation-summary>" }] },
       { role: "user", content: [{ type: "input_text", text: "continue" }] }
     ],
@@ -1473,39 +1562,27 @@ test("codexRequestStateFromLanguageModelMessages keeps compaction summaries in m
   });
 });
 
-test("codexRequestStateFromLanguageModelMessages restores markers replayed beside compaction summaries", () => {
+test("codexRequestStateFromLanguageModelMessages restores v3 metadata beside compaction summaries", () => {
   const sessionId = "cocopi-language-model-00000000-0000-4000-8000-000000000001";
-  /** @type {import("../data/Codex.js").CodexResponseInputItem[]} */
-  const responseItems = [
-    { type: "reasoning", id: "rs-old", encrypted_content: "encrypted-reasoning" },
-    { type: "function_call", call_id: "call-old", name: "read_file", arguments: jsonString({ path: "package.json" }) }
-  ];
-  /** @type {Record<string, import("../data/Codex.js").CodexJsonValue>} */
-  const requestState = { model: "gpt-test", input: [] };
+  const anchor = codexContinuationAnchorFromInputItems("resp-old", [], []);
 
   assert.deepEqual(codexRequestStateFromLanguageModelMessages([
     fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
-      statefulMarkerDataPart("gpt-test", responseItems, {
+      statefulMarkerMetadataDataPart("gpt-test", {
         sessionId,
-        responseId: "resp-old",
-        requestState,
-        hostRequestIndex: 7
+        responseId: anchor.responseId,
+        hostRequestIndex: 7,
+        baselineItems: anchor.baselineItems,
+        baselineDigest: anchor.baselineDigest
       }),
-      new LanguageModelTextPart("<conversation-summary>\nOld work was summarized.\n</conversation-summary>"),
-      new LanguageModelToolResultPart("call-old", [new LanguageModelTextPart(jsonString({ name: "cocopi" }))])
+      new LanguageModelTextPart("<conversation-summary>\nOld work was summarized.\n</conversation-summary>")
     ])
   ], "gpt-test", { LanguageModelChatMessageRole }), {
     input: [
-      { type: "reasoning", id: "rs-old", encrypted_content: "encrypted-reasoning" },
-      { type: "function_call", call_id: "call-old", name: "read_file", arguments: jsonString({ path: "package.json" }) },
-      { role: "user", content: [{ type: "input_text", text: "<conversation-summary>\nOld work was summarized.\n</conversation-summary>" }] },
-      { type: "function_call_output", call_id: "call-old", output: jsonString({ name: "cocopi" }) }
+      { role: "user", content: [{ type: "input_text", text: "<conversation-summary>\nOld work was summarized.\n</conversation-summary>" }] }
     ],
     sessionId,
-    continuationAnchors: [{
-      ...codexContinuationAnchorFromInputItems("resp-old", [], responseItems),
-      requestState
-    }],
+    continuationAnchors: [anchor],
     hostRequestIndex: 7
   });
 });
@@ -1513,12 +1590,10 @@ test("codexRequestStateFromLanguageModelMessages restores markers replayed besid
 test("codexRequestStateFromLanguageModelMessages ignores invalid marker session ids", () => {
   assert.deepEqual(codexRequestStateFromLanguageModelMessages([
     fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
-      statefulMarkerDataPart("gpt-test", [
-        { type: "reasoning", id: "rs-1", encrypted_content: "encrypted-reasoning" }
-      ], { sessionId: "not-a-cocopi-session" })
+      statefulMarkerMetadataDataPart("gpt-test", { sessionId: "not-a-cocopi-session" })
     ])
   ], "gpt-test", { LanguageModelChatMessageRole }), {
-    input: [{ type: "reasoning", id: "rs-1", encrypted_content: "encrypted-reasoning" }]
+    input: []
   });
 });
 
@@ -1579,7 +1654,7 @@ test("codexInputFromLanguageModelMessages serializes VS Code tool call input sta
   }]);
 });
 
-test("provideLanguageModelChatResponse replays marker state without previous_response_id", async (testContext) => {
+test("provideLanguageModelChatResponse restores v3 marker metadata without previous_response_id", async (testContext) => {
   /** @type {RequestInit | undefined} */
   let requestOptions;
   const progress = fakeProgress();
@@ -1603,10 +1678,7 @@ test("provideLanguageModelChatResponse replays marker state without previous_res
       fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "read package metadata"),
       fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
         new LanguageModelTextPart("I will inspect the package."),
-        statefulMarkerDataPart("gpt-test", [
-          { type: "reasoning", id: "rs-1", encrypted_content: "encrypted-reasoning" },
-          { type: "function_call", call_id: "call-1", name: "read_file", arguments: jsonString({ path: "package.json" }) }
-        ], { sessionId, hostRequestIndex: 7 }),
+        statefulMarkerMetadataDataPart("gpt-test", { sessionId, hostRequestIndex: 7 }),
         new LanguageModelToolCallPart("call-1", "read_file", { path: "package.json" })
       ]),
       fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
@@ -1624,7 +1696,6 @@ test("provideLanguageModelChatResponse replays marker state without previous_res
   assert.equal(body.client_metadata["x-cocopi-host-request-index"], "8");
   assert.deepEqual(body.input, [
     { role: "user", content: [{ type: "input_text", text: "read package metadata" }] },
-    { type: "reasoning", id: "rs-1", encrypted_content: "encrypted-reasoning" },
     { role: "assistant", content: [{ type: "output_text", text: "I will inspect the package." }] },
     { type: "function_call", call_id: "call-1", name: "read_file", arguments: jsonString({ path: "package.json" }) },
     { type: "function_call_output", call_id: "call-1", output: jsonString({ name: "cocopi" }) }
@@ -1836,6 +1907,62 @@ test("provideLanguageModelChatResponse streams reasoning as native thinking when
   assert.ok(progress.parts.some((part) => part instanceof LanguageModelDataPart));
 });
 
+test("provideLanguageModelChatResponse strips exact standalone reasoning summary html comments", async (testContext) => {
+  const progress = fakeProgress();
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.output_item.added", item: { type: "reasoning", id: "rs-1" }, output_index: 0 }),
+    sseData({ type: "response.reasoning_summary_text.delta", item_id: "rs-1", output_index: 0, summary_index: 0, delta: "<!--" }),
+    sseData({ type: "response.reasoning_summary_text.delta", item_id: "rs-1", output_index: 0, summary_index: 0, delta: " -->" }),
+    sseData({ type: "response.reasoning_summary_text.delta", item_id: "rs-1", output_index: 0, summary_index: 0, delta: "<!-- hidden -->" }),
+    sseData({ type: "response.reasoning_summary_text.delta", item_id: "rs-1", output_index: 0, summary_index: 0, delta: "Inspecting files." }),
+    sseData({ type: "response.output_item.done", item_id: "rs-1", output_index: 0, item: { type: "reasoning", id: "rs-1", summary: [{ type: "summary_text", text: "<!-- --><!-- hidden -->Inspecting files." }], encrypted_content: "encrypted-reasoning" } }),
+    sseData({ type: "response.completed", response: { id: "resp-reasoning" } })
+  ])));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(new Map([["reasoningSummary", "detailed"]]), { thinkingPart: true }));
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-test"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "inspect")],
+    fakeResponseOptions({ toolMode: 1, modelOptions: { reasoningSummary: "detailed" } }),
+    progress,
+    fakeCancellationToken()
+  );
+
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), []);
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelThinkingPart).map((part) => part.value), ["<!-- hidden -->", "Inspecting files.", ""]);
+});
+
+test("provideLanguageModelChatResponse strips split trailing reasoning summary html comment paragraphs", async (testContext) => {
+  const progress = fakeProgress();
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.output_item.added", item: { type: "reasoning", id: "rs-1" }, output_index: 0 }),
+    sseData({ type: "response.reasoning_summary_text.delta", item_id: "rs-1", output_index: 0, summary_index: 0, delta: "**heading**\n\n<!--" }),
+    sseData({ type: "response.reasoning_summary_text.delta", item_id: "rs-1", output_index: 0, summary_index: 0, delta: " -->" }),
+    sseData({ type: "response.output_item.done", item_id: "rs-1", output_index: 0, item: { type: "reasoning", id: "rs-1", summary: [{ type: "summary_text", text: "**heading**\n\n<!-- -->" }], encrypted_content: "encrypted-reasoning" } }),
+    sseData({ type: "response.completed", response: { id: "resp-reasoning" } })
+  ])));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(new Map([["reasoningSummary", "detailed"]]), { thinkingPart: true }));
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-test"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "inspect")],
+    fakeResponseOptions({ toolMode: 1, modelOptions: { reasoningSummary: "detailed" } }),
+    progress,
+    fakeCancellationToken()
+  );
+
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), []);
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelThinkingPart).map((part) => part.value), ["**heading**\n\n", ""]);
+});
+
 test("provideLanguageModelChatResponse routes commentary output text as visible thinking when native thinking is supported", async (testContext) => {
   const progress = fakeProgress();
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
@@ -1874,6 +2001,32 @@ test("provideLanguageModelChatResponse routes commentary output text as visible 
     openai_phase: "commentary"
   });
   assert.deepEqual(thinkingParts[1].metadata, { vscode_reasoning_done: true });
+});
+
+test("provideLanguageModelChatResponse preserves exact standalone commentary html comments", async (testContext) => {
+  const progress = fakeProgress();
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.output_item.added", item: { id: "msg-plan", type: "message", status: "in_progress", role: "assistant", phase: "commentary", content: [] }, output_index: 0 }),
+    sseData({ type: "response.output_text.delta", item_id: "msg-plan", output_index: 0, content_index: 0, delta: "<!-- -->" }),
+    sseData({ type: "response.output_item.done", item_id: "msg-plan", output_index: 0, item: { id: "msg-plan", type: "message", status: "completed", role: "assistant", phase: "commentary", content: [{ type: "output_text", text: "<!-- -->" }] } }),
+    sseData({ type: "response.completed", response: { id: "resp-commentary" } })
+  ])));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(new Map([["reasoningSummary", "detailed"]]), { thinkingPart: true }));
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-test"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "inspect")],
+    fakeResponseOptions({ toolMode: 1, modelOptions: { reasoningSummary: "detailed" } }),
+    progress,
+    fakeCancellationToken()
+  );
+
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), []);
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelThinkingPart).map((part) => part.value), ["<!-- -->", ""]);
 });
 
 test("provideLanguageModelChatResponse keeps commentary output visible as a commentary block without native thinking support", async (testContext) => {
@@ -2310,7 +2463,7 @@ test("provideLanguageModelChatResponse logs received model option values and cha
   ])), fakeVscode(configurationValues({ serviceTier: "flex" })), { logger });
   const messages = [
     fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
-      statefulMarkerDataPart("gpt-test", [{ role: "assistant", content: [{ type: "output_text", text: "prior" }] }], { sessionId })
+      statefulMarkerMetadataDataPart("gpt-test", { sessionId })
     ]),
     fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "think")
   ];
@@ -3212,7 +3365,7 @@ test("provideLanguageModelChatResponse records tool-result continuations as sepa
   assert.equal(continuation?.responseId, "resp-done");
 });
 
-test("provideLanguageModelChatResponse emits completed output text as the stateful marker", async (testContext) => {
+test("provideLanguageModelChatResponse emits metadata marker for completed output text", async (testContext) => {
   const progress = fakeProgress();
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
     sseData({ type: "response.output_text.delta", delta: "partial" }),
@@ -3273,7 +3426,7 @@ test("provideLanguageModelChatResponse keeps large stateful markers metadata-onl
   assert.equal(dataPart.mimeType, COCOPI_STATEFUL_MARKER_MIME);
   assert.ok(dataPart.data.byteLength <= 64 * 1024);
   const payload = statefulMarkerPayloadFromDataPart(dataPart);
-  assert.equal(payload.version, 2);
+  assert.equal(payload.version, 3);
   assert.equal(payload.responseItemCount, 1);
   assert.equal("responseItems" in payload, false);
 
@@ -3322,7 +3475,7 @@ test("provideLanguageModelChatResponse reports completed output text when deltas
   assertMetadataOnlyStatefulMarker(dataPart, 1);
 });
 
-test("provideLanguageModelChatResponse merges completed output messages into stateful marker", async (testContext) => {
+test("provideLanguageModelChatResponse keeps completed output messages metadata-only", async (testContext) => {
   const progress = fakeProgress();
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
     sseData({ type: "response.output_text.delta", delta: "hello" }),
@@ -3349,7 +3502,7 @@ test("provideLanguageModelChatResponse merges completed output messages into sta
   assertMetadataOnlyStatefulMarker(dataPart, 1);
 });
 
-test("provideLanguageModelChatResponse preserves assistant output item phase in stateful marker", async (testContext) => {
+test("provideLanguageModelChatResponse emits metadata marker for phased output items", async (testContext) => {
   const progress = fakeProgress();
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
     sseData({ type: "response.output_item.done", item_id: "msg-1", output_index: 0, item: { type: "message", status: "completed", role: "assistant", phase: "commentary", content: [{ type: "output_text", text: "I will inspect the files." }] } }),
@@ -3413,7 +3566,7 @@ test("provideLanguageModelChatResponse serializes stateful marker payload canoni
   const messages = [
     fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "think"),
     fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
-      statefulMarkerDataPart("gpt-test", [], { sessionId })
+      statefulMarkerMetadataDataPart("gpt-test", { sessionId })
     ])
   ];
   const outputItems = [
@@ -4365,10 +4518,26 @@ function statefulMarkerMetadataDataPart(modelId, options = {}) {
   return new LanguageModelDataPart(new TextEncoder().encode(`${modelId}\\${encodeStatefulMarkerMetadataPayload(options)}`), COCOPI_STATEFUL_MARKER_MIME);
 }
 
+/**
+ * @param {string} modelId
+ * @param {{ sessionId?: string, responseId?: string, hostRequestIndex?: number, responseItemCount?: number, baselineItems?: number, baselineDigest?: string }} [options]
+ */
+function legacyStatefulMarkerMetadataDataPart(modelId, options = {}) {
+  return new LanguageModelDataPart(new TextEncoder().encode(`${modelId}\\${encodeLegacyStatefulMarkerMetadataPayload(options)}`), COCOPI_STATEFUL_MARKER_MIME);
+}
+
+/**
+ * @param {string} modelId
+ * @param {{ sessionId?: string, responseId?: string, hostRequestIndex?: number, responseItemCount?: number, baselineItems?: number, baselineDigest?: string }} [options]
+ */
+function versionedStatefulMarkerMetadataDataPart(modelId, options = {}) {
+  return new LanguageModelDataPart(new TextEncoder().encode(`${modelId}\\${encodeVersionedStatefulMarkerMetadataPayload(options)}`), COCOPI_STATEFUL_MARKER_MIME);
+}
+
 /** @param {LanguageModelDataPart} part */
 function statefulMarkerPayloadFromDataPart(part) {
   const payload = JSON.parse(statefulMarkerJsonFromDataPart(part));
-  assert.ok(payload.version === 1 || payload.version === 2);
+  assert.ok(payload.version === 1 || payload.version === 2 || payload.version === 3);
   return payload;
 }
 
@@ -4377,8 +4546,9 @@ function statefulMarkerPayloadFromDataPart(part) {
  * @param {number} [responseItemCount]
  */
 function assertMetadataOnlyStatefulMarker(part, responseItemCount) {
+  assert.ok(statefulMarkerFromDataPart(part).startsWith(COCOPI_STATEFUL_MARKER_PREFIX));
   const payload = statefulMarkerPayloadFromDataPart(part);
-  assert.equal(payload.version, 2);
+  assert.equal(payload.version, 3);
   assert.equal("responseItems" in payload, false);
   if (responseItemCount !== undefined) {
     assert.equal(payload.responseItemCount, responseItemCount);
@@ -4407,15 +4577,27 @@ function statefulMarkerFromDataPart(part) {
   const separatorIndex = text.indexOf("\\");
   assert.notEqual(separatorIndex, -1);
   const marker = text.slice(separatorIndex + 1);
-  assert.ok(marker.startsWith(COCOPI_STATEFUL_MARKER_PAYLOAD_PREFIX) || marker.startsWith(COCOPI_STATEFUL_MARKER_METADATA_PREFIX));
+  assert.ok(
+    marker.startsWith(COCOPI_LEGACY_STATEFUL_MARKER_PAYLOAD_PREFIX)
+      || marker.startsWith(COCOPI_LEGACY_STATEFUL_MARKER_METADATA_PREFIX)
+      || marker.startsWith(COCOPI_VERSIONED_STATEFUL_MARKER_METADATA_PREFIX)
+      || marker.startsWith(COCOPI_STATEFUL_MARKER_PREFIX)
+  );
   return marker;
 }
 
 /** @param {string} marker */
 function statefulMarkerPayloadPrefix(marker) {
-  return marker.startsWith(COCOPI_STATEFUL_MARKER_METADATA_PREFIX)
-    ? COCOPI_STATEFUL_MARKER_METADATA_PREFIX
-    : COCOPI_STATEFUL_MARKER_PAYLOAD_PREFIX;
+  if (marker.startsWith(COCOPI_LEGACY_STATEFUL_MARKER_PAYLOAD_PREFIX)) {
+    return COCOPI_LEGACY_STATEFUL_MARKER_PAYLOAD_PREFIX;
+  }
+  if (marker.startsWith(COCOPI_LEGACY_STATEFUL_MARKER_METADATA_PREFIX)) {
+    return COCOPI_LEGACY_STATEFUL_MARKER_METADATA_PREFIX;
+  }
+  if (marker.startsWith(COCOPI_VERSIONED_STATEFUL_MARKER_METADATA_PREFIX)) {
+    return COCOPI_VERSIONED_STATEFUL_MARKER_METADATA_PREFIX;
+  }
+  return COCOPI_STATEFUL_MARKER_PREFIX;
 }
 
 /**
@@ -4441,13 +4623,65 @@ function encodeStatefulMarkerPayload(responseItems, options = {}) {
     payload.hostRequestIndex = options.hostRequestIndex;
   }
 
-  return `${COCOPI_STATEFUL_MARKER_PAYLOAD_PREFIX}${base64UrlEncodeUtf8(JSON.stringify(payload))}`;
+  return `${COCOPI_LEGACY_STATEFUL_MARKER_PAYLOAD_PREFIX}${base64UrlEncodeUtf8(JSON.stringify(payload))}`;
 }
 
 /**
  * @param {{ sessionId?: string, responseId?: string, hostRequestIndex?: number, responseItemCount?: number, baselineItems?: number, baselineDigest?: string }} [options]
  */
 function encodeStatefulMarkerMetadataPayload(options = {}) {
+  /** @type {{ version: number, sessionId?: string, responseId?: string, hostRequestIndex?: number, responseItemCount?: number, baselineItems?: number, baselineDigest?: string }} */
+  const payload = { version: 3 };
+  if (options.sessionId) {
+    payload.sessionId = options.sessionId;
+  }
+  if (options.responseId) {
+    payload.responseId = options.responseId;
+  }
+  if (options.hostRequestIndex) {
+    payload.hostRequestIndex = options.hostRequestIndex;
+  }
+  if (options.responseItemCount) {
+    payload.responseItemCount = options.responseItemCount;
+  }
+  if (options.baselineItems !== undefined && options.baselineDigest) {
+    payload.baselineItems = options.baselineItems;
+    payload.baselineDigest = options.baselineDigest;
+  }
+
+  return `${COCOPI_STATEFUL_MARKER_PREFIX}${base64UrlEncodeUtf8(JSON.stringify(payload))}`;
+}
+
+/**
+ * @param {{ sessionId?: string, responseId?: string, hostRequestIndex?: number, responseItemCount?: number, baselineItems?: number, baselineDigest?: string }} [options]
+ */
+function encodeVersionedStatefulMarkerMetadataPayload(options = {}) {
+  /** @type {{ version: number, sessionId?: string, responseId?: string, hostRequestIndex?: number, responseItemCount?: number, baselineItems?: number, baselineDigest?: string }} */
+  const payload = { version: 3 };
+  if (options.sessionId) {
+    payload.sessionId = options.sessionId;
+  }
+  if (options.responseId) {
+    payload.responseId = options.responseId;
+  }
+  if (options.hostRequestIndex) {
+    payload.hostRequestIndex = options.hostRequestIndex;
+  }
+  if (options.responseItemCount) {
+    payload.responseItemCount = options.responseItemCount;
+  }
+  if (options.baselineItems !== undefined && options.baselineDigest) {
+    payload.baselineItems = options.baselineItems;
+    payload.baselineDigest = options.baselineDigest;
+  }
+
+  return `${COCOPI_VERSIONED_STATEFUL_MARKER_METADATA_PREFIX}${base64UrlEncodeUtf8(JSON.stringify(payload))}`;
+}
+
+/**
+ * @param {{ sessionId?: string, responseId?: string, hostRequestIndex?: number, responseItemCount?: number, baselineItems?: number, baselineDigest?: string }} [options]
+ */
+function encodeLegacyStatefulMarkerMetadataPayload(options = {}) {
   /** @type {{ version: number, sessionId?: string, responseId?: string, hostRequestIndex?: number, responseItemCount?: number, baselineItems?: number, baselineDigest?: string }} */
   const payload = { version: 2 };
   if (options.sessionId) {
@@ -4467,7 +4701,7 @@ function encodeStatefulMarkerMetadataPayload(options = {}) {
     payload.baselineDigest = options.baselineDigest;
   }
 
-  return `${COCOPI_STATEFUL_MARKER_METADATA_PREFIX}${base64UrlEncodeUtf8(JSON.stringify(payload))}`;
+  return `${COCOPI_LEGACY_STATEFUL_MARKER_METADATA_PREFIX}${base64UrlEncodeUtf8(JSON.stringify(payload))}`;
 }
 
 /** @param {string} text */

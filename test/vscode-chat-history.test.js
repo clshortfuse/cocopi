@@ -38,6 +38,68 @@ test("codexInputFromChatHistory replays hidden Codex response items from chat re
   ]);
 });
 
+test("codexInputFromChatHistory omits hidden thinking progress parts", () => {
+  assert.deepEqual(codexInputFromChatHistory({
+    history: [
+      fakeRequestTurn("update tests"),
+      fakeResponseTurnWithParts([
+        fakeThinkingMarkdownPart("**Continuing task.** Need update tests.", {
+          openai_event_type: "response.reasoning_summary_text.delta",
+          openai_item_id: "rs-1"
+        }),
+        fakeMarkdownPart("Preparing patch.")
+      ])
+    ]
+  }, "continue"), [
+    { role: "user", content: [{ type: "input_text", text: "update tests" }] },
+    { role: "assistant", content: [{ type: "output_text", text: "Preparing patch." }] },
+    { role: "user", content: [{ type: "input_text", text: "continue" }] }
+  ]);
+});
+
+test("codexInputFromChatHistory preserves commentary progress parts", () => {
+  assert.deepEqual(codexInputFromChatHistory({
+    history: [
+      fakeRequestTurn("update tests"),
+      fakeResponseTurnWithParts([
+        fakeMetadataMarkdownPart("Planning descriptor copy.", {
+          openai_event_type: "response.output_text.delta",
+          openai_item_id: "msg-plan",
+          openai_phase: "commentary"
+        })
+      ])
+    ]
+  }, "continue"), [
+    { role: "user", content: [{ type: "input_text", text: "update tests" }] },
+    { role: "assistant", content: [{ type: "output_text", text: "Planning descriptor copy." }] },
+    { role: "user", content: [{ type: "input_text", text: "continue" }] }
+  ]);
+});
+
+test("codexInputFromChatHistory preserves commentary and final answer while omitting reasoning summary", () => {
+  assert.deepEqual(codexInputFromChatHistory({
+    history: [
+      fakeRequestTurn("update tests"),
+      fakeResponseTurnWithParts([
+        fakeMetadataMarkdownPart("Inspecting files.", {
+          openai_event_type: "response.reasoning_summary_text.delta",
+          openai_item_id: "rs-1"
+        }),
+        fakeMetadataMarkdownPart("Planning descriptor copy.", {
+          openai_event_type: "response.output_text.delta",
+          openai_item_id: "msg-plan",
+          openai_phase: "commentary"
+        }),
+        fakeMarkdownPart("Done.")
+      ])
+    ]
+  }, "continue"), [
+    { role: "user", content: [{ type: "input_text", text: "update tests" }] },
+    { role: "assistant", content: [{ type: "output_text", text: "Planning descriptor copy.\n\nDone." }] },
+    { role: "user", content: [{ type: "input_text", text: "continue" }] }
+  ]);
+});
+
 /** @param {object} value */
 function jsonString(value) {
   return JSON.stringify(value);
@@ -76,10 +138,18 @@ function fakeRequestTurn(prompt) {
  * @param {import("vscode").ChatResult} [result]
  */
 function fakeResponseTurn(values, result = {}) {
+  return fakeResponseTurnWithParts(values.map((value) => fakeMarkdownPart(value)), result);
+}
+
+/**
+ * @param {import("vscode").ChatResponsePart[]} response
+ * @param {import("vscode").ChatResult} [result]
+ */
+function fakeResponseTurnWithParts(response, result = {}) {
   return /** @type {import("vscode").ChatResponseTurn} */ ({
     participant: "cocopi.chat",
     result,
-    response: values.map((value) => fakeMarkdownPart(value))
+    response
   });
 }
 
@@ -87,6 +157,25 @@ function fakeResponseTurn(values, result = {}) {
 function fakeMarkdownPart(value) {
   return /** @type {import("vscode").ChatResponseMarkdownPart} */ ({
     value: fakeMarkdownString(value)
+  });
+}
+
+/**
+ * @param {string} value
+ * @param {Record<string, unknown>} metadata
+ */
+function fakeThinkingMarkdownPart(value, metadata) {
+  return fakeMetadataMarkdownPart(value, metadata);
+}
+
+/**
+ * @param {string} value
+ * @param {Record<string, unknown>} metadata
+ */
+function fakeMetadataMarkdownPart(value, metadata) {
+  return /** @type {import("vscode").ChatResponsePart} */ ({
+    value: fakeMarkdownString(value),
+    metadata
   });
 }
 
