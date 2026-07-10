@@ -49,7 +49,7 @@ Mention `@cocopi` in chat when you want a direct Cocopi response without changin
 
 ### Check status and usage
 
-Hover the Cocopi status-bar item for a compact status summary. Click it to open the richer Cocopi dashboard with card-style status and configuration actions.
+Hover the Cocopi status-bar item for a compact status summary. Click it to open the richer Cocopi dashboard with card-style status and configuration actions. On VS Code versions that require an explicit utility-model choice for BYOK agents, the dashboard explains the available routing options and can apply the selected VS Code configuration.
 
 ### Use AI inline completions
 

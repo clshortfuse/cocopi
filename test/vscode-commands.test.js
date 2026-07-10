@@ -239,6 +239,9 @@ test("Cocopi status action opens the dashboard webview", async (testContext) => 
     if (/\/models\?/u.test(String(url))) {
       return Response.json({
         models: [
+          { slug: "gpt-5.6-sol", display_name: "GPT-5.6 Sol", context_window: 372_000 },
+          { slug: "gpt-5.6-terra", display_name: "GPT-5.6 Terra", context_window: 372_000 },
+          { slug: "gpt-5.6-luna", display_name: "GPT-5.6 Luna", context_window: 372_000 },
           { slug: "gpt-5.5", display_name: "GPT-5.5", context_window: 128_000 },
           { slug: "gpt-5.3-codex-spark", display_name: "GPT-5.3 Codex Spark", context_window: 64_000 }
         ]
@@ -326,10 +329,32 @@ test("Cocopi status action opens the dashboard webview", async (testContext) => 
   assert.match(vscode.panels[0].webview.html, /<select name="inlineCompletionChoice">/u);
   assert.match(vscode.panels[0].webview.html, /<option value="off" selected>Off/u);
   assert.match(vscode.panels[0].webview.html, /<option value="auto">Auto \(prefer Spark\)/u);
+  assert.match(vscode.panels[0].webview.html, /Background tasks/u);
+  assert.match(vscode.panels[0].webview.html, /Custom setup/u);
+  assert.match(vscode.panels[0].webview.html, /Choose how VS Code handles chat titles, summaries, and quick helpers/u);
+  assert.match(vscode.panels[0].webview.html, /<select name="utilitySetupChoice">/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="recommended">Recommended Cocopi setup — Terra \+ Luna/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="mainAgent">Use main chat model/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="copilot">Use GitHub Copilot/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="none" selected>Disable background tasks/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="specific">Advanced custom models/u);
+  assert.match(vscode.panels[0].webview.html, /id="utilitySetupDescription"[^>]*>Reserve model use for the main conversation/u);
+  assert.match(vscode.panels[0].webview.html, /id="utilityAdvancedModels" class="advanced-models" hidden>/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="cocopi\/gpt-5\.6-terra" selected>GPT-5\.6 Terra/u);
+  assert.match(vscode.panels[0].webview.html, /<select name="utilitySmallModel">/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="cocopi\/gpt-5\.6-luna" selected>GPT-5\.6 Luna/u);
+  assert.match(vscode.panels[0].webview.html, /VS Code user settings to write[\s\S]*<pre id="utilitySettingsPreview" class="utility-preview">\{[\s\S]*&quot;chat\.utilityModel&quot;: &quot;&quot;,[\s\S]*&quot;chat\.utilitySmallModel&quot;: &quot;&quot;,[\s\S]*&quot;chat\.byokUtilityModelDefault&quot;: &quot;none&quot;/u);
+  assert.match(vscode.panels[0].webview.html, /<code>chat\.byokUtilityModelDefault<\/code> selects the fallback when the two model fields are empty/u);
+  assert.match(vscode.panels[0].webview.html, /id="applyUtilitySetup" class="primary" type="button">Apply setup/u);
+  assert.doesNotMatch(vscode.panels[0].webview.html, /class="utility-choice"|data-utility-mode|utility-settings-write/u);
+  assert.match(vscode.panels[0].webview.html, /Conversation context[\s\S]*Compaction follows the main model\. GPT-5\.6 currently allows about 320K input\./u);
+  assert.doesNotMatch(vscode.panels[0].webview.html, /An Auto main agent compacts/u);
+  assert.doesNotMatch(vscode.panels[0].webview.html, /GPT-5\.6 exposes 372K context/u);
+  assert.match(vscode.panels[0].webview.html, /data-setting="chat\.byokUtilityModelDefault"/u);
   assert.match(vscode.panels[0].webview.html, /Changes apply immediately/u);
   assert.doesNotMatch(vscode.panels[0].webview.html, /Save (model|autocomplete|diagnostics)/u);
   assert.doesNotMatch(vscode.panels[0].webview.html, /cocopi\.(toggleInlineCompletions|selectInlineCompletionModel|showInlineCompletionOptions|selectModel)/u);
-  assert.match(vscode.panels[0].webview.html, /Edit common Cocopi settings here/u);
+  assert.match(vscode.panels[0].webview.html, /Edit common Cocopi and VS Code routing settings here/u);
   assert.match(vscode.statusBarItems[0].tooltip.value, /\$\(pulse\) Regular 5h/u);
   assert.match(vscode.statusBarItems[0].tooltip.value, /58% left · resets/u);
   assert.match(vscode.statusBarItems[0].tooltip.value, /\$\(pulse\) Regular weekly/u);
@@ -359,7 +384,7 @@ test("Cocopi native chat status item is registered when available", async () => 
   assert.match(vscode.chatStatusItems[0].tooltip ?? "", /native Chat status dashboard/u);
   assert.equal(vscode.panels.length, 1);
   assert.equal(vscode.panels[0].viewType, "cocopiStatus");
-  assert.match(vscode.panels[0].webview.html, /Edit common Cocopi settings here/u);
+  assert.match(vscode.panels[0].webview.html, /Edit common Cocopi and VS Code routing settings here/u);
   assert.equal(vscode.quickPickItems.length, 0);
 });
 
@@ -436,6 +461,82 @@ test("Cocopi status webview applies embedded settings immediately", async () => 
   assert.match(vscode.panels[0].webview.html, /<option value="gpt-next" selected>gpt-next/u);
   assert.match(vscode.panels[0].webview.html, /<option value="model:gpt-spark-test" selected>gpt-spark-test/u);
   assert.match(vscode.panels[0].webview.html, /<option value="events" selected>Events/u);
+});
+
+test("Cocopi dashboard applies background task setup choices", async () => {
+  const vscode = fakeVscode({
+    settings: { "chat.byokUtilityModelDefault": "none" }
+  });
+  const context = fakeContext();
+  registerCocopiCommands(context, vscode);
+
+  await vscode.commands.callbacks.get(COCOPI_COMMANDS.status)?.();
+  await vscode.panels[0].receiveMessage({
+    type: "updateUtilityRouting",
+    mode: "recommended"
+  });
+
+  assert.deepEqual(vscode.configurationUpdates, [
+    { key: "utilityModel", value: "cocopi/gpt-5.6-terra", target: true },
+    { key: "utilitySmallModel", value: "cocopi/gpt-5.6-luna", target: true },
+    { key: "byokUtilityModelDefault", value: "none", target: true }
+  ]);
+  assert.match(vscode.panels[0].webview.html, /<span class="utility-state recommended">Recommended active<\/span>/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="recommended" selected>Recommended Cocopi setup — Terra \+ Luna/u);
+  assert.match(vscode.panels[0].webview.html, /id="utilityAdvancedModels" class="advanced-models" hidden/u);
+  assert.match(vscode.panels[0].webview.html, /<pre id="utilitySettingsPreview" class="utility-preview">\{[\s\S]*&quot;chat\.utilityModel&quot;: &quot;cocopi\/gpt-5\.6-terra&quot;,[\s\S]*&quot;chat\.utilitySmallModel&quot;: &quot;cocopi\/gpt-5\.6-luna&quot;/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="cocopi\/gpt-5\.6-terra" selected>gpt-5\.6-terra/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="cocopi\/gpt-5\.6-luna" selected>gpt-5\.6-luna/u);
+
+  await vscode.panels[0].receiveMessage({
+    type: "updateUtilityRouting",
+    mode: "copilot"
+  });
+
+  assert.deepEqual(vscode.configurationUpdates.slice(3), [
+    { key: "utilityModel", value: "", target: true },
+    { key: "utilitySmallModel", value: "", target: true },
+    { key: "byokUtilityModelDefault", value: "copilot", target: true }
+  ]);
+  assert.match(vscode.panels[0].webview.html, /<span class="utility-state custom">Custom setup<\/span>/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="copilot" selected>Use GitHub Copilot/u);
+  assert.match(vscode.panels[0].webview.html, /<pre id="utilitySettingsPreview" class="utility-preview">\{[\s\S]*&quot;chat\.utilityModel&quot;: &quot;&quot;,[\s\S]*&quot;chat\.utilitySmallModel&quot;: &quot;&quot;,[\s\S]*&quot;chat\.byokUtilityModelDefault&quot;: &quot;copilot&quot;/u);
+
+  await vscode.panels[0].receiveMessage({
+    type: "updateUtilityRouting",
+    mode: "specific",
+    utilityModel: "cocopi/gpt-custom-large",
+    utilitySmallModel: "cocopi/gpt-custom-quick"
+  });
+
+  assert.deepEqual(vscode.configurationUpdates.slice(6), [
+    { key: "utilityModel", value: "cocopi/gpt-custom-large", target: true },
+    { key: "utilitySmallModel", value: "cocopi/gpt-custom-quick", target: true },
+    { key: "byokUtilityModelDefault", value: "none", target: true }
+  ]);
+  assert.match(vscode.panels[0].webview.html, /<span class="utility-state custom">Custom setup<\/span>/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="specific" selected>Advanced custom models/u);
+  assert.match(vscode.panels[0].webview.html, /id="utilityAdvancedModels" class="advanced-models">/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="cocopi\/gpt-custom-large" selected>gpt-custom-large/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="cocopi\/gpt-custom-quick" selected>gpt-custom-quick/u);
+});
+
+test("Cocopi dashboard reports incomplete custom background task models", async () => {
+  const vscode = fakeVscode({
+    settings: {
+      "chat.byokUtilityModelDefault": "none",
+      "chat.utilityModel": "cocopi/gpt-custom-large"
+    }
+  });
+  const context = fakeContext();
+  registerCocopiCommands(context, vscode);
+
+  await vscode.commands.callbacks.get(COCOPI_COMMANDS.status)?.();
+
+  assert.match(vscode.panels[0].webview.html, /<span class="utility-state required">Setup required<\/span>/u);
+  assert.match(vscode.panels[0].webview.html, /Choose Cocopi models for both larger and quick background tasks/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="specific" selected>Advanced custom models/u);
+  assert.match(vscode.panels[0].webview.html, /id="utilityAdvancedModels" class="advanced-models">/u);
 });
 
 test("showAuthStatus exposes compact configuration actions", async () => {
