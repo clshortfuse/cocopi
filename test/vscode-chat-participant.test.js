@@ -153,7 +153,120 @@ test("Cocopi chat handler rewrites VS Code tool completion summaries", async (te
   ));
 
   const requestBody = JSON.parse(String(calls[0].options.body));
-  assert.equal(requestBody.tools[0].description, "Before calling this tool, emit a concise user-visible completion summary as assistant commentary. The tool summary is metadata and must not be the only user-visible summary.");
+  assert.equal(requestBody.tools[0].description, "Put the concise user-visible completion summary in this tool's summary field. Cocopi renders it as normal assistant text, so do not emit the same summary separately before calling the tool.");
+});
+
+test("Cocopi chat handler renders task completion without a model follow-up", async (testContext) => {
+  /** @type {RequestInit[]} */
+  const requests = [];
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  const response = fakeChatResponseStream();
+  const vscode = fakeVscode(configurationValues({ model: "gpt-test" }));
+  vscode.lm.tools = [{
+    name: "task_complete",
+    description: "Complete the task.",
+    inputSchema: { type: "object" },
+    tags: []
+  }];
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    requests.push(options);
+    if (requests.length > 1) {
+      throw new Error("terminal task completion must not reach Codex again");
+    }
+    return eventStreamResponse([
+      sseData({ type: "response.function_call_arguments.done", item_id: "fc-complete", output_index: 0, call_id: "call-complete", name: "task_complete", arguments: jsonString({ summary: "Completed successfully." }) }),
+      sseData({ type: "response.completed", response: { id: "resp-complete" } })
+    ]);
+  }));
+  const handler = createCocopiChatRequestHandler(context, vscode);
+
+  await Promise.resolve(handler(
+    fakeChatRequest("finish", { toolReferences: [{ name: "task_complete" }], toolInvocationToken: "tool-token" }),
+    fakeChatContext(),
+    response,
+    fakeCancellationToken()
+  ));
+
+  assert.equal(requests.length, 1);
+  assert.deepEqual(response.markdownValues, ["Completed successfully."]);
+  assert.deepEqual(vscode.toolInvocations.map((invocation) => invocation.name), ["task_complete"]);
+});
+
+test("Cocopi chat handler does not duplicate a completion summary already streamed", async (testContext) => {
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  const response = fakeChatResponseStream();
+  const vscode = fakeVscode(configurationValues({ model: "gpt-test" }));
+  vscode.lm.tools = [{
+    name: "task_complete",
+    description: "Complete the task.",
+    inputSchema: { type: "object" },
+    tags: []
+  }];
+  const fetchMock = testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.output_text.delta", delta: "Completed successfully." }),
+    sseData({ type: "response.function_call_arguments.done", item_id: "fc-complete", output_index: 0, call_id: "call-complete", name: "task_complete", arguments: jsonString({ summary: "Completed successfully." }) }),
+    sseData({ type: "response.completed", response: { id: "resp-complete" } })
+  ])));
+  const handler = createCocopiChatRequestHandler(context, vscode);
+
+  await Promise.resolve(handler(
+    fakeChatRequest("finish", { toolReferences: [{ name: "task_complete" }], toolInvocationToken: "tool-token" }),
+    fakeChatContext(),
+    response,
+    fakeCancellationToken()
+  ));
+
+  assert.equal(fetchMock.mock.callCount(), 1);
+  assert.deepEqual(response.markdownValues, ["Completed successfully."]);
+  assert.deepEqual(vscode.toolInvocations.map((invocation) => invocation.name), ["task_complete"]);
+});
+
+test("Cocopi chat handler requests a follow-up when task completion has no visible summary", async (testContext) => {
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  const response = fakeChatResponseStream();
+  const vscode = fakeVscode(configurationValues({ model: "gpt-test" }));
+  vscode.lm.tools = [{
+    name: "task_complete",
+    description: "Complete the task.",
+    inputSchema: { type: "object" },
+    tags: []
+  }];
+  let requestCount = 0;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => {
+    requestCount += 1;
+    return requestCount === 1
+      ? eventStreamResponse([
+        sseData({ type: "response.function_call_arguments.done", item_id: "fc-complete", output_index: 0, call_id: "call-complete", name: "task_complete", arguments: jsonString({}) }),
+        sseData({ type: "response.completed", response: { id: "resp-complete" } })
+      ])
+      : eventStreamResponse([
+        sseData({ type: "response.output_text.delta", delta: "Generated final response." }),
+        sseData({ type: "response.completed", response: { id: "resp-follow-up" } })
+      ]);
+  }));
+  const handler = createCocopiChatRequestHandler(context, vscode);
+
+  await Promise.resolve(handler(
+    fakeChatRequest("finish", { toolReferences: [{ name: "task_complete" }], toolInvocationToken: "tool-token" }),
+    fakeChatContext(),
+    response,
+    fakeCancellationToken()
+  ));
+
+  assert.equal(requestCount, 2);
+  assert.deepEqual(response.markdownValues, ["Generated final response."]);
 });
 
 test("Cocopi chat handler streams reasoning summary deltas", async (testContext) => {
@@ -222,7 +335,7 @@ test("Cocopi chat handler streams reasoning summary deltas as thinking parts whe
   });
 });
 
-test("Cocopi chat handler routes commentary output deltas as visible thinking when thinking parts are supported", async (testContext) => {
+test("Cocopi chat handler routes commentary output as normal text when thinking parts are supported", async (testContext) => {
   const context = fakeContext(new Map([
     [CODEX_SECRET_KEYS.accessToken, "access-token"],
     [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
@@ -241,22 +354,11 @@ test("Cocopi chat handler routes commentary output deltas as visible thinking wh
 
   await Promise.resolve(handler(fakeChatRequest("inspect"), fakeChatContext(), response, fakeCancellationToken()));
 
-  assert.deepEqual(response.markdownValues, ["Done."]);
-  const part = response.pushedParts.find((value) => value instanceof ChatResponseThinkingProgressPart);
-  assert.ok(part instanceof ChatResponseThinkingProgressPart);
-  assert.equal(part.value, "Planning descriptor copy.");
-  assert.equal(part.id, "msg-plan:output:0");
-  assert.deepEqual(part.metadata, {
-    openai_event_type: "response.output_text.delta",
-    openai_item_id: "msg-plan",
-    openai_output_index: 0,
-    openai_content_index: 0,
-    openai_sequence_number: 8,
-    openai_phase: "commentary"
-  });
+  assert.deepEqual(response.markdownValues, ["Planning descriptor copy.", "\n\n", "Done."]);
+  assert.deepEqual(response.pushedParts.filter((part) => part instanceof ChatResponseThinkingProgressPart), []);
 });
 
-test("Cocopi chat handler keeps commentary output visible without thinking-part support", async (testContext) => {
+test("Cocopi chat handler keeps commentary output as normal text without thinking-part support", async (testContext) => {
   const context = fakeContext(new Map([
     [CODEX_SECRET_KEYS.accessToken, "access-token"],
     [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
@@ -275,14 +377,13 @@ test("Cocopi chat handler keeps commentary output visible without thinking-part 
   await Promise.resolve(handler(fakeChatRequest("inspect"), fakeChatContext(), response, fakeCancellationToken()));
 
   assert.deepEqual(response.markdownValues, [
-    "<details open><summary>Commentary</summary>\n\n",
     "Planning descriptor copy.",
-    "\n\n</details>\n\n",
+    "\n\n",
     "Done."
   ]);
 });
 
-test("Cocopi chat handler closes fallback commentary before reasoning output", async (testContext) => {
+test("Cocopi chat handler keeps normal commentary before reasoning output", async (testContext) => {
   const context = fakeContext(new Map([
     [CODEX_SECRET_KEYS.accessToken, "access-token"],
     [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
@@ -300,9 +401,7 @@ test("Cocopi chat handler closes fallback commentary before reasoning output", a
   await Promise.resolve(handler(fakeChatRequest("inspect"), fakeChatContext(), response, fakeCancellationToken()));
 
   assert.deepEqual(response.markdownValues, [
-    "<details open><summary>Commentary</summary>\n\n",
     "Planning descriptor copy.",
-    "\n\n</details>\n\n",
     "Checking file shape."
   ]);
 });

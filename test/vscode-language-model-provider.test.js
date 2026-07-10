@@ -2067,7 +2067,7 @@ test("provideLanguageModelChatResponse strips split trailing reasoning summary h
   assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelThinkingPart).map((part) => part.value), ["**heading**\n\n", ""]);
 });
 
-test("provideLanguageModelChatResponse routes commentary output text as visible thinking when native thinking is supported", async (testContext) => {
+test("provideLanguageModelChatResponse routes commentary output as normal text when native thinking is supported", async (testContext) => {
   const progress = fakeProgress();
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
     sseData({ type: "response.output_item.added", item: { id: "msg-plan", type: "message", status: "in_progress", role: "assistant", phase: "commentary", content: [] }, output_index: 0 }),
@@ -2092,19 +2092,12 @@ test("provideLanguageModelChatResponse routes commentary output text as visible 
     fakeCancellationToken()
   );
 
-  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["Done."]);
-  const thinkingParts = progress.parts.filter((part) => part instanceof LanguageModelThinkingPart);
-  assert.deepEqual(thinkingParts.map((part) => part.value), ["Need maybe update descriptor_locations.", ""]);
-  assert.equal(thinkingParts[0].id, "msg-plan:output:0");
-  assert.deepEqual(thinkingParts[0].metadata, {
-    openai_event_type: "response.output_text.delta",
-    openai_item_id: "msg-plan",
-    openai_output_index: 0,
-    openai_content_index: 0,
-    openai_sequence_number: 2,
-    openai_phase: "commentary"
-  });
-  assert.deepEqual(thinkingParts[1].metadata, { vscode_reasoning_done: true });
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), [
+    "Need maybe update descriptor_locations.",
+    "\n\n",
+    "Done."
+  ]);
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelThinkingPart), []);
 });
 
 test("provideLanguageModelChatResponse preserves exact standalone commentary html comments", async (testContext) => {
@@ -2129,11 +2122,11 @@ test("provideLanguageModelChatResponse preserves exact standalone commentary htm
     fakeCancellationToken()
   );
 
-  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), []);
-  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelThinkingPart).map((part) => part.value), ["<!-- -->", ""]);
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["<!-- -->"]);
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelThinkingPart), []);
 });
 
-test("provideLanguageModelChatResponse keeps commentary output visible as a commentary block without native thinking support", async (testContext) => {
+test("provideLanguageModelChatResponse keeps commentary output as normal text without native thinking support", async (testContext) => {
   const progress = fakeProgress();
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
     sseData({ type: "response.output_item.added", item: { id: "msg-plan", type: "message", status: "in_progress", role: "assistant", phase: "commentary", content: [] }, output_index: 0 }),
@@ -2158,14 +2151,13 @@ test("provideLanguageModelChatResponse keeps commentary output visible as a comm
   );
 
   assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), [
-    "<details open><summary>Commentary</summary>\n\n",
     "Need maybe update descriptor_locations.",
-    "\n\n</details>\n\n",
+    "\n\n",
     "Done."
   ]);
 });
 
-test("provideLanguageModelChatResponse closes fallback commentary before reasoning", async (testContext) => {
+test("provideLanguageModelChatResponse keeps normal commentary before fallback reasoning", async (testContext) => {
   const progress = fakeProgress();
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
     sseData({ type: "response.output_item.added", item: { id: "msg-plan", type: "message", status: "in_progress", role: "assistant", phase: "commentary", content: [] }, output_index: 0 }),
@@ -2189,9 +2181,7 @@ test("provideLanguageModelChatResponse closes fallback commentary before reasoni
   );
 
   assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), [
-    "<details open><summary>Commentary</summary>\n\n",
     "Planning descriptor copy.",
-    "\n\n</details>\n\n",
     "<details open><summary>Thinking</summary>\n\n",
     "Checking file shape.",
     "\n\n</details>\n\n"
@@ -3626,11 +3616,7 @@ test("provideLanguageModelChatResponse emits metadata marker for phased output i
     fakeCancellationToken()
   );
 
-  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), [
-    "<details open><summary>Commentary</summary>\n\n",
-    "I will inspect the files.",
-    "\n\n</details>\n\n"
-  ]);
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["I will inspect the files."]);
   const dataPart = progress.parts.find((part) => part instanceof LanguageModelDataPart);
   assert.ok(dataPart instanceof LanguageModelDataPart);
   assert.equal(dataPart.mimeType, COCOPI_STATEFUL_MARKER_MIME);
@@ -3745,7 +3731,7 @@ test("provideLanguageModelChatResponse emits stateful marker before visible tool
   assertMetadataOnlyStatefulMarker(progress.parts[2], 2);
 });
 
-test("provideLanguageModelChatResponse closes fallback commentary before tool calls", async (testContext) => {
+test("provideLanguageModelChatResponse flushes normal commentary before tool calls", async (testContext) => {
   const progress = fakeProgress();
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
     sseData({ type: "response.output_item.added", item: { id: "msg-plan", type: "message", status: "in_progress", role: "assistant", phase: "commentary", content: [] }, output_index: 0 }),
@@ -3767,11 +3753,11 @@ test("provideLanguageModelChatResponse closes fallback commentary before tool ca
     fakeCancellationToken()
   );
 
-  const commentaryCloseIndex = progress.parts.findIndex((part) => part instanceof LanguageModelTextPart && part.value === "\n\n</details>\n\n");
+  const commentaryTextIndex = progress.parts.findIndex((part) => part instanceof LanguageModelTextPart && part.value === "Planning tool call.");
   const toolCallIndex = progress.parts.findIndex((part) => part instanceof LanguageModelToolCallPart);
-  assert.notEqual(commentaryCloseIndex, -1);
+  assert.notEqual(commentaryTextIndex, -1);
   assert.notEqual(toolCallIndex, -1);
-  assert.ok(commentaryCloseIndex < toolCallIndex);
+  assert.ok(commentaryTextIndex < toolCallIndex);
 });
 
 test("provideLanguageModelChatResponse ignores malformed duplicate output item tool arguments", async (testContext) => {
@@ -4323,7 +4309,102 @@ test("provideLanguageModelChatResponse rewrites VS Code tool completion summarie
   );
 
   const body = JSON.parse(String(requestOptions?.body));
-  assert.equal(body.tools[0].description, "Before calling this tool, emit a concise user-visible completion summary as assistant commentary. The tool summary is metadata and must not be the only user-visible summary.");
+  assert.equal(body.tools[0].description, "Put the concise user-visible completion summary in this tool's summary field. Cocopi renders it as normal assistant text, so do not emit the same summary separately before calling the tool.");
+});
+
+test("provideLanguageModelChatResponse renders task completion without a model follow-up", async (testContext) => {
+  const fetchMock = testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => {
+    throw new Error("terminal task completion must not reach Codex");
+  }));
+  const progress = fakeProgress();
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode());
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-test"),
+    [
+      fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "finish"),
+      fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
+        new LanguageModelToolCallPart("call-complete", "task_complete", { summary: "Completed successfully." })
+      ]),
+      fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
+        new LanguageModelToolResultPart("call-complete", [new LanguageModelTextPart("Completed successfully.")])
+      ])
+    ],
+    fakeResponseOptions({ toolMode: 1 }),
+    progress,
+    fakeCancellationToken()
+  );
+
+  assert.equal(fetchMock.mock.callCount(), 0);
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["Completed successfully."]);
+});
+
+test("provideLanguageModelChatResponse does not duplicate a completion summary already visible", async (testContext) => {
+  const fetchMock = testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => {
+    throw new Error("terminal task completion must not reach Codex");
+  }));
+  const progress = fakeProgress();
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode());
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-test"),
+    [
+      fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "finish"),
+      fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
+        new LanguageModelTextPart("Completed successfully."),
+        new LanguageModelToolCallPart("call-complete", "task_complete", { summary: "Completed successfully." })
+      ]),
+      fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
+        new LanguageModelToolResultPart("call-complete", [new LanguageModelTextPart("Completed successfully.")])
+      ])
+    ],
+    fakeResponseOptions({ toolMode: 1 }),
+    progress,
+    fakeCancellationToken()
+  );
+
+  assert.equal(fetchMock.mock.callCount(), 0);
+  assert.deepEqual(progress.parts, []);
+});
+
+test("provideLanguageModelChatResponse requests a follow-up when task completion has no visible summary", async (testContext) => {
+  const fetchMock = testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.output_text.delta", delta: "Generated final response." }),
+    sseData({ type: "response.completed", response: { id: "resp-follow-up" } })
+  ])));
+  const progress = fakeProgress();
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode());
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-test"),
+    [
+      fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "finish"),
+      fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
+        new LanguageModelToolCallPart("call-complete", "task_complete", {})
+      ]),
+      fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
+        new LanguageModelToolResultPart("call-complete", [new LanguageModelTextPart("Task completed.")])
+      ])
+    ],
+    fakeResponseOptions({ toolMode: 1 }),
+    progress,
+    fakeCancellationToken()
+  );
+
+  assert.equal(fetchMock.mock.callCount(), 1);
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["Generated final response."]);
 });
 
 test("provideLanguageModelChatResponse streams auto tool-capable requests on custom endpoints", async (testContext) => {

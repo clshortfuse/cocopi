@@ -136,11 +136,11 @@ Primary code/tests:
 
 Cocopi applies built-in regex replacements to known VS Code/Copilot instruction and tool-description text around `task_complete`, then overlays user-configured regex replacements on top.
 
-The built-in replacements specifically rewrite host wording that can imply the model should avoid emitting a visible completion summary in normal assistant text, or that the tool payload alone is the real user-facing summary. They also disambiguate Copilot's generic references to a summary "message" for Codex: text emitted before `task_complete` must be user-visible assistant commentary because Codex reserves final-answer content for the terminal answer of a turn.
+The built-in replacements route the final completion summary through the `task_complete.summary` field and tell the model not to emit a duplicate pre-tool summary. Cocopi then renders that summary itself as normal user-visible assistant text after the tool succeeds, without another Codex request.
 
-Why it exists: Cocopi needs the final completion summary to remain visible in the chat transcript before `task_complete` is called. Some observed VS Code/Copilot instruction text and tool descriptions are awkward for that requirement because they can push the model toward treating the tool payload as the real summary and the visible chat text as optional.
+Why it exists: VS Code's terminal tool result is not a reliable user-facing communication surface, while asking the model to emit the summary both as assistant text and as tool metadata duplicates output. Cocopi makes the metadata useful by promoting the summary to visible assistant text at the terminal tool boundary.
 
-The replacements must not tell the model to hide or avoid commentary/work-note output. They only clarify that the final completion summary cannot live solely in `task_complete` metadata.
+The replacements only suppress a duplicate final completion summary. They must not tell the model to hide or avoid commentary, progress, or work-note output before completion.
 
 Risk: this is version-sensitive text rewriting against upstream host wording, not a first-class API contract. It should stay evidence-backed, narrow, and easy for users to override or disable. Replacements must only target known host instruction/tool text, never arbitrary user prompt content.
 
@@ -148,8 +148,10 @@ Primary code/tests:
 
 - `data/vscode-instruction-overrides.json`
 - `lib/vscode/configuration.js`
+- `lib/vscode/chat-participant.js`
 - `lib/vscode/language-model-provider.js`
 - `test/vscode-configuration.test.js`
+- `test/vscode-chat-participant.test.js`
 - `test/vscode-language-model-provider.test.js`
 
 ### Tool Bridge Repairs
@@ -227,11 +229,11 @@ Primary code/tests:
 
 ### Commentary Is Visible Output, Not Thinking
 
-Cocopi treats assistant output text with Codex `phase: "commentary"` as visible assistant progress/commentary. In the language-model provider path it renders as a visible `Commentary` details block even when VS Code supports native thinking parts. In the `@cocopi` chat participant path it also renders as visible markdown commentary.
+Cocopi treats assistant output text with Codex `phase: "commentary"` as normal visible assistant text. The language-model provider emits `LanguageModelTextPart`, and the `@cocopi` chat participant emits markdown. When Responses API text moves to a different `output_index`, Cocopi inserts a blank-line separator so commentary and final-answer items do not fuse.
 
 Only Codex reasoning events such as `response.reasoning_summary_text.delta` and `response.reasoning_text.delta` are mapped to VS Code thinking UI.
 
-Why it exists: commentary-phase output is still assistant-visible text meant for the user, while reasoning events are the closest match to VS Code's separate thinking surface. Rendering commentary as thinking made ordinary progress text appear semantically hidden or internal when it was actually part of the visible answer flow.
+Why it exists: commentary-phase output is still assistant-visible text meant for the user, while reasoning events are the closest match to VS Code's separate thinking surface. Rendering commentary as thinking made ordinary progress text appear semantically hidden or internal when it was actually part of the visible answer flow. The output-item separator matches VS Code's own Responses API handling in microsoft/vscode#312173.
 
 Risk: this depends on the current meaning of Codex output-item `phase` values. If upstream changes commentary semantics or exposes a stronger host-facing distinction, Cocopi may need to revisit the mapping.
 
