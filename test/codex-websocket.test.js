@@ -437,6 +437,11 @@ test("fetchCodexResponseStreamWithAuthRefresh retries stale previous response id
   const wireMessage = JSON.parse(socket.sent[1]);
   assert.equal(wireMessage.previous_response_id, "resp-missing");
   assert.deepEqual(wireMessage.input, [secondUserItem]);
+  const responseMetadata = {
+    type: "codex.response.metadata",
+    headers: { "x-codex-safety-buffering-enabled": "true" }
+  };
+  socket.message(JSON.stringify(responseMetadata));
   socket.message(JSON.stringify({
     type: "error",
     status: 400,
@@ -447,6 +452,7 @@ test("fetchCodexResponseStreamWithAuthRefresh retries stale previous response id
   }));
 
   assert.deepEqual(await eventsPromise, [
+    responseMetadata,
     { type: "response.output_text.delta", delta: "replayed" },
     { type: "response.completed", response: { id: "resp-sse" } }
   ]);
