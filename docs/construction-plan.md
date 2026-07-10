@@ -16,6 +16,8 @@ Use [previous-response-continuation.md](previous-response-continuation.md) as th
 
 Use [compaction-strategy.md](compaction-strategy.md) as the roadmap for VS Code-default compaction, future remote/custom compaction options, and Codex CLI parity gates.
 
+Use [upstream-codex-tracking.md](upstream-codex-tracking.md) when bumping the OpenAI Codex reference baseline or checking upstream drift that affects model catalogs, auth, transport, tools, compaction, or replay semantics.
+
 ## Phase 1: Local Auth Setup
 
 Goal: make local live tests possible without touching VS Code APIs.
