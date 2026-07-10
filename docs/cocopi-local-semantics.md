@@ -174,6 +174,42 @@ Primary code/tests:
 - `test/vscode-language-model-provider.test.js`
 - `test/vscode-chat-participant.test.js`
 
+### Ultra Reasoning And VS Code Subagents
+
+`ultra` is a Codex client orchestration mode, not a Responses API `reasoning.effort` value. Upstream Codex `rust-v0.144.0` translates selected Ultra to `max` on the wire. With MultiAgentV2 active, it also adds developer instructions and exposes the native collaboration environment.
+
+The native V2 environment is a `collaboration` namespace with `spawn_agent`, `send_message`, `followup_task`, `wait_agent`, `interrupt_agent`, and `list_agents`. Those operations manage persistent Codex-owned child threads. VS Code exposes a different real primitive: `runSubagent` runs one delegated task and returns its result. Cocopi therefore translates the orchestration policy onto `runSubagent`; it does not advertise six fake lifecycle tools that the host cannot implement.
+
+Cocopi applies the equivalent bridge when VS Code supplies its `runSubagent` tool:
+
+- Send `reasoning.effort: "max"`, never `"ultra"`.
+- Parse and cache the catalog's closed `multi_agent_version` (`disabled`, `v1`, or `v2`), `tool_mode`, and `supports_parallel_tool_calls` fields. Explicit `v2` permits this bridge; explicit `v1` or `disabled` suppresses V2 guidance. Missing or unknown selector metadata remains unknown and uses the compatibility fallback instead of being treated as disabled.
+- Append a narrow `<multi_agent_mode>` instruction that explains the real one-shot VS Code tool, permits proactive delegation, and asks for multiple independent calls in one response when parallel tool calls are supported.
+- For the custom `@cocopi` participant, include the registered `runSubagent` tool automatically as an optional capability at every reasoning effort. Ordinary Max may use it opportunistically, but receives neither the proactive `<multi_agent_mode>` policy nor Ultra's parallel-call behavior. The auto-added tool remains optional with `tool_choice: "auto"`; explicit user tool references may still require a tool call. Language-model-provider requests use only the tools supplied by VS Code for that request.
+- Set `parallel_tool_calls` for Ultra unless the selected model explicitly reports `supports_parallel_tool_calls: false`. The custom participant invokes multiple returned calls concurrently and replays their call/result pairs in stable model order.
+- Keep the ordinary `max` reasoning translation without V2 instructions when `runSubagent` is unavailable or the catalog explicitly selects `v1` or `disabled`.
+
+Cocopi does not synthesize subagent calls. The model decides whether delegation is useful and invokes the standard VS Code tool, so VS Code remains responsible for subagent execution, lifecycle, permissions, and results.
+
+There is no separate root-request Ultra header. The server-visible root contract is the ordinary Responses body: Max reasoning, developer instructions, the actual tool definition, and `parallel_tool_calls`. Cocopi deliberately does not send `x-openai-subagent` or `x-codex-parent-thread-id` on root requests. Upstream adds child identity and parent lineage only when its own runtime creates a real child; VS Code owns that child path for `runSubagent`, so Cocopi has no reliable lineage to attach.
+
+Primary upstream references:
+
+- `codex-rs/core/src/client.rs` (`reasoning_effort_for_request`)
+- `codex-rs/protocol/src/protocol.rs` (`MultiAgentVersion`)
+- `codex-rs/protocol/src/openai_models.rs` (`ToolMode`, `supports_parallel_tool_calls`)
+- `codex-rs/core/src/tools/spec_plan.rs` (V2 collaboration tool registration)
+- `codex-rs/core/src/responses_metadata.rs` and `codex-rs/core/src/client.rs` (child identity and request headers)
+
+Primary Cocopi code/tests:
+
+- `lib/vscode/configuration.js`
+- `lib/vscode/language-model-provider.js`
+- `lib/vscode/chat-participant.js`
+- `test/vscode-configuration.test.js`
+- `test/vscode-language-model-provider.test.js`
+- `test/vscode-chat-participant.test.js`
+
 ### Reasoning To Thinking-Part Mapping
 
 Cocopi maps Codex reasoning summary or reasoning text deltas into VS Code `LanguageModelThinkingPart` when the host exposes that class. Cocopi also emits an empty thinking part with metadata to close the thinking state.

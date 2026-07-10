@@ -791,7 +791,7 @@ test("Cocopi chat handler pins blank runSubagent model input", async (testContex
     [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
     [CODEX_SECRET_KEYS.idToken, "id-token"]
   ]));
-  const vscode = fakeVscode(configurationValues({ model: "gpt-configured" }));
+  const vscode = fakeVscode(configurationValues({ model: "gpt-configured", reasoningEffort: "ultra" }));
   vscode.lm.tools = [{
     name: "runSubagent",
     description: "Run a subagent.",
@@ -835,11 +835,190 @@ test("Cocopi chat handler pins blank runSubagent model input", async (testContex
     }
   ]);
 
+  const initialBody = JSON.parse(String(requestOptions[0].body));
+  assert.deepEqual(initialBody.reasoning, { effort: "max", summary: "auto" });
+  assert.match(initialBody.instructions, /Proactive multi-agent delegation is active/u);
+  assert.equal(initialBody.parallel_tool_calls, true);
+
   const followUpBody = JSON.parse(String(requestOptions[1].body));
+  assert.deepEqual(followUpBody.reasoning, { effort: "max", summary: "auto" });
+  assert.equal(followUpBody.instructions, initialBody.instructions);
+  assert.equal(followUpBody.parallel_tool_calls, true);
   assert.deepEqual(followUpBody.input, [
     { role: "user", content: [{ type: "input_text", text: "delegate it" }] },
     { type: "function_call", call_id: "call-1", name: "runSubagent", arguments: jsonString({ description: "Search code", model: "GPT-5.5 (cocopi)", prompt: "Find the relevant files" }) },
     { type: "function_call_output", call_id: "call-1", output: jsonString({ name: "cocopi" }) }
+  ]);
+});
+
+test("Cocopi chat handler exposes optional runSubagent without Ultra policy", async (testContext) => {
+  /** @type {RequestInit | undefined} */
+  let requestOptions;
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  const vscode = fakeVscode(configurationValues({ model: "gpt-5.6-sol", reasoningEffort: "max" }));
+  vscode.lm.tools = [{
+    name: "runSubagent",
+    description: "Run a subagent.",
+    inputSchema: { type: "object" },
+    tags: []
+  }];
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    requestOptions = options;
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "Done." }),
+      sseData({ type: "response.completed", response: { id: "resp-max" } })
+    ]);
+  }));
+  const handler = createCocopiChatRequestHandler(context, vscode);
+
+  await Promise.resolve(handler(
+    fakeChatRequest("delegate if useful"),
+    fakeChatContext(),
+    fakeChatResponseStream(),
+    fakeCancellationToken()
+  ));
+
+  const body = JSON.parse(String(requestOptions?.body));
+  assert.equal(body.tools.length, 1);
+  assert.equal(body.tools[0].name, "runSubagent");
+  assert.deepEqual(body.reasoning, { effort: "max", summary: "auto" });
+  assert.doesNotMatch(body.instructions, /Proactive multi-agent delegation is active/u);
+  assert.equal(body.tool_choice, "auto");
+  assert.equal(body.parallel_tool_calls, false);
+});
+
+test("Cocopi chat handler translates configured Ultra through runSubagent", async (testContext) => {
+  /** @type {RequestInit | undefined} */
+  let requestOptions;
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  const vscode = fakeVscode(configurationValues({ model: "gpt-5.6-sol", reasoningEffort: "ultra" }));
+  vscode.lm.tools = [{
+    name: "runSubagent",
+    description: "Run a subagent.",
+    inputSchema: { type: "object" },
+    tags: []
+  }];
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    requestOptions = options;
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "Done." }),
+      sseData({ type: "response.completed", response: { id: "resp-ultra" } })
+    ]);
+  }));
+  const handler = createCocopiChatRequestHandler(context, vscode);
+
+  await Promise.resolve(handler(
+    fakeChatRequest("delegate when useful"),
+    fakeChatContext(),
+    fakeChatResponseStream(),
+    fakeCancellationToken()
+  ));
+
+  const body = JSON.parse(String(requestOptions?.body));
+  assert.equal(body.tools.length, 1);
+  assert.equal(body.tools[0].name, "runSubagent");
+  assert.deepEqual(body.reasoning, { effort: "max", summary: "auto" });
+  assert.match(body.instructions, /Proactive multi-agent delegation is active/u);
+  assert.match(body.instructions, /`runSubagent` tool/u);
+  assert.equal(body.tool_choice, "auto");
+  assert.equal(body.parallel_tool_calls, true);
+});
+
+test("Cocopi chat handler runs parallel delegated calls concurrently with stable replay order", async (testContext) => {
+  /** @type {RequestInit[]} */
+  const requestOptions = [];
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  const vscode = fakeVscode(configurationValues({ model: "gpt-5.6-sol", reasoningEffort: "ultra" }));
+  vscode.lm.tools = [{
+    name: "runSubagent",
+    description: "Run a subagent.",
+    inputSchema: { type: "object" },
+    tags: []
+  }];
+  /** @type {Array<{ name: string, options: import("vscode").LanguageModelToolInvocationOptions<object> }>} */
+  const invocations = [];
+  /** @type {(() => void) | undefined} */
+  let releaseFirst;
+  /** @type {(() => void) | undefined} */
+  let releaseSecond;
+  /** @type {Promise<void>} */
+  const firstGate = new Promise((resolve) => { releaseFirst = () => resolve(); });
+  /** @type {Promise<void>} */
+  const secondGate = new Promise((resolve) => { releaseSecond = () => resolve(); });
+  /** @type {(() => void) | undefined} */
+  let reportBothStarted;
+  /** @type {Promise<void>} */
+  const bothStarted = new Promise((resolve) => { reportBothStarted = () => resolve(); });
+  vscode.lm.invokeTool = async (name, options) => {
+    invocations.push({ name, options });
+    if (invocations.length === 2) {
+      reportBothStarted?.();
+    }
+    const description = /** @type {Record<string, unknown>} */ (options.input).description;
+    await (description === "First" ? firstGate : secondGate);
+    return { content: [{ value: jsonString({ description }) }] };
+  };
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    requestOptions.push(options);
+    if (requestOptions.length === 1) {
+      return eventStreamResponse([
+        sseData({ type: "response.function_call_arguments.done", item_id: "item-1", output_index: 0, call_id: "call-1", name: "runSubagent", arguments: jsonString({ description: "First", model: "", prompt: "First task" }) }),
+        sseData({ type: "response.function_call_arguments.done", item_id: "item-2", output_index: 1, call_id: "call-2", name: "runSubagent", arguments: jsonString({ description: "Second", model: "", prompt: "Second task" }) }),
+        sseData({ type: "response.completed", response: {} })
+      ]);
+    }
+
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "Done." }),
+      sseData({ type: "response.completed", response: {} })
+    ]);
+  }));
+  const handler = createCocopiChatRequestHandler(context, vscode);
+  const handlerPromise = Promise.resolve(handler(
+    fakeChatRequest("delegate independent tasks", { toolInvocationToken: "tool-token", model: { id: "gpt-5.6-sol", name: "GPT-5.6 Sol", vendor: "cocopi" } }),
+    fakeChatContext(),
+    fakeChatResponseStream(),
+    fakeCancellationToken()
+  ));
+
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let startTimeout;
+  try {
+    await Promise.race([
+      bothStarted,
+      new Promise((_, reject) => {
+        startTimeout = setTimeout(() => reject(new Error("delegated calls did not start concurrently")), 1000);
+      })
+    ]);
+    releaseSecond?.();
+    await Promise.resolve();
+    releaseFirst?.();
+  } finally {
+    if (startTimeout) clearTimeout(startTimeout);
+    releaseFirst?.();
+    releaseSecond?.();
+  }
+  await handlerPromise;
+
+  assert.equal(invocations.length, 2);
+  const followUpBody = JSON.parse(String(requestOptions[1].body));
+  assert.deepEqual(followUpBody.input.slice(-4), [
+    { type: "function_call", call_id: "call-1", name: "runSubagent", arguments: jsonString({ description: "First", model: "GPT-5.6 Sol (cocopi)", prompt: "First task" }) },
+    { type: "function_call_output", call_id: "call-1", output: jsonString({ description: "First" }) },
+    { type: "function_call", call_id: "call-2", name: "runSubagent", arguments: jsonString({ description: "Second", model: "GPT-5.6 Sol (cocopi)", prompt: "Second task" }) },
+    { type: "function_call_output", call_id: "call-2", output: jsonString({ description: "Second" }) }
   ]);
 });
 

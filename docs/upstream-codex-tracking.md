@@ -19,7 +19,8 @@ Release tags observed in this range: `0.125.0`, `0.128.0` through `0.144.0`. Git
 | --- | --- | --- |
 | Client baseline | GPT-5.6 catalog entries require `minimal_client_version: "0.144.0"`. | Bump `CODEX_CLIENT_VERSION` to `0.144.0`. |
 | Model discovery | Model provider discovery remains catalog-driven. | Keep using live `/models?client_version=...`; do not hardcode GPT-5.6 production IDs. |
-| Reasoning efforts | Upstream catalog adds `max` and `ultra`, and `ReasoningEffort` now accepts arbitrary non-empty model-defined strings. | Add the known values to user settings and ordering while preserving future catalog-defined values through parsing, cache restore, picker metadata, and request resolution. |
+| Reasoning efforts | Upstream catalog adds `max` and `ultra`, and `ReasoningEffort` now accepts arbitrary non-empty model-defined strings. Ultra is client-side orchestration: upstream maps it to `max` on the wire and activates proactive MultiAgentV2 instructions. | Preserve catalog-defined values, but special-case Ultra as an orchestration mode. Send `max` to Responses and translate proactive delegation onto VS Code's real `runSubagent` tool when available and the catalog does not select `v1` or `disabled`. |
+| Orchestration catalog | `multi_agent_version` selects `disabled`, `v1`, or `v2`; `tool_mode` selects `direct`, `code_mode`, or `code_mode_only`; `supports_parallel_tool_calls` reports parallel-call capability. Unknown selector strings are omitted upstream. | Parse, sanitize, and cache the recognized values. Missing selectors remain unknown for compatibility. Respect explicit parallel-tool `false` without fabricating unsupported native collaboration tools. |
 | Request identity | Responses requests now use `session-id` and `thread-id`; `x-client-request-id` carries the thread id. | Send the 0.144 header names for SSE and WebSocket requests. Cocopi currently uses its stable conversation id for both session and thread identity. |
 | Service tiers | Structured `service_tiers` and `default_service_tier` supersede deprecated `additional_speed_tiers`. | Parse and cache the structured fields; derive Fast picker variants from `service_tiers`, with the deprecated field retained as a compatibility fallback. |
 | Catalog cache | Cocopi cache keys include API base URL, client version, and ChatGPT account id. | Version bump naturally isolates old `0.125.0` cache entries. |
@@ -32,9 +33,12 @@ The full tag snapshots were compared in the Codex model, API, auth, protocol, an
 | Upstream `0.144.0` contract | Cocopi disposition |
 | --- | --- |
 | Unknown non-empty reasoning effort strings deserialize as `Custom(String)` and serialize unchanged. | Implemented. Global Cocopi settings remain a curated known-value enum, while catalog-advertised custom values flow through model configuration and requests. |
+| `ReasoningEffort::Ultra` is converted to `ReasoningEffort::Max` by `reasoning_effort_for_request`; with MultiAgentV2, the selected Ultra mode injects proactive multi-agent developer instructions. | Implemented. Cocopi sends `max`, appends truthful one-shot `runSubagent` guidance when the tool and selector permit it, and enables parallel calls unless the catalog explicitly reports no support. The custom participant exposes the tool as an optional baseline capability, while only Ultra activates this proactive policy. |
+| MultiAgentV2 exposes `spawn_agent`, `send_message`, `followup_task`, `wait_agent`, `interrupt_agent`, and `list_agents` through the `collaboration` namespace. | VS Code does not expose equivalent persistent-child lifecycle operations. Cocopi exposes the real host `runSubagent` tool, executes independent calls concurrently, and does not invent native tool names or semantics. |
+| Root requests use normal Responses instructions and tools. `x-openai-subagent` and `x-codex-parent-thread-id` identify actual child requests and lineage. | Root Cocopi requests carry neither child header. VS Code owns subagent creation for `runSubagent`; add child headers only if Cocopi later owns a child request and has reliable parent lineage. |
 | Responses request identity uses `session-id`, `thread-id`, and `x-client-request-id`; the latter two use thread identity. | Implemented for SSE and WebSocket. Deprecated underscore header names are no longer sent. |
 | `service_tiers: [{ id, name, description }]` and `default_service_tier` augment the deprecated speed-tier list. | Implemented in parser types, stored catalog sanitization, Fast variant discovery, command details, and tests. Catalog defaults are recorded but are not silently applied, matching upstream request selection behavior. |
-| Newly bundled catalog fields include `auto_review_model_override`, `comp_hash`, `include_skills_usage_instructions`, `multi_agent_version`, `tool_mode`, and `use_responses_lite`. | Intentionally out of the current bridge scope. They control upstream CLI review, compaction, skill prompt assembly, multi-agent/tool orchestration, or Responses Lite behavior; Cocopi delegates those concerns to VS Code and uses standard Responses requests. |
+| Newly bundled catalog fields include `auto_review_model_override`, `comp_hash`, `include_skills_usage_instructions`, `multi_agent_version`, `tool_mode`, and `use_responses_lite`. | `multi_agent_version` and `tool_mode` are parsed and cached; the former gates V2 guidance. The remaining fields stay outside the current bridge. Cocopi translates onto actual VS Code `runSubagent` availability rather than importing Codex's native agent runtime. |
 | `response.reasoning_summary_text.done` provides finalized summary text. | Already handled by Cocopi's reasoning-part identity, metadata, and completion paths. |
 | `response.metadata` can carry model verification, moderation, turn-state, and server-model metadata; safety-buffering notifications can accompany ordinary response events. | Not a request/stream correctness blocker. Cocopi preserves the raw event stream for diagnostics but does not yet expose first-party Codex moderation, verification, or buffering UI. Track as presentation work. |
 | Completed responses may carry `end_turn`. | Not a blocker for the VS Code bridge, whose continuation loop is driven by explicit function-call items. The permissive response object retains the field for diagnostics. |
@@ -70,24 +74,24 @@ GPT-5.6 fixture metadata at `rust-v0.144.0`:
 
 Checked with active local credentials on 2026-07-09 using `client_version=0.144.0`. The backend returned eight models and the parser found no unknown reasoning efforts, no defaults outside their model's advertised supported list, and no parsed/advertised reasoning mismatch.
 
-| Model | Default reasoning | Advertised reasoning | Cocopi `max` request | Cocopi `ultra` request |
+| Model | Default reasoning | Advertised reasoning | Cocopi `max` wire effort | Cocopi `ultra` wire effort |
 | --- | --- | --- | --- | --- |
-| `gpt-5.6-sol` | `low` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `max` | `ultra` |
+| `gpt-5.6-sol` | `low` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `max` | `max` + proactive `runSubagent` mode |
 | `gpt-5.5` | `medium` | `low`, `medium`, `high`, `xhigh` | `xhigh` | `xhigh` |
-| `gpt-5.6-terra` | `medium` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `max` | `ultra` |
+| `gpt-5.6-terra` | `medium` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `max` | `max` + proactive `runSubagent` mode |
 | `gpt-5.6-luna` | `medium` | `low`, `medium`, `high`, `xhigh`, `max` | `max` | `max` |
 | `gpt-5.4` | `medium` | `low`, `medium`, `high`, `xhigh` | `xhigh` | `xhigh` |
 | `gpt-5.4-mini` | `medium` | `low`, `medium`, `high`, `xhigh` | `xhigh` | `xhigh` |
 | `gpt-5.3-codex-spark` | `high` | `low`, `medium`, `high`, `xhigh` | omitted because `supported_in_api: false` | omitted because `supported_in_api: false` |
 | `codex-auto-review` | `medium` | `low`, `medium`, `high`, `xhigh` | `xhigh` | `xhigh` |
 
-Conclusion: the new global settings/schema values do not force unsupported reasoning efforts onto older models. Cocopi resolves per live catalog metadata: old lists clamp `max`/`ultra` to nearest supported effort, GPT-5.6 Luna clamps `ultra` to `max`, and API-unsupported reasoning models omit reasoning entirely.
+Conclusion: the new global settings/schema values do not force unsupported wire efforts onto older models. Cocopi resolves per live catalog metadata, then applies the upstream Ultra translation: selected Ultra becomes `max` (or the nearest older wire effort) and separately enables proactive `runSubagent` guidance when that VS Code tool is present and the catalog does not explicitly select `v1` or `disabled`. Missing selector metadata remains compatible. API-unsupported reasoning models omit reasoning entirely.
 
 ## Release-Driven Impact Matrix
 
 | Upstream area | Relevant changes in `0.125.0...0.144.0` | Cocopi decision |
 | --- | --- | --- |
-| Models and reasoning | Model providers own discovery; model-defined reasoning levels flow through in advertised order; GPT-5.6 variants and `max` reasoning arrive; `ultra` appears in the catalog; Bedrock display names clarify GPT-5.6 family/variant. | Treat catalog metadata as source of truth. Preserve arbitrary non-empty catalog effort strings, but do not special-case GPT-5.6 slugs. |
+| Models and reasoning | Model providers own discovery; model-defined reasoning levels flow through in advertised order; GPT-5.6 variants and `max` reasoning arrive; `ultra` appears as a client orchestration mode; Bedrock display names clarify GPT-5.6 family/variant. | Treat catalog metadata as source of truth without special-casing GPT-5.6 slugs. Preserve custom efforts, while translating Ultra to `max` plus proactive VS Code subagent guidance. |
 | Usage and rate limits | Upstream adds richer `/usage` views and reset-credit redemption details. | Cocopi already reads backend usage/rate snapshots and keeps local Token Tracker rows. Track reset-credit metadata separately if the backend exposes it through Cocopi's `/usage` path. |
 | Auth and login | ChatGPT auth refresh behavior improves; Python/app-server gain auth APIs; hosted/external auth and MCP auth elicitation grow; device-code login warning copy now highlights phishing prevention. | Runtime remains extension-owned browser OAuth/device-code with SecretStorage. Review Cocopi device-code UX copy against upstream phishing-warning wording. |
 | Responses/WebSocket transport | Upstream centralizes Responses retry handling, changes session/thread request headers, improves incremental WebSocket comparisons, routes Responses API through system proxies, and preserves WebSockets with proxy/custom CA handling. | Align request identity headers and keep existing continuation tests. System-proxy/custom-CA parity remains separate environment-specific work. |
@@ -126,6 +130,10 @@ These are the release-note themes most likely to affect Cocopi or future Cocopi 
 
 - [x] Bump Cocopi `CODEX_CLIENT_VERSION` to `0.144.0`.
 - [x] Accept `max` and `ultra` in all Cocopi reasoning settings/model metadata paths.
+- [x] Translate Ultra to `max` on the Responses wire and catalog-aware proactive `runSubagent` instructions when VS Code supplies that tool.
+- [x] Parse and cache `multi_agent_version`, `tool_mode`, and `supports_parallel_tool_calls`.
+- [x] Keep auto-added `runSubagent` optional at every custom-participant effort; reserve proactive instructions and parallel independent calls for Ultra, with stable result replay order.
+- [x] Keep root requests free of child-only `x-openai-subagent` and `x-codex-parent-thread-id` headers.
 - [x] Preserve arbitrary non-empty model-defined reasoning values from the catalog.
 - [x] Send `session-id` and `thread-id` on SSE and WebSocket Responses requests.
 - [x] Parse structured service-tier metadata while retaining deprecated speed-tier fallback behavior.

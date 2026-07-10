@@ -428,6 +428,54 @@ test("provideLanguageModelChatInformation returns stored catalog during silent s
   assert.match(secrets.get(COCOPI_MODEL_CATALOG_STORAGE_KEY) ?? "", /gpt-refreshed/u);
 });
 
+test("provideLanguageModelChatResponse restores orchestration metadata from stored catalog", async (testContext) => {
+  /** @type {RequestInit | undefined} */
+  let requestOptions;
+  const secrets = new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"],
+    [COCOPI_MODEL_CATALOG_STORAGE_KEY, JSON.stringify([{
+      key: [DEFAULT_CODEX_API_BASE_URL, CODEX_CLIENT_VERSION, ""].join("\n"),
+      expiresAtMs: Date.now() + 60_000,
+      models: [{
+        id: "gpt-stored-v2",
+        displayName: "GPT Stored V2",
+        multiAgentVersion: "v2",
+        toolMode: "direct",
+        supportsParallelToolCalls: false
+      }]
+    }])]
+  ]);
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    requestOptions = options;
+    return eventStreamResponse([
+      sseData({ type: "response.completed", response: { id: "resp-stored-v2" } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(
+    fakeContext(secrets),
+    fakeVscode(configurationValues({ model: "gpt-stored-v2" }))
+  );
+
+  await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken());
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-stored-v2"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "delegate when useful")],
+    fakeResponseOptions({
+      toolMode: 2,
+      modelOptions: { reasoningEffort: "ultra" },
+      tools: [{ name: "runSubagent", description: "Run a subagent.", inputSchema: { type: "object" } }]
+    }),
+    fakeProgress(),
+    fakeCancellationToken()
+  );
+
+  const body = JSON.parse(String(requestOptions?.body));
+  assert.match(body.instructions, /delegate one task at a time/u);
+  assert.equal(body.parallel_tool_calls, false);
+});
+
 test("provideLanguageModelChatInformation does not refresh expired auth before returning stored silent catalog", async (testContext) => {
   /** @type {string[]} */
   const calls = [];
@@ -3785,6 +3833,184 @@ test("provideLanguageModelChatResponse pins blank runSubagent model input", asyn
   const dataPart = progress.parts.find((part) => part instanceof LanguageModelDataPart);
   assert.ok(dataPart instanceof LanguageModelDataPart);
   assertMetadataOnlyStatefulMarker(dataPart, 1);
+});
+
+test("provideLanguageModelChatResponse translates Ultra into Max with proactive runSubagent guidance", async (testContext) => {
+  /** @type {RequestInit | undefined} */
+  let requestOptions;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
+    if (String(url).includes("/models?")) {
+      return Response.json({
+        models: [{
+          slug: "gpt-5.6-sol",
+          multi_agent_version: "v2",
+          supports_parallel_tool_calls: true
+        }]
+      });
+    }
+
+    requestOptions = options;
+    return eventStreamResponse([
+      sseData({ type: "response.completed", response: { id: "resp-ultra" } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode());
+
+  await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-5.6-sol", "GPT-5.6 Sol"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "delegate when useful")],
+    fakeResponseOptions({
+      toolMode: 2,
+      modelOptions: { reasoningEffort: "ultra" },
+      tools: [{ name: "runSubagent", description: "Run a subagent.", inputSchema: { type: "object" } }]
+    }),
+    fakeProgress(),
+    fakeCancellationToken()
+  );
+
+  const body = JSON.parse(String(requestOptions?.body));
+  assert.deepEqual(body.reasoning, { effort: "max", summary: "auto" });
+  assert.notEqual(body.reasoning.effort, "ultra");
+  assert.match(body.instructions, /Proactive multi-agent delegation is active/u);
+  assert.match(body.instructions, /`runSubagent` tool/u);
+  assert.equal(body.parallel_tool_calls, true);
+  const headers = new Headers(requestOptions?.headers);
+  assert.equal(headers.has("x-openai-subagent"), false);
+  assert.equal(headers.has("x-codex-parent-thread-id"), false);
+});
+
+test("provideLanguageModelChatResponse honors explicit and unknown multi-agent selectors", async (testContext) => {
+  /** @type {RequestInit[]} */
+  const responseRequests = [];
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
+    if (String(url).includes("/models?")) {
+      return Response.json({
+        models: [
+          { slug: "gpt-v1", multi_agent_version: "v1", supports_parallel_tool_calls: true },
+          { slug: "gpt-disabled", multi_agent_version: "disabled", supports_parallel_tool_calls: true },
+          { slug: "gpt-unknown", supports_parallel_tool_calls: true }
+        ]
+      });
+    }
+
+    responseRequests.push(options);
+    return eventStreamResponse([
+      sseData({ type: "response.completed", response: { id: `resp-${responseRequests.length}` } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode());
+
+  await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
+  for (const modelId of ["gpt-v1", "gpt-disabled", "gpt-unknown"]) {
+    await provider.provideLanguageModelChatResponse(
+      fakeModel(modelId),
+      [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "delegate when useful")],
+      fakeResponseOptions({
+        toolMode: 2,
+        modelOptions: { reasoningEffort: "ultra" },
+        tools: [{ name: "runSubagent", description: "Run a subagent.", inputSchema: { type: "object" } }]
+      }),
+      fakeProgress(),
+      fakeCancellationToken()
+    );
+  }
+
+  assert.equal(responseRequests.length, 3);
+  for (const options of responseRequests.slice(0, 2)) {
+    const body = JSON.parse(String(options.body));
+    assert.deepEqual(body.reasoning, { effort: "max", summary: "auto" });
+    assert.doesNotMatch(body.instructions ?? "", /Proactive multi-agent delegation is active/u);
+    assert.equal(body.parallel_tool_calls, false);
+  }
+  const unknownBody = JSON.parse(String(responseRequests[2].body));
+  assert.match(unknownBody.instructions, /Proactive multi-agent delegation is active/u);
+  assert.equal(unknownBody.parallel_tool_calls, true);
+});
+
+test("provideLanguageModelChatResponse uses serial Ultra guidance when parallel tools are unsupported", async (testContext) => {
+  /** @type {RequestInit | undefined} */
+  let responseRequest;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
+    if (String(url).includes("/models?")) {
+      return Response.json({
+        models: [{
+          slug: "gpt-v2-serial",
+          multi_agent_version: "v2",
+          supports_parallel_tool_calls: false
+        }]
+      });
+    }
+
+    responseRequest = options;
+    return eventStreamResponse([
+      sseData({ type: "response.completed", response: { id: "resp-v2-serial" } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode());
+
+  await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-v2-serial"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "delegate when useful")],
+    fakeResponseOptions({
+      toolMode: 2,
+      modelOptions: { reasoningEffort: "ultra" },
+      tools: [{ name: "runSubagent", description: "Run a subagent.", inputSchema: { type: "object" } }]
+    }),
+    fakeProgress(),
+    fakeCancellationToken()
+  );
+
+  const body = JSON.parse(String(responseRequest?.body));
+  assert.match(body.instructions, /delegate one task at a time/u);
+  assert.doesNotMatch(body.instructions, /host can run them in parallel/u);
+  assert.equal(body.parallel_tool_calls, false);
+});
+
+test("provideLanguageModelChatResponse maps Ultra to Max without unavailable subagent guidance", async (testContext) => {
+  /** @type {RequestInit | undefined} */
+  let requestOptions;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    requestOptions = options;
+    return eventStreamResponse([
+      sseData({ type: "response.completed", response: { id: "resp-ultra-no-subagent" } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode());
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-5.6-sol", "GPT-5.6 Sol"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "work alone")],
+    fakeResponseOptions({
+      toolMode: 1,
+      modelOptions: { reasoningEffort: "ultra" },
+      tools: [{ name: "read_file", description: "Read a file.", inputSchema: { type: "object" } }]
+    }),
+    fakeProgress(),
+    fakeCancellationToken()
+  );
+
+  const body = JSON.parse(String(requestOptions?.body));
+  assert.deepEqual(body.reasoning, { effort: "max", summary: "auto" });
+  assert.doesNotMatch(body.instructions ?? "", /Proactive multi-agent delegation is active/u);
+  assert.equal(body.parallel_tool_calls, false);
 });
 
 test("provideLanguageModelChatResponse lets VS Code render tool starts without synthetic thinking", async (testContext) => {

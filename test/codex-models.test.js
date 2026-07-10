@@ -43,6 +43,9 @@ test("parseModelsResponse reads Codex backend model catalog", () => {
         ],
         supports_reasoning_summaries: true,
         default_reasoning_summary: "detailed",
+        multi_agent_version: "v2",
+        tool_mode: "direct",
+        supports_parallel_tool_calls: true,
         available_in_plans: ["pro", "business"],
         capabilities: { image_input: false }
       },
@@ -73,6 +76,9 @@ test("parseModelsResponse reads Codex backend model catalog", () => {
       ],
       supportsReasoningSummaries: true,
       defaultReasoningSummary: "detailed",
+      multiAgentVersion: "v2",
+      toolMode: "direct",
+      supportsParallelToolCalls: true,
       availableInPlans: ["pro", "business"],
       imageInput: false
     },
@@ -110,6 +116,31 @@ test("parseModelsResponse preserves future catalog-defined reasoning efforts", (
       { effort: "future", description: "Future model-defined effort" }
     ]
   }]);
+});
+
+test("parseModelsResponse preserves recognized orchestration selectors", () => {
+  assert.deepEqual(parseModelsResponse({
+    models: [
+      { slug: "gpt-disabled", multi_agent_version: "disabled", tool_mode: "code_mode", supports_parallel_tool_calls: false },
+      { slug: "gpt-v1", multi_agent_version: "v1", tool_mode: "code_mode_only" },
+      { slug: "gpt-v2", multi_agent_version: "v2", tool_mode: "direct", supports_parallel_tool_calls: true }
+    ]
+  }), [
+    { id: "gpt-disabled", displayName: "gpt-disabled", multiAgentVersion: "disabled", toolMode: "code_mode", supportsParallelToolCalls: false },
+    { id: "gpt-v1", displayName: "gpt-v1", multiAgentVersion: "v1", toolMode: "code_mode_only" },
+    { id: "gpt-v2", displayName: "gpt-v2", multiAgentVersion: "v2", toolMode: "direct", supportsParallelToolCalls: true }
+  ]);
+});
+
+test("parseModelsResponse omits unknown orchestration selectors", () => {
+  assert.deepEqual(parseModelsResponse({
+    models: [{
+      slug: "gpt-future-orchestration",
+      multi_agent_version: "v3",
+      tool_mode: "future",
+      supports_parallel_tool_calls: "true"
+    }]
+  }), [{ id: "gpt-future-orchestration", displayName: "gpt-future-orchestration" }]);
 });
 
 test("parseModelsResponse preserves empty service tier lists and ignores invalid entries", () => {

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { DEFAULT_CODEX_API_BASE_URL, DEFAULT_CODEX_MODEL } from "../lib/codex-api/config.js";
-import { COCOPI_AUTH_MODES, COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_DEBUG_LEVELS, COCOPI_INLINE_COMPLETION_MODEL_AUTO, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_SERVICE_TIERS, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS, DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS, DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS, DEFAULT_EDIT_PROGRESS_INTERVAL_MS, DEFAULT_INLINE_COMPLETION_MAX_PREFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_MAX_SUFFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS, codexReasoningFromCocopiOptions, codexServiceTierFromCocopiOptions, codexToolOptionsFromCocopiOptions, readCocopiConfiguration, resolveChatParticipantInstructions } from "../lib/vscode/configuration.js";
+import { COCOPI_AUTH_MODES, COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_DEBUG_LEVELS, COCOPI_INLINE_COMPLETION_MODEL_AUTO, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_SERVICE_TIERS, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, COCOPI_ULTRA_MULTI_AGENT_MODE_INSTRUCTIONS, DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS, DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS, DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS, DEFAULT_EDIT_PROGRESS_INTERVAL_MS, DEFAULT_INLINE_COMPLETION_MAX_PREFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_MAX_SUFFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS, codexReasoningFromCocopiOptions, codexServiceTierFromCocopiOptions, codexToolOptionsFromCocopiOptions, cocopiUltraMultiAgentModeFromOptions, readCocopiConfiguration, resolveChatParticipantInstructions, resolveCocopiUltraMultiAgentInstructions } from "../lib/vscode/configuration.js";
 
 test("readCocopiConfiguration reads defaults", () => {
   assert.deepEqual(readCocopiConfiguration(fakeVscodeConfiguration()), {
@@ -278,12 +278,18 @@ test("codexReasoningFromCocopiOptions maps unsupported selected effort to neares
   }), { effort: "medium", summary: "auto" });
 });
 
-test("codexReasoningFromCocopiOptions maps ultra to a model-supported max effort", () => {
+test("codexReasoningFromCocopiOptions maps catalog-advertised ultra to max on the wire", () => {
   assert.deepEqual(codexReasoningFromCocopiOptions(readCocopiConfiguration(fakeVscodeConfiguration()), {
     reasoningEffort: "ultra"
   }, {
     defaultEffort: "medium",
-    supportedEfforts: ["low", "medium", "high", "xhigh", "max"]
+    supportedEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"]
+  }), { effort: "max", summary: "auto" });
+});
+
+test("codexReasoningFromCocopiOptions maps ultra to max without catalog metadata", () => {
+  assert.deepEqual(codexReasoningFromCocopiOptions(readCocopiConfiguration(fakeVscodeConfiguration()), {
+    reasoningEffort: "ultra"
   }), { effort: "max", summary: "auto" });
 });
 
@@ -305,6 +311,37 @@ test("codexReasoningFromCocopiOptions preserves a catalog-supported custom effor
     defaultEffort: "medium",
     supportedEfforts: ["medium", "future"]
   }), { effort: "future", summary: "auto" });
+});
+
+test("Cocopi Ultra mode requires the VS Code runSubagent tool", () => {
+  const configuration = readCocopiConfiguration(fakeVscodeConfiguration());
+  const modelOptions = { reasoningEffort: "ultra" };
+
+  assert.equal(cocopiUltraMultiAgentModeFromOptions(configuration, modelOptions, [{ name: "runSubagent" }]), true);
+  assert.equal(cocopiUltraMultiAgentModeFromOptions(configuration, modelOptions, [{ name: "runSubagent" }], { multiAgentVersion: "v2" }), true);
+  assert.equal(cocopiUltraMultiAgentModeFromOptions(configuration, modelOptions, [{ name: "runSubagent" }], { multiAgentVersion: "v1" }), false);
+  assert.equal(cocopiUltraMultiAgentModeFromOptions(configuration, modelOptions, [{ name: "runSubagent" }], { multiAgentVersion: "disabled" }), false);
+  assert.equal(cocopiUltraMultiAgentModeFromOptions(configuration, modelOptions, [{ name: "read_file" }]), false);
+  assert.equal(cocopiUltraMultiAgentModeFromOptions(configuration, { reasoningEffort: "max" }, [{ name: "runSubagent" }]), false);
+});
+
+test("resolveCocopiUltraMultiAgentInstructions appends proactive runSubagent guidance once", () => {
+  const resolved = resolveCocopiUltraMultiAgentInstructions("Base instructions.", true);
+
+  assert.equal(resolved, `Base instructions.\n\n${COCOPI_ULTRA_MULTI_AGENT_MODE_INSTRUCTIONS}`);
+  assert.match(resolved ?? "", /Proactive multi-agent delegation is active/u);
+  assert.match(resolved ?? "", /`runSubagent` tool/u);
+  assert.match(resolved ?? "", /multiple independent `runSubagent` calls/u);
+  assert.equal(resolveCocopiUltraMultiAgentInstructions(resolved, true), resolved);
+  assert.equal(resolveCocopiUltraMultiAgentInstructions("Base instructions.", false), "Base instructions.");
+});
+
+test("resolveCocopiUltraMultiAgentInstructions avoids parallel claims when unsupported", () => {
+  const resolved = resolveCocopiUltraMultiAgentInstructions("Base instructions.", true, { parallelToolCalls: false });
+
+  assert.match(resolved ?? "", /delegate one task at a time/u);
+  assert.doesNotMatch(resolved ?? "", /host can run them in parallel/u);
+  assert.equal(resolveCocopiUltraMultiAgentInstructions(resolved, true, { parallelToolCalls: false }), resolved);
 });
 
 test("codexReasoningFromCocopiOptions maps selected reasoning options", () => {

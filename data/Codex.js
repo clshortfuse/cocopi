@@ -101,6 +101,10 @@
 
 /** @typedef {'auto' | 'concise' | 'detailed' | 'none'} CodexReasoningSummary */
 
+/** @typedef {'disabled' | 'v1' | 'v2'} CodexMultiAgentVersion */
+
+/** @typedef {'direct' | 'code_mode' | 'code_mode_only'} CodexToolMode */
+
 /** @typedef {'used' | 'skipped'} CodexPreviousResponseDecisionAction */
 
 /** @typedef {'matched-prefix' | 'no-prior-request' | 'no-prior-response-id' | 'explicit-previous-response-id' | 'non-array-input' | 'request-state-changed' | 'input-shorter-than-baseline' | 'input-prefix-mismatch'} CodexPreviousResponseDecisionReason */
@@ -384,6 +388,9 @@
  * @property {CodexReasoningEffortPreset[]} [supportedReasoningEfforts]
  * @property {boolean} [supports_reasoning_summaries]
  * @property {CodexReasoningSummary} [default_reasoning_summary]
+ * @property {CodexMultiAgentVersion} [multi_agent_version]
+ * @property {CodexToolMode} [tool_mode]
+ * @property {boolean} [supports_parallel_tool_calls]
  * @property {string[]} [available_in_plans]
  * @property {boolean} [supports_images]
  * @property {boolean} [supports_image_input]
@@ -422,6 +429,9 @@
  * @property {{ effort: CodexReasoningEffort, description?: string }[]} [supportedReasoningLevels]
  * @property {boolean} [supportsReasoningSummaries]
  * @property {CodexReasoningSummary} [defaultReasoningSummary]
+ * @property {CodexMultiAgentVersion} [multiAgentVersion]
+ * @property {CodexToolMode} [toolMode]
+ * @property {boolean} [supportsParallelToolCalls]
  * @property {string[]} [availableInPlans]
  * @property {boolean} [imageInput]
  */

@@ -252,7 +252,7 @@
             "Greater reasoning depth for complex problems.",
             "Extra high reasoning depth for complex problems.",
             "Maximum reasoning depth for the hardest problems.",
-            "Maximum reasoning with automatic task delegation."
+            "Max wire reasoning plus proactive VS Code subagent orchestration, including parallel delegation, when runSubagent and the model catalog permit it."
           ],
           "enumItemLabels": [
             "Model Default",
