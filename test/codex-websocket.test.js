@@ -69,9 +69,11 @@ test("fetchCodexResponseWebSocketStream connects with Codex headers and streams 
   assert.equal(socket.init?.headers?.Authorization, "Bearer access-token");
   assert.equal(socket.init?.headers?.["ChatGPT-Account-ID"], "account-id");
   assert.equal(socket.init?.headers?.["OpenAI-Beta"], CODEX_RESPONSES_WEBSOCKET_BETA_HEADER);
-  assert.equal(socket.init?.headers?.session_id, "cocopi-language-model");
-  assert.equal(socket.init?.headers?.conversation_id, "cocopi-language-model");
+  assert.equal(socket.init?.headers?.["session-id"], "cocopi-language-model");
+  assert.equal(socket.init?.headers?.["thread-id"], "cocopi-language-model");
   assert.equal(socket.init?.headers?.["x-client-request-id"], "cocopi-language-model");
+  assert.equal(socket.init?.headers?.session_id, undefined);
+  assert.equal(socket.init?.headers?.conversation_id, undefined);
   assert.equal(socket.init?.headers?.["x-codex-turn-metadata"], '{"turn_id":"turn-1"}');
 
   socket.open();
