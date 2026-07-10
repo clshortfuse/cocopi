@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import { COCOPI_ORIGINATOR, codexUserAgent } from "../lib/codex-api/codex-headers.js";
+import { CODEX_CLIENT_VERSION } from "../lib/codex-api/config.js";
 import { chooseCodexModel, fetchCodexModelsResponse, listCodexModels, parseModelsResponse } from "../lib/codex-api/models.js";
 
 const chatgptProCatalogFixture = JSON.parse(await readFile(new URL("fixtures/codex-models/chatgpt-pro-catalog.json", import.meta.url), "utf8"));
@@ -28,10 +29,17 @@ test("parseModelsResponse reads Codex backend model catalog", () => {
         max_context_window: 1_000_000,
         auto_compact_token_limit: null,
         additional_speed_tiers: ["fast"],
-        default_reasoning_level: "xhigh",
+        service_tiers: [
+          { id: "priority", name: "Fast", description: "Priority processing." },
+          { id: "flex", name: "Flex", description: "Lower-cost processing." }
+        ],
+        default_service_tier: "priority",
+        default_reasoning_level: "max",
         supported_reasoning_levels: [
           { effort: "low", description: "Quick scan" },
-          { effort: "xhigh", description: "Deep work" }
+          { effort: "xhigh", description: "Deep work" },
+          { effort: "max", description: "Hardest problems" },
+          { effort: "ultra", description: "Automatic task delegation" }
         ],
         supports_reasoning_summaries: true,
         default_reasoning_summary: "detailed",
@@ -51,10 +59,17 @@ test("parseModelsResponse reads Codex backend model catalog", () => {
       maxContextWindow: 1_000_000,
       autoCompactTokenLimit: null,
       additionalSpeedTiers: ["fast"],
-      defaultReasoningLevel: "xhigh",
+      serviceTiers: [
+        { id: "priority", name: "Fast", description: "Priority processing." },
+        { id: "flex", name: "Flex", description: "Lower-cost processing." }
+      ],
+      defaultServiceTier: "priority",
+      defaultReasoningLevel: "max",
       supportedReasoningLevels: [
         { effort: "low", description: "Quick scan" },
-        { effort: "xhigh", description: "Deep work" }
+        { effort: "xhigh", description: "Deep work" },
+        { effort: "max", description: "Hardest problems" },
+        { effort: "ultra", description: "Automatic task delegation" }
       ],
       supportsReasoningSummaries: true,
       defaultReasoningSummary: "detailed",
@@ -73,6 +88,40 @@ test("parseModelsResponse preserves empty supported reasoning levels", () => {
   assert.deepEqual(parseModelsResponse({
     models: [{ slug: "gpt-no-reasoning", supported_reasoning_levels: [] }]
   }), [{ id: "gpt-no-reasoning", displayName: "gpt-no-reasoning", supportedReasoningLevels: [] }]);
+});
+
+test("parseModelsResponse preserves future catalog-defined reasoning efforts", () => {
+  assert.deepEqual(parseModelsResponse({
+    models: [{
+      slug: "gpt-future-reasoning",
+      default_reasoning_level: "future",
+      supported_reasoning_levels: [
+        { effort: "medium", description: "Balanced" },
+        { effort: "future", description: "Future model-defined effort" },
+        { effort: "", description: "Invalid empty effort" }
+      ]
+    }]
+  }), [{
+    id: "gpt-future-reasoning",
+    displayName: "gpt-future-reasoning",
+    defaultReasoningLevel: "future",
+    supportedReasoningLevels: [
+      { effort: "medium", description: "Balanced" },
+      { effort: "future", description: "Future model-defined effort" }
+    ]
+  }]);
+});
+
+test("parseModelsResponse preserves empty service tier lists and ignores invalid entries", () => {
+  assert.deepEqual(parseModelsResponse({
+    models: [
+      { slug: "gpt-standard", service_tiers: [] },
+      { slug: "gpt-tiered", service_tiers: [{ id: "priority" }, { name: "Missing id" }, null] }
+    ]
+  }), [
+    { id: "gpt-standard", displayName: "gpt-standard", serviceTiers: [] },
+    { id: "gpt-tiered", displayName: "gpt-tiered", serviceTiers: [{ id: "priority" }] }
+  ]);
 });
 
 test("parseModelsResponse preserves explicit false reasoning summary support", () => {
@@ -145,11 +194,11 @@ test("listCodexModels sends bearer auth to backend models endpoint", async () =>
   });
 
   assert.deepEqual(models, [{ id: "gpt-5-codex", displayName: "gpt-5-codex" }]);
-  assert.equal(calls[0].url, "https://chatgpt.example.test/backend-api/codex/models?client_version=0.125.0");
+  assert.equal(calls[0].url, `https://chatgpt.example.test/backend-api/codex/models?client_version=${CODEX_CLIENT_VERSION}`);
   assert.equal(calls[0].options.method, "GET");
   assert.equal(calls[0].options.headers.Authorization, "Bearer access-token");
   assert.equal(calls[0].options.headers.originator, COCOPI_ORIGINATOR);
-  assert.equal(calls[0].options.headers.version, "0.125.0");
+  assert.equal(calls[0].options.headers.version, CODEX_CLIENT_VERSION);
   assert.equal(calls[0].options.headers["User-Agent"], codexUserAgent());
   assert.match(calls[0].options.headers["User-Agent"], /^cocopi\/0\.0\.1 \(.+; .+\) node\/\d+\.\d+\.\d+$/u);
 });

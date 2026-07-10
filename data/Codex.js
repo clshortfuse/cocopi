@@ -97,7 +97,7 @@
 
 /** @typedef {'priority' | 'flex'} CodexServiceTier */
 
-/** @typedef {'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'} CodexReasoningEffort */
+/** @typedef {string} CodexReasoningEffort */
 
 /** @typedef {'auto' | 'concise' | 'detailed' | 'none'} CodexReasoningSummary */
 
@@ -376,6 +376,8 @@
  * @property {number} [max_context_window]
  * @property {number | null} [auto_compact_token_limit]
  * @property {string[]} [additional_speed_tiers]
+ * @property {CodexModelServiceTier[]} [service_tiers]
+ * @property {string} [default_service_tier]
  * @property {CodexReasoningEffort} [default_reasoning_level]
  * @property {CodexReasoningEffort} [defaultReasoningEffort]
  * @property {CodexReasoningEffortPreset[]} [supported_reasoning_levels]
@@ -387,6 +389,13 @@
  * @property {boolean} [supports_image_input]
  * @property {boolean} [supports_vision]
  * @property {Record<string, CodexJsonValue>} [capabilities]
+ */
+
+/**
+ * @typedef {object} CodexModelServiceTier
+ * @property {string} id
+ * @property {string} [name]
+ * @property {string} [description]
  */
 
 /**
@@ -407,6 +416,8 @@
  * @property {number} [maxContextWindow]
  * @property {number | null} [autoCompactTokenLimit]
  * @property {string[]} [additionalSpeedTiers]
+ * @property {CodexModelServiceTier[]} [serviceTiers]
+ * @property {string} [defaultServiceTier]
  * @property {CodexReasoningEffort} [defaultReasoningLevel]
  * @property {{ effort: CodexReasoningEffort, description?: string }[]} [supportedReasoningLevels]
  * @property {boolean} [supportsReasoningSummaries]

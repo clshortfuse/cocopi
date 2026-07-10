@@ -239,7 +239,9 @@
             "low",
             "medium",
             "high",
-            "xhigh"
+            "xhigh",
+            "max",
+            "ultra"
           ],
           "enumDescriptions": [
             "Use the model catalog default when available.",
@@ -248,7 +250,9 @@
             "Fast responses with lighter reasoning.",
             "Balances speed and reasoning depth for everyday tasks.",
             "Greater reasoning depth for complex problems.",
-            "Extra high reasoning depth for complex problems."
+            "Extra high reasoning depth for complex problems.",
+            "Maximum reasoning depth for the hardest problems.",
+            "Maximum reasoning with automatic task delegation."
           ],
           "enumItemLabels": [
             "Model Default",
@@ -257,7 +261,9 @@
             "Low",
             "Medium",
             "High",
-            "Extra High"
+            "Extra High",
+            "Max",
+            "Ultra"
           ],
           "type": "string"
         },

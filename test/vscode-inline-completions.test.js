@@ -2,6 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { CODEX_CLIENT_VERSION } from "../lib/codex-api/config.js";
 import { buildInlineCompletionRequestBody, createCocopiInlineCompletionProvider, inlineCompletionContextFromDocument, chooseInlineCompletionModel, registerCocopiInlineCompletionProvider, sanitizeInlineCompletionText } from "../lib/vscode/inline-completions.js";
 import { CODEX_SECRET_KEYS } from "../lib/vscode/secret-storage.js";
 
@@ -57,7 +58,7 @@ test("inline completion provider builds a Codex request with the auto Spark mode
   const calls = [];
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
     calls.push({ url: String(url), options });
-    if (String(url).endsWith("/models?client_version=0.125.0")) {
+    if (String(url).endsWith(`/models?client_version=${CODEX_CLIENT_VERSION}`)) {
       return Response.json({
         models: [
           { slug: "gpt-main", display_name: "Main" },

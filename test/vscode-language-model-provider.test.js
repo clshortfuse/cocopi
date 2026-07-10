@@ -194,7 +194,7 @@ test("provideLanguageModelChatInformation refreshes metadata from Codex models a
     modelInformation("gpt-5-codex", "GPT-5 Codex"),
     modelInformation("gpt-5.2", "GPT-5.2", "gpt-5.2", { contextWindow: 272_000, tooltip: "Professional work model." })
   ]);
-  assert.equal(calls[0].url, "https://chatgpt.example.test/backend-api/codex/models?client_version=0.125.0");
+  assert.equal(calls[0].url, `https://chatgpt.example.test/backend-api/codex/models?client_version=${CODEX_CLIENT_VERSION}`);
   assert.equal(calls[0].options.headers.Authorization, "Bearer access-token");
   assert.equal(calls[0].options.headers["ChatGPT-Account-ID"], "account-id");
 });
@@ -859,6 +859,20 @@ test("languageModelInformationFromCodexModels exposes fast speed tiers as picker
   ]);
 });
 
+test("languageModelInformationFromCodexModels exposes catalog service tiers as picker variants", () => {
+  assert.deepEqual(languageModelInformationFromCodexModels([
+    {
+      id: "gpt-tiered",
+      displayName: "GPT Tiered",
+      serviceTiers: [{ id: "priority", name: "Fast", description: "Priority processing." }],
+      defaultServiceTier: "priority"
+    }
+  ], "gpt-tiered", { useModelDefaultCompactionLimit: false, compactionFallbackStrategy: "ninety-percent" }), [
+    modelInformation("gpt-tiered", "GPT Tiered", "gpt-tiered"),
+    modelInformation("gpt-tiered:fast", "GPT Tiered Fast", "gpt-tiered:fast")
+  ]);
+});
+
 test("languageModelInformationFromCodexModels does not duplicate catalog fast variants", () => {
   assert.deepEqual(languageModelInformationFromCodexModels([
     { id: "gpt-5.5", displayName: "GPT-5.5", additionalSpeedTiers: ["fast"] },
@@ -879,7 +893,9 @@ test("languageModelInformationFromCodexModels exposes navigation reasoning confi
         { effort: "low", description: "Faster responses with less reasoning" },
         { effort: "medium", description: "Balanced reasoning and speed" },
         { effort: "high", description: "Greater reasoning depth but slower" },
-        { effort: "xhigh", description: "Extra high reasoning depth for complex problems" }
+        { effort: "xhigh", description: "Extra high reasoning depth for complex problems" },
+        { effort: "max", description: "Maximum reasoning depth for the hardest problems" },
+        { effort: "ultra", description: "Maximum reasoning with automatic task delegation" }
       ],
       additionalSpeedTiers: ["fast"]
     }
@@ -893,19 +909,25 @@ test("languageModelInformationFromCodexModels exposes navigation reasoning confi
     "low",
     "medium",
     "high",
-    "xhigh"
+    "xhigh",
+    "max",
+    "ultra"
   ]);
   assert.deepEqual(reasoningEffort?.enumItemLabels, [
     "Low",
     "Medium",
     "High",
-    "Extra High"
+    "Extra High",
+    "Max",
+    "Ultra"
   ]);
   assert.deepEqual(reasoningEffort?.enumDescriptions, [
     "Faster responses with less reasoning",
     "Balanced reasoning and speed",
     "Greater reasoning depth but slower",
-    "Extra high reasoning depth for complex problems"
+    "Extra high reasoning depth for complex problems",
+    "Maximum reasoning depth for the hardest problems",
+    "Maximum reasoning with automatic task delegation"
   ]);
   assert.equal(reasoningEffort?.title, "Thinking Effort");
   assert.equal(reasoningEffort?.default, "medium");
@@ -928,11 +950,45 @@ test("languageModelInformationFromCodexModels uses default reasoning levels when
     "low",
     "medium",
     "high",
-    "xhigh"
+    "xhigh",
+    "max",
+    "ultra"
   ]);
   const reasoningEffortLabels = /** @type {string[] | undefined} */ (reasoningEffort?.enumItemLabels);
   assert.equal(reasoningEffortLabels?.[3], "Extra High");
   assert.equal(reasoningEffort?.default, "xhigh");
+});
+
+test("languageModelInformationFromCodexModels exposes catalog-defined custom reasoning efforts", () => {
+  const [model] = languageModelInformationFromCodexModels([{
+    id: "gpt-future",
+    displayName: "GPT Future",
+    defaultReasoningLevel: "future",
+    supportedReasoningLevels: [
+      { effort: "medium", description: "Balanced" },
+      { effort: "future", description: "Future model-defined effort" }
+    ]
+  }], "gpt-future", { useModelDefaultCompactionLimit: false, compactionFallbackStrategy: "ninety-percent" });
+
+  const reasoningEffort = /** @type {{ configurationSchema?: { properties?: Record<string, Record<string, unknown>> } }} */ (model).configurationSchema?.properties?.reasoningEffort;
+  assert.deepEqual(reasoningEffort?.enum, ["medium", "future"]);
+  assert.deepEqual(reasoningEffort?.enumItemLabels, ["Medium", "future"]);
+  assert.deepEqual(reasoningEffort?.enumDescriptions, ["Balanced", "Future model-defined effort"]);
+  assert.equal(reasoningEffort?.default, "future");
+});
+
+test("languageModelInformationFromCodexModels uses advertised custom effort order for fallback defaults", () => {
+  const [model] = languageModelInformationFromCodexModels([{
+    id: "gpt-future-default",
+    displayName: "GPT Future Default",
+    supportedReasoningLevels: [
+      { effort: "medium", description: "Balanced" },
+      { effort: "future", description: "Future model-defined effort" }
+    ]
+  }], "gpt-future-default", { useModelDefaultCompactionLimit: false, compactionFallbackStrategy: "ninety-percent" });
+
+  const reasoningEffort = /** @type {{ configurationSchema?: { properties?: Record<string, Record<string, unknown>> } }} */ (model).configurationSchema?.properties?.reasoningEffort;
+  assert.equal(reasoningEffort?.default, "future");
 });
 
 test("languageModelInformationFromCodexModels omits configuration schema for unsupported reasoning models", () => {

@@ -278,6 +278,35 @@ test("codexReasoningFromCocopiOptions maps unsupported selected effort to neares
   }), { effort: "medium", summary: "auto" });
 });
 
+test("codexReasoningFromCocopiOptions maps ultra to a model-supported max effort", () => {
+  assert.deepEqual(codexReasoningFromCocopiOptions(readCocopiConfiguration(fakeVscodeConfiguration()), {
+    reasoningEffort: "ultra"
+  }, {
+    defaultEffort: "medium",
+    supportedEfforts: ["low", "medium", "high", "xhigh", "max"]
+  }), { effort: "max", summary: "auto" });
+});
+
+test("codexReasoningFromCocopiOptions maps max and ultra to a model-supported xhigh effort", () => {
+  const configuration = readCocopiConfiguration(fakeVscodeConfiguration());
+  const options = {
+    defaultEffort: /** @type {import("../data/Codex.js").CodexReasoningEffort} */ ("medium"),
+    supportedEfforts: ["low", "medium", "high", "xhigh"]
+  };
+
+  assert.deepEqual(codexReasoningFromCocopiOptions(configuration, { reasoningEffort: "max" }, options), { effort: "xhigh", summary: "auto" });
+  assert.deepEqual(codexReasoningFromCocopiOptions(configuration, { reasoningEffort: "ultra" }, options), { effort: "xhigh", summary: "auto" });
+});
+
+test("codexReasoningFromCocopiOptions preserves a catalog-supported custom effort", () => {
+  assert.deepEqual(codexReasoningFromCocopiOptions(readCocopiConfiguration(fakeVscodeConfiguration()), {
+    reasoningEffort: "future"
+  }, {
+    defaultEffort: "medium",
+    supportedEfforts: ["medium", "future"]
+  }), { effort: "future", summary: "auto" });
+});
+
 test("codexReasoningFromCocopiOptions maps selected reasoning options", () => {
   assert.deepEqual(codexReasoningFromCocopiOptions(readCocopiConfiguration(fakeVscodeConfiguration()), {
     reasoningEffort: "medium",
