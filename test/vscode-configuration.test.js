@@ -426,7 +426,9 @@ test("resolveChatParticipantInstructions applies placement and regex maps", () =
 test("default instruction rewrites do not suppress visible commentary work notes", () => {
   const defaultReplacementText = Object.values(DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS).join("\n");
 
-  assert.match(defaultReplacementText, /not only as tool metadata/u);
+  assert.match(defaultReplacementText, /user-visible assistant commentary/u);
+  assert.match(defaultReplacementText, /not only as tool-call metadata/u);
+  assert.doesNotMatch(defaultReplacementText, /final-answer content/u);
   assert.doesNotMatch(defaultReplacementText, /Commentary, thinking, reasoning/u);
   assert.doesNotMatch(defaultReplacementText, /must stay in hidden reasoning/u);
 });

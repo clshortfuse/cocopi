@@ -124,8 +124,8 @@
             "type": "string"
           },
           "default": {
-            "When you ARE done, first provide a brief text summary of what was accomplished, then call task_complete\\. Both the summary message and the tool call are required\\.": "When you are done, first emit one concise user-facing completion summary as normal assistant-visible final-answer content, then call task_complete. Both the visible summary message and the tool call are required.",
-            "IMPORTANT: Before calling task_complete, you MUST provide a brief text summary of what was accomplished in your message\\. The task is not complete until both the summary and the task_complete call are present\\.": "IMPORTANT: Before calling task_complete, provide the completion summary as user-facing assistant message text, not only as tool metadata. The task is not complete until both the visible summary and the task_complete call are present."
+            "When you ARE done, first provide a brief text summary of what was accomplished, then call task_complete\\. Both the summary message and the tool call are required\\.": "When you are done, first emit one concise user-visible completion summary as assistant commentary, then call task_complete. Both the visible summary and the tool call are required.",
+            "IMPORTANT: Before calling task_complete, you MUST provide a brief text summary of what was accomplished in your message\\. The task is not complete until both the summary and the task_complete call are present\\.": "IMPORTANT: Before calling task_complete, emit the completion summary as user-visible assistant commentary, not only as tool-call metadata. The task is not complete until both the visible summary and the task_complete call are present."
           },
           "description": "Regex pattern-to-replacement entries applied to chat instruction text. User entries add new patterns or override default patterns by using the same key. Set a default pattern to an empty string to disable that replacement.",
           "type": "object"
@@ -135,7 +135,7 @@
             "type": "string"
           },
           "default": {
-            "Do not restate the summary in your message text — it is shown to the user directly\\.": "Before calling this tool, emit the completion summary as normal assistant-visible final-answer content. The tool summary is host metadata and must not be the only user-facing completion summary."
+            "Do not restate the summary in your message text — it is shown to the user directly\\.": "Before calling this tool, emit a concise user-visible completion summary as assistant commentary. The tool summary is metadata and must not be the only user-visible summary."
           },
           "description": "Regex pattern-to-replacement entries applied to VS Code tool descriptions. User entries add new patterns or override default patterns by using the same key. Set a default pattern to an empty string to disable that replacement.",
           "type": "object"

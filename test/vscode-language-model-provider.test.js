@@ -4097,7 +4097,7 @@ test("provideLanguageModelChatResponse rewrites VS Code tool completion summarie
   );
 
   const body = JSON.parse(String(requestOptions?.body));
-  assert.equal(body.tools[0].description, "Before calling this tool, emit the completion summary as normal assistant-visible final-answer content. The tool summary is host metadata and must not be the only user-facing completion summary.");
+  assert.equal(body.tools[0].description, "Before calling this tool, emit a concise user-visible completion summary as assistant commentary. The tool summary is metadata and must not be the only user-visible summary.");
 });
 
 test("provideLanguageModelChatResponse streams auto tool-capable requests on custom endpoints", async (testContext) => {

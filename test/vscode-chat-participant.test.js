@@ -153,7 +153,7 @@ test("Cocopi chat handler rewrites VS Code tool completion summaries", async (te
   ));
 
   const requestBody = JSON.parse(String(calls[0].options.body));
-  assert.equal(requestBody.tools[0].description, "Before calling this tool, emit the completion summary as normal assistant-visible final-answer content. The tool summary is host metadata and must not be the only user-facing completion summary.");
+  assert.equal(requestBody.tools[0].description, "Before calling this tool, emit a concise user-visible completion summary as assistant commentary. The tool summary is metadata and must not be the only user-visible summary.");
 });
 
 test("Cocopi chat handler streams reasoning summary deltas", async (testContext) => {

@@ -136,7 +136,7 @@ Primary code/tests:
 
 Cocopi applies built-in regex replacements to known VS Code/Copilot instruction and tool-description text around `task_complete`, then overlays user-configured regex replacements on top.
 
-The built-in replacements specifically rewrite host wording that can imply the model should avoid emitting a visible completion summary in normal assistant text, or that the tool payload alone is the real user-facing summary.
+The built-in replacements specifically rewrite host wording that can imply the model should avoid emitting a visible completion summary in normal assistant text, or that the tool payload alone is the real user-facing summary. They also disambiguate Copilot's generic references to a summary "message" for Codex: text emitted before `task_complete` must be user-visible assistant commentary because Codex reserves final-answer content for the terminal answer of a turn.
 
 Why it exists: Cocopi needs the final completion summary to remain visible in the chat transcript before `task_complete` is called. Some observed VS Code/Copilot instruction text and tool descriptions are awkward for that requirement because they can push the model toward treating the tool payload as the real summary and the visible chat text as optional.
 
