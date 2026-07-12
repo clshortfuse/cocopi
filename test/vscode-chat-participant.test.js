@@ -153,7 +153,7 @@ test("Cocopi chat handler rewrites VS Code tool completion summaries", async (te
   ));
 
   const requestBody = JSON.parse(String(calls[0].options.body));
-  assert.equal(requestBody.tools[0].description, "Put the concise user-visible completion summary in this tool's summary field. Cocopi renders it as normal assistant text, so do not emit the same summary separately before calling the tool.");
+  assert.equal(requestBody.tools[0].description, "Put the concise user-visible completion summary in this tool's summary field. It is shown as normal assistant text, so do not emit the same summary separately before calling the tool.");
 });
 
 test("Cocopi chat handler renders task completion without a model follow-up", async (testContext) => {

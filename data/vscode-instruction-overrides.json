@@ -19,11 +19,11 @@
         ]
       },
       "instructionRegexReplacements": {
-        "When you ARE done, first provide a brief text summary of what was accomplished, then call task_complete\\. Both the summary message and the tool call are required\\.": "When you are done, call task_complete with one concise completion summary in its summary field. Cocopi renders that summary as the user-visible final response; do not emit a duplicate completion summary before calling the tool.",
-        "IMPORTANT: Before calling task_complete, you MUST provide a brief text summary of what was accomplished in your message\\. The task is not complete until both the summary and the task_complete call are present\\.": "IMPORTANT: When the task is done, call task_complete with a concise summary in its summary field. Cocopi renders that summary as normal user-visible assistant text; do not emit the same completion summary separately before calling the tool."
+        "When you ARE done, first provide a brief text summary of what was accomplished, then call task_complete\\. Both the summary message and the tool call are required\\.": "When you are done, call task_complete with one concise completion summary in its summary field. That summary is shown to the user as the final response; do not emit a duplicate completion summary before calling the tool.",
+        "IMPORTANT: Before calling task_complete, you MUST provide a brief text summary of what was accomplished in your message\\. The task is not complete until both the summary and the task_complete call are present\\.": "IMPORTANT: When the task is done, call task_complete with a concise summary in its summary field. That summary is shown to the user as normal assistant text; do not emit the same completion summary separately before calling the tool."
       },
       "toolDescriptionRegexReplacements": {
-        "Do not restate the summary in your message text — it is shown to the user directly\\.": "Put the concise user-visible completion summary in this tool's summary field. Cocopi renders it as normal assistant text, so do not emit the same summary separately before calling the tool."
+        "Do not restate the summary in your message text — it is shown to the user directly\\.": "Put the concise user-visible completion summary in this tool's summary field. It is shown as normal assistant text, so do not emit the same summary separately before calling the tool."
       }
     }
   }

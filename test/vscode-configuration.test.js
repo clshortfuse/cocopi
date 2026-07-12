@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { DEFAULT_CODEX_API_BASE_URL, DEFAULT_CODEX_MODEL } from "../lib/codex-api/config.js";
-import { COCOPI_AUTH_MODES, COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_DEBUG_LEVELS, COCOPI_INLINE_COMPLETION_MODEL_AUTO, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_SERVICE_TIERS, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, COCOPI_ULTRA_MULTI_AGENT_MODE_INSTRUCTIONS, DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS, DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS, DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS, DEFAULT_EDIT_PROGRESS_INTERVAL_MS, DEFAULT_INLINE_COMPLETION_MAX_PREFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_MAX_SUFFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS, codexReasoningFromCocopiOptions, codexServiceTierFromCocopiOptions, codexToolOptionsFromCocopiOptions, cocopiUltraMultiAgentModeFromOptions, readCocopiConfiguration, resolveChatParticipantInstructions, resolveCocopiUltraMultiAgentInstructions } from "../lib/vscode/configuration.js";
+import { COCOPI_AUTH_MODES, COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_DEBUG_LEVELS, COCOPI_INLINE_COMPLETION_MODEL_AUTO, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_SERVICE_TIERS, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, COCOPI_ULTRA_MULTI_AGENT_MODE_INSTRUCTIONS, DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS, DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS, DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS, DEFAULT_EDIT_PROGRESS_INTERVAL_MS, DEFAULT_INLINE_COMPLETION_MAX_PREFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_MAX_SUFFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS, codexReasoningFromCocopiOptions, codexServiceTierFromCocopiOptions, codexToolOptionsFromCocopiOptions, cocopiUltraMultiAgentModeFromOptions, readCocopiConfiguration, resolveChatParticipantInstructions, resolveCocopiUltraMultiAgentInstructions, resolveVscodeLanguageModelTools } from "../lib/vscode/configuration.js";
+import { clearCocopiInstructionReplacementSnapshots, readCocopiInstructionReplacementSnapshots } from "../lib/vscode/instruction-replacements.js";
 
 test("readCocopiConfiguration reads defaults", () => {
   assert.deepEqual(readCocopiConfiguration(fakeVscodeConfiguration()), {
@@ -437,7 +438,9 @@ test("codexToolOptionsFromCocopiOptions maps strict defaults and request overrid
   }), { strict: false });
 });
 
-test("resolveChatParticipantInstructions applies placement and regex maps", () => {
+test("resolveChatParticipantInstructions applies placement and records the replacement preview", (testContext) => {
+  clearCocopiInstructionReplacementSnapshots();
+  testContext.after(clearCocopiInstructionReplacementSnapshots);
   const configuration = readCocopiConfiguration(fakeVscodeConfiguration(configurationValues({
     chatInstructions: "Use concise responses.",
     chatInstructionsPlacement: "append",
@@ -458,13 +461,110 @@ test("resolveChatParticipantInstructions applies placement and regex maps", () =
       "summary": "final answer"
     }
   }), "engineering final answer");
+  const snapshot = readCocopiInstructionReplacementSnapshots().instructions;
+  assert.equal(snapshot?.original, "coding summary");
+  assert.equal(snapshot?.rewritten, "engineering final answer");
+  assert.equal(snapshot?.truncated, false);
+  assert.ok(Number.isFinite(Date.parse(snapshot?.capturedAt ?? "")));
+});
+
+test("empty custom instruction replacements remove matches while empty built-ins are disabled", (testContext) => {
+  clearCocopiInstructionReplacementSnapshots();
+  testContext.after(clearCocopiInstructionReplacementSnapshots);
+  const [builtInPattern] = Object.keys(DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS);
+  const builtInSource = "When you ARE done, first provide a brief text summary of what was accomplished, then call task_complete. Both the summary message and the tool call are required.";
+  const configuration = readCocopiConfiguration(fakeVscodeConfiguration(configurationValues({
+    chatInstructionsPlacement: "off",
+    chatInstructionsRegexReplacements: {
+      [builtInPattern]: "",
+      "\\nFollow company policies\\.": ""
+    }
+  })));
+
+  assert.equal(resolveChatParticipantInstructions(`${builtInSource}\nFollow company policies.`, configuration), builtInSource);
+  const snapshot = readCocopiInstructionReplacementSnapshots().instructions;
+  assert.equal(snapshot?.original, `${builtInSource}\nFollow company policies.`);
+  assert.equal(snapshot?.rewritten, builtInSource);
+});
+
+test("enabled built-in instruction replacements rewrite catalog wording", () => {
+  const source = "When you ARE done, first provide a brief text summary of what was accomplished, then call task_complete. Both the summary message and the tool call are required.";
+  const configuration = readCocopiConfiguration(fakeVscodeConfiguration(configurationValues({
+    chatInstructionsPlacement: "off"
+  })));
+
+  const rewritten = resolveChatParticipantInstructions(source, configuration);
+
+  assert.match(rewritten ?? "", /call task_complete with one concise completion summary/u);
+  assert.doesNotMatch(rewritten ?? "", /Both the summary message and the tool call are required/u);
+});
+
+test("resolveVscodeLanguageModelTools records all tool descriptions for replacement preview", (testContext) => {
+  clearCocopiInstructionReplacementSnapshots();
+  testContext.after(clearCocopiInstructionReplacementSnapshots);
+  const configuration = readCocopiConfiguration(fakeVscodeConfiguration(configurationValues({
+    chatToolDescriptionRegexReplacements: { "old summary": "new summary" }
+  })));
+
+  const tools = resolveVscodeLanguageModelTools([
+    { name: "last", description: "Return the old summary." },
+    { name: "first", description: "Unchanged first tool." }
+  ], configuration);
+
+  assert.equal(tools[0].description, "Return the new summary.");
+  const snapshot = readCocopiInstructionReplacementSnapshots().toolDescriptions;
+  assert.equal(snapshot?.original, "Unchanged first tool.\n\n---\n\nReturn the old summary.");
+  assert.equal(snapshot?.rewritten, "Unchanged first tool.\n\n---\n\nReturn the new summary.");
+  assert.deepEqual(snapshot?.entries, [
+    { label: "first", original: "Unchanged first tool.", rewritten: "Unchanged first tool." },
+    { label: "last", original: "Return the old summary.", rewritten: "Return the new summary." }
+  ]);
+  assert.equal(snapshot?.truncated, false);
+});
+
+test("empty custom tool description replacements remove matches", (testContext) => {
+  clearCocopiInstructionReplacementSnapshots();
+  testContext.after(clearCocopiInstructionReplacementSnapshots);
+  const configuration = readCocopiConfiguration(fakeVscodeConfiguration(configurationValues({
+    chatToolDescriptionRegexReplacements: { "Return the old summary\\.": "" }
+  })));
+
+  const tools = resolveVscodeLanguageModelTools([
+    { name: "last", description: "Return the old summary." }
+  ], configuration);
+
+  assert.equal(tools[0].description, "");
+  const snapshot = readCocopiInstructionReplacementSnapshots().toolDescriptions;
+  assert.equal(snapshot?.original, "Return the old summary.");
+  assert.equal(snapshot?.rewritten, "");
+});
+
+test("enabled built-in tool replacement matches when task_complete is not the last tool", (testContext) => {
+  clearCocopiInstructionReplacementSnapshots();
+  testContext.after(clearCocopiInstructionReplacementSnapshots);
+  const configuration = readCocopiConfiguration(fakeVscodeConfiguration());
+
+  const tools = resolveVscodeLanguageModelTools([
+    { name: "task_complete", description: "Do not restate the summary in your message text — it is shown to the user directly." },
+    { name: "other", description: "Another tool." }
+  ], configuration);
+
+  assert.match(tools[0].description, /Put the concise user-visible completion summary/u);
+  assert.equal(tools[1].description, "Another tool.");
+  const snapshot = readCocopiInstructionReplacementSnapshots().toolDescriptions;
+  assert.match(snapshot?.original ?? "", /Do not restate the summary/u);
+  assert.match(snapshot?.rewritten ?? "", /Put the concise user-visible completion summary/u);
 });
 
 test("default instruction rewrites route completion summaries without suppressing work notes", () => {
-  const defaultReplacementText = Object.values(DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS).join("\n");
+  const defaultReplacementText = [
+    ...Object.values(DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS),
+    ...Object.values(DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS)
+  ].join("\n");
 
-  assert.match(defaultReplacementText, /Cocopi renders/u);
+  assert.match(defaultReplacementText, /shown to the user|shown as normal assistant text/u);
   assert.match(defaultReplacementText, /do not emit (?:a duplicate|the same) completion summary/u);
+  assert.doesNotMatch(defaultReplacementText, /Cocopi/u);
   assert.doesNotMatch(defaultReplacementText, /final-answer content/u);
   assert.doesNotMatch(defaultReplacementText, /Commentary, thinking, reasoning/u);
   assert.doesNotMatch(defaultReplacementText, /must stay in hidden reasoning/u);

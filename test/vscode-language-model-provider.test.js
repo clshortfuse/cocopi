@@ -4309,7 +4309,7 @@ test("provideLanguageModelChatResponse rewrites VS Code tool completion summarie
   );
 
   const body = JSON.parse(String(requestOptions?.body));
-  assert.equal(body.tools[0].description, "Put the concise user-visible completion summary in this tool's summary field. Cocopi renders it as normal assistant text, so do not emit the same summary separately before calling the tool.");
+  assert.equal(body.tools[0].description, "Put the concise user-visible completion summary in this tool's summary field. It is shown as normal assistant text, so do not emit the same summary separately before calling the tool.");
 });
 
 test("provideLanguageModelChatResponse renders task completion without a model follow-up", async (testContext) => {
