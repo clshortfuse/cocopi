@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { COCOPI_COMMANDS, registerCocopiCommands, selectInlineCompletionModel, selectModel, showAuthStatus, showInlineCompletionOptions, signIn, signOut, toggleInlineCompletions } from "../lib/vscode/commands.js";
+import { clearCocopiInstructionReplacementSnapshots, recordCocopiInstructionReplacementSnapshot } from "../lib/vscode/instruction-replacements.js";
 import { recordCocopiIssue, clearCocopiIssues } from "../lib/vscode/issues.js";
 import { CODEX_SECRET_KEYS } from "../lib/vscode/secret-storage.js";
 import { clearCocopiRateLimitSnapshots, clearCocopiRemoteUsageAnalyticsSnapshots, clearCocopiTokenCacheDebugSummaries, recordCocopiRemoteUsageAnalytics, recordCocopiTokenCacheSummary, waitForCocopiTokenCacheDebugStorage } from "../lib/vscode/token-cache-debug.js";
@@ -344,7 +345,7 @@ test("Cocopi status action opens the dashboard webview", async (testContext) => 
   assert.match(vscode.panels[0].webview.html, /<select name="utilitySmallModel">/u);
   assert.match(vscode.panels[0].webview.html, /<option value="cocopi\/gpt-5\.6-luna" selected>GPT-5\.6 Luna/u);
   assert.match(vscode.panels[0].webview.html, /VS Code user settings to write[\s\S]*<pre id="utilitySettingsPreview" class="utility-preview">\{[\s\S]*&quot;chat\.utilityModel&quot;: &quot;&quot;,[\s\S]*&quot;chat\.utilitySmallModel&quot;: &quot;&quot;,[\s\S]*&quot;chat\.byokUtilityModelDefault&quot;: &quot;none&quot;/u);
-  assert.match(vscode.panels[0].webview.html, /<code>chat\.byokUtilityModelDefault<\/code> selects the fallback when the two model fields are empty/u);
+  assert.doesNotMatch(vscode.panels[0].webview.html, /selects the fallback when the two model fields are empty/u);
   assert.match(vscode.panels[0].webview.html, /id="applyUtilitySetup" class="primary" type="button">Apply setup/u);
   assert.doesNotMatch(vscode.panels[0].webview.html, /class="utility-choice"|data-utility-mode|utility-settings-write/u);
   assert.match(vscode.panels[0].webview.html, /Conversation context[\s\S]*Compaction follows the main model\. GPT-5\.6 currently allows about 320K input\./u);
@@ -354,7 +355,7 @@ test("Cocopi status action opens the dashboard webview", async (testContext) => 
   assert.match(vscode.panels[0].webview.html, /Changes apply immediately/u);
   assert.doesNotMatch(vscode.panels[0].webview.html, /Save (model|autocomplete|diagnostics)/u);
   assert.doesNotMatch(vscode.panels[0].webview.html, /cocopi\.(toggleInlineCompletions|selectInlineCompletionModel|showInlineCompletionOptions|selectModel)/u);
-  assert.match(vscode.panels[0].webview.html, /Edit common Cocopi and VS Code routing settings here/u);
+  assert.doesNotMatch(vscode.panels[0].webview.html, /Edit common Cocopi and VS Code routing settings here/u);
   assert.match(vscode.statusBarItems[0].tooltip.value, /\$\(pulse\) Regular 5h/u);
   assert.match(vscode.statusBarItems[0].tooltip.value, /58% left · resets/u);
   assert.match(vscode.statusBarItems[0].tooltip.value, /\$\(pulse\) Regular weekly/u);
@@ -384,7 +385,7 @@ test("Cocopi native chat status item is registered when available", async () => 
   assert.match(vscode.chatStatusItems[0].tooltip ?? "", /native Chat status dashboard/u);
   assert.equal(vscode.panels.length, 1);
   assert.equal(vscode.panels[0].viewType, "cocopiStatus");
-  assert.match(vscode.panels[0].webview.html, /Edit common Cocopi and VS Code routing settings here/u);
+  assert.doesNotMatch(vscode.panels[0].webview.html, /Edit common Cocopi and VS Code routing settings here/u);
   assert.equal(vscode.quickPickItems.length, 0);
 });
 
@@ -427,6 +428,119 @@ test("Cocopi dashboard reports features limited by user settings", async () => {
 
   assert.deepEqual(vscode.executedCommands, ["workbench.action.openSettings"]);
   assert.deepEqual(vscode.executedCommandArgs, [["cocopi.reasoningSummary"]]);
+});
+
+test("Cocopi dashboard previews and applies instruction replacements", async (testContext) => {
+  clearCocopiInstructionReplacementSnapshots();
+  testContext.after(clearCocopiInstructionReplacementSnapshots);
+  recordCocopiInstructionReplacementSnapshot("instructions", "<host>Quote me.</host>", "<host>Replace me.</host>");
+  recordCocopiInstructionReplacementSnapshot("toolDescriptions", "Quote this tool summary.", "Replace this tool summary.", {
+    entries: [
+      { label: "task_complete", original: "Quote this tool summary.", rewritten: "Replace this tool summary." },
+      { label: "alpha_tool", original: "Nothing to replace.", rewritten: "Nothing to replace." }
+    ]
+  });
+  const vscode = fakeVscode({
+    settings: {
+      "cocopi.chatInstructionsRegexReplacements": { "Quote me\\.": "" }
+    }
+  });
+  const context = fakeContext();
+  registerCocopiCommands(context, vscode);
+
+  await vscode.commands.callbacks.get(COCOPI_COMMANDS.status)?.();
+
+  const html = vscode.panels[0].webview.html;
+  assert.match(html, /Instruction replacements/u);
+  assert.match(html, /last host text Cocopi saw/u);
+  assert.match(html, /data-replacement-scope="instructions" open/u);
+  assert.match(html, /data-replacement-source[^>]*>&lt;host&gt;Quote me\.&lt;\/host&gt;<\/textarea>/u);
+  assert.match(html, /data-replacement-preview readonly[^>]*>&lt;host&gt;Replace me\.&lt;\/host&gt;<\/textarea>/u);
+  assert.match(html, /data-replacement-scope="toolDescriptions"/u);
+  assert.match(html, /<h3>task_complete<\/h3>/u);
+  assert.ok(html.indexOf("<h3>task_complete</h3>") < html.indexOf("<h3>alpha_tool</h3>"));
+  assert.match(html, /data-replacement-label="task_complete"/u);
+  assert.match(html, /data-replacement-text-matched hidden>Matched<\/span>/u);
+  assert.match(html, /data-replacement-text-modified hidden>Modified<\/span>/u);
+  assert.match(html, /Quote this tool summary\./u);
+  assert.match(html, /data-replacement-pattern/u);
+  assert.match(html, /data-replacement-enabled checked/u);
+  assert.match(html, /Built-in rules have an Enabled checkbox/u);
+  assert.match(html, /Custom rules are active while present/u);
+  assert.match(html, /placeholder="\(Remove matched text\)"/u);
+  assert.doesNotMatch(html, /Custom rule · blank text removes matches/u);
+  assert.match(html, /<span class="field-hint">Custom<\/span>[\s\S]*?<span class="replacement-rule-spacer"><\/span>[\s\S]*?<span class="replacement-match" data-replacement-match hidden>Matched<\/span>[\s\S]*?<button type="button" data-remove-replacement>Remove<\/button>[\s\S]*?data-replacement-pattern[^>]*>Quote me\\\.<\/textarea>[\s\S]*?Replacement text<textarea data-replacement-value placeholder="\(Remove matched text\)"[^>]*><\/textarea>/u);
+  assert.match(html, /data-add-replacement>Add rule/u);
+  assert.match(html, /data-apply-replacements>Apply rules/u);
+  assert.match(html, /updateInstructionReplacementPreview/u);
+  assert.match(html, /new RegExp\(rule\.pattern, flags\)/u);
+  assert.match(html, /matchedRules\.set\(rule, labels\)/u);
+  assert.match(html, /rule\.matchBadge\.textContent = labels\.length > 0 \? 'Matched: ' \+ labels\.join\(', '\) : 'Matched'/u);
+  assert.match(html, /matchedBadge\.hidden = !matched/u);
+  assert.match(html, /modifiedBadge\.hidden = text === sourceText/u);
+  assert.match(html, /\.replacement-rule-head \{[^}]*display: flex;/u);
+  assert.match(html, /\.replacement-rule-spacer \{ flex: 1 1 auto; \}/u);
+  assert.doesNotMatch(html, /\.replacement-match \{[^}]*margin-(?:left|right):/u);
+  assert.match(html, /\.replacement-match\[hidden\] \{ display: none; \}/u);
+  assert.doesNotMatch(html, />Unmatched</u);
+  assert.doesNotMatch(html, /Preview is current/u);
+  assert.match(html, /instructionReplacementSnapshot/u);
+  assert.match(html, /texts\.innerHTML = message\.textsHtml/u);
+  assert.match(html, /data-replacement-capture/u);
+  assert.match(html, /querySelector\('\[data-replacement-enabled\]'\)\?\.checked \?\? true/u);
+  assert.doesNotMatch(html, /data-replacement-enabled checked> Enabled<\/label><button type="button" data-remove-replacement/u);
+  assert.ok(html.indexOf('<span class="field-hint">Custom</span>') < html.indexOf('<span class="field-hint">Built-in</span>'));
+  assert.ok(html.indexOf('<div class="replacement-rules">') < html.indexOf('<div class="replacement-texts" data-replacement-texts>'));
+  assert.match(html, /pair\.dataset\.replacementModified = String\(text !== sourceText\)/u);
+  assert.match(html, /modificationOrder \|\| \(left\.dataset\.replacementLabel/u);
+
+  recordCocopiInstructionReplacementSnapshot("instructions", "New live source.", "New live preview.");
+  assert.equal(vscode.panels[0].postedMessages.length, 1);
+  assert.equal(vscode.panels[0].postedMessages[0].type, "instructionReplacementSnapshot");
+  assert.equal(vscode.panels[0].postedMessages[0].scope, "instructions");
+  assert.equal(vscode.panels[0].postedMessages[0].snapshot?.original, "New live source.");
+  assert.equal(vscode.panels[0].postedMessages[0].snapshot?.rewritten, "New live preview.");
+  assert.match(vscode.panels[0].postedMessages[0].textsHtml ?? "", /New live source\./u);
+  assert.match(vscode.panels[0].postedMessages[0].textsHtml ?? "", /New live preview\./u);
+
+  await vscode.panels[0].receiveMessage({
+    type: "updateInstructionReplacements",
+    scope: "instructions",
+    flags: "gi",
+    replacements: {
+      "Quote me\\.": "Replace me.",
+      "Remove me": ""
+    }
+  });
+  await vscode.panels[0].receiveMessage({
+    type: "updateInstructionReplacements",
+    scope: "toolDescriptions",
+    flags: "invalid",
+    replacements: {
+      "tool summary": "tool result"
+    }
+  });
+
+  assert.deepEqual(vscode.configurationUpdates, [
+    { key: "chatRegexFlags", value: "gi", target: true },
+    {
+      key: "chatInstructionsRegexReplacements",
+      value: {
+        "Quote me\\.": "Replace me.",
+        "Remove me": ""
+      },
+      target: true
+    },
+    {
+      key: "chatToolDescriptionRegexReplacements",
+      value: { "tool summary": "tool result" },
+      target: true
+    }
+  ]);
+
+  vscode.panels[0].dispose();
+  recordCocopiInstructionReplacementSnapshot("instructions", "After close.", "After close.");
+  assert.equal(vscode.panels[0].postedMessages.length, 1);
 });
 
 test("Cocopi status webview applies embedded settings immediately", async () => {
