@@ -49,7 +49,7 @@ Mention `@cocopi` in chat when you want a direct Cocopi response without changin
 
 ### Check status and usage
 
-Hover the Cocopi status-bar item for a compact status summary. Click it to open the richer Cocopi dashboard with card-style status and configuration actions. On VS Code versions that require an explicit utility-model choice for BYOK agents, the dashboard explains the available routing options and can apply the selected VS Code configuration.
+Hover the Cocopi status-bar item for a compact status summary. Click it to open the richer Cocopi dashboard with card-style status and configuration actions. The **Instruction replacements** workbench shows the latest host instructions and tool description captured in extension-host memory, lets you paste alternate text, and previews regex rules while you toggle or edit them before applying the corresponding Cocopi settings. On VS Code versions that require an explicit utility-model choice for BYOK agents, the dashboard explains the available routing options and can apply the selected VS Code configuration.
 
 ### Use AI inline completions
 
@@ -113,8 +113,8 @@ Diagnostics are intended for troubleshooting extension behavior. They are stored
 | `cocopi.chatInstructions` | empty | Custom instructions to apply to Cocopi chat requests. |
 | `cocopi.chatInstructionsPlacement` | `append` | How to place `cocopi.chatInstructions`: append to source instructions, replace source instructions, or turn custom instructions off. |
 | `cocopi.chatRegexFlags` | `g` | Regex flags used with Cocopi chat instruction and tool description replacement maps. |
-| `cocopi.chatInstructionsRegexReplacements` | built-in regex map | Regex pattern-to-replacement entries always applied to chat instruction text. User entries add patterns or override defaults by using the same pattern key. Set a default pattern to empty text to disable that replacement. |
-| `cocopi.chatToolDescriptionRegexReplacements` | built-in regex map | Regex pattern-to-replacement entries always applied to VS Code tool descriptions. User entries add patterns or override defaults by using the same pattern key. Set a default pattern to empty text to disable that replacement. |
+| `cocopi.chatInstructionsRegexReplacements` | built-in regex map | Regex pattern-to-replacement entries always applied to chat instruction text. User entries add patterns or override defaults by using the same pattern key. Empty replacement text removes matches for a custom pattern; set a default pattern to empty text to disable that built-in replacement. |
+| `cocopi.chatToolDescriptionRegexReplacements` | built-in regex map | Regex pattern-to-replacement entries always applied to VS Code tool descriptions. User entries add patterns or override defaults by using the same pattern key. Empty replacement text removes matches for a custom pattern; set a default pattern to empty text to disable that built-in replacement. |
 | `cocopi.editProgressIntervalMs` | `30000` | Elapsed-time edit progress cadence in milliseconds. Set `0` to disable timed edit progress. |
 | `cocopi.streamIdleTimeoutMs` | `120000` | Stream idle timeout in milliseconds. Set `0` to disable. |
 | `cocopi.useModelDefaultCompactionLimit` | `true` | Uses the model-provided auto-compaction limit when available. |
