@@ -106,6 +106,20 @@ class LanguageModelThinkingPart {
   }
 }
 
+class DeniedLanguageModelThinkingPart {
+  /**
+   * @param {string | string[]} value
+   * @param {string} [id]
+   * @param {Record<string, unknown>} [metadata]
+   */
+  constructor(value, id, metadata) {
+    void value;
+    void id;
+    void metadata;
+    throw new Error("Extension 'shortfuse.cocopi' CANNOT use API proposal: languageModelThinkingPart");
+  }
+}
+
 class LanguageModelError extends Error {
   code = "Unknown";
 
@@ -2009,6 +2023,31 @@ test("provideLanguageModelChatResponse streams reasoning as native thinking when
   assert.equal(thinkingParts[1].id, "");
   assert.deepEqual(thinkingParts[1].metadata, { vscode_reasoning_done: true });
   assert.ok(progress.parts.some((part) => part instanceof LanguageModelDataPart));
+});
+
+test("provideLanguageModelChatResponse falls back when native thinking proposal access is denied", async (testContext) => {
+  const progress = fakeProgress();
+  const logger = fakeLogger();
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.reasoning_summary_text.delta", item_id: "rs-1", output_index: 0, summary_index: 0, delta: "Inspecting files." }),
+    sseData({ type: "response.completed", response: { id: "resp-reasoning" } })
+  ])));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(new Map([["reasoningSummary", "detailed"]]), { thinkingPartDenied: true }), { logger });
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-test"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "inspect")],
+    fakeResponseOptions({ toolMode: 1, modelOptions: { reasoningSummary: "detailed" } }),
+    progress,
+    fakeCancellationToken()
+  );
+
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["<details open><summary>Thinking</summary>\n\n", "Inspecting files.", "\n\n</details>\n\n"]);
+  assert.ok(logger.infoMessages.some((message) => message.includes("using text fallback") && message.includes("CANNOT use API proposal: languageModelThinkingPart")));
 });
 
 test("provideLanguageModelChatResponse strips exact standalone reasoning summary html comments", async (testContext) => {
@@ -4726,7 +4765,7 @@ function fakeContext(secrets = new Map(), options = {}) {
 
 /**
  * @param {Map<string, string | number | boolean>} [configuration]
- * @param {{ warningSelection?: string, thinkingPart?: boolean }} [options]
+ * @param {{ warningSelection?: string, thinkingPart?: boolean, thinkingPartDenied?: boolean }} [options]
  */
 function fakeVscode(configuration = new Map(), options = {}) {
   const vscode = {
@@ -4753,7 +4792,9 @@ function fakeVscode(configuration = new Map(), options = {}) {
       }
     },
     LanguageModelTextPart,
-    ...(options.thinkingPart ? { LanguageModelThinkingPart } : {}),
+    ...(options.thinkingPart || options.thinkingPartDenied
+      ? { LanguageModelThinkingPart: options.thinkingPartDenied ? DeniedLanguageModelThinkingPart : LanguageModelThinkingPart }
+      : {}),
     LanguageModelToolCallPart,
     LanguageModelToolResultPart,
     LanguageModelDataPart,

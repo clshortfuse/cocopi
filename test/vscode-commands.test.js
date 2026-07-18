@@ -389,6 +389,21 @@ test("Cocopi native chat status item is registered when available", async () => 
   assert.equal(vscode.quickPickItems.length, 0);
 });
 
+test("Cocopi commands stay registered if chat status item setup fails", async () => {
+  const vscode = fakeVscode({ chatStatus: true });
+  vscode.window.createChatStatusItem = () => {
+    throw new Error("chat status unavailable");
+  };
+  const context = fakeContext();
+
+  assert.doesNotThrow(() => registerCocopiCommands(context, vscode));
+  assert.ok(vscode.commands.callbacks.has(COCOPI_COMMANDS.status));
+
+  await vscode.commands.callbacks.get(COCOPI_COMMANDS.status)?.();
+
+  assert.equal(vscode.panels[0].viewType, "cocopiStatus");
+});
+
 test("Cocopi dashboard reports features limited by user settings", async () => {
   clearCocopiRateLimitSnapshots();
   clearCocopiTokenCacheDebugSummaries();

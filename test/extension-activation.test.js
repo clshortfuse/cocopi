@@ -88,6 +88,21 @@ test("activateWithVscode wires commands, provider, participant, and diagnostics"
   assert.equal(context.subscriptions.length, 15);
 });
 
+test("activateWithVscode registers the model provider when Chat status proposed API access is denied", () => {
+  const context = fakeContext();
+  const vscode = fakeVscode({ chatStatusProposalDenied: true });
+
+  assert.doesNotThrow(() => activateWithVscode(context, vscode));
+
+  assert.ok(vscode.registeredCommands.includes(COCOPI_COMMANDS.status));
+  assert.equal(vscode.languageModelVendor, COCOPI_LANGUAGE_MODEL_VENDOR);
+  assert.equal(vscode.inlineCompletionProviders, 1);
+  assert.equal(vscode.chatParticipantId, COCOPI_CHAT_PARTICIPANT_ID);
+  assert.deepEqual(vscode.registrationOrder, ["languageModelProvider", "chatStatusItem"]);
+  assert.ok(vscode.outputChannelLines.some((line) => line.includes("Cocopi native Chat status item is unavailable; using stable status surfaces.")));
+  assert.ok(vscode.outputChannelLines.some((line) => line.includes("Extension 'shortfuse.cocopi' CANNOT use API proposal: chatStatusItem")));
+});
+
 function fakeContext() {
   return {
     subscriptions: [],
@@ -102,7 +117,8 @@ function fakeContext() {
   };
 }
 
-function fakeVscode() {
+/** @param {{ chatStatusProposalDenied?: boolean }} [options] */
+function fakeVscode(options = {}) {
   const vscode = {
     /** @type {string[]} */
     registeredCommands: [],
@@ -112,6 +128,10 @@ function fakeVscode() {
     inlineCompletionProviders: 0,
     chatParticipantId: "",
     outputChannelName: "",
+    /** @type {string[]} */
+    outputChannelLines: [],
+    /** @type {string[]} */
+    registrationOrder: [],
     commands: {
       /**
        * @param {string} command
@@ -146,6 +166,7 @@ function fakeVscode() {
        */
       registerLanguageModelChatProvider(vendor, provider) {
         void provider;
+        vscode.registrationOrder.push("languageModelProvider");
         vscode.languageModelVendor = vendor;
         return { dispose() {} };
       },
@@ -197,6 +218,12 @@ function fakeVscode() {
       }
     },
     window: {
+      createChatStatusItem: options.chatStatusProposalDenied
+        ? () => {
+          vscode.registrationOrder.push("chatStatusItem");
+          throw new Error("Extension 'shortfuse.cocopi' CANNOT use API proposal: chatStatusItem");
+        }
+        : undefined,
       async showInformationMessage() {},
       /** @returns {Promise<string | undefined>} */
       async showWarningMessage() {
@@ -210,7 +237,10 @@ function fakeVscode() {
       createOutputChannel(name) {
         vscode.outputChannelName = name;
         return {
-          appendLine() {},
+          /** @param {string} value */
+          appendLine(value) {
+            vscode.outputChannelLines.push(value);
+          },
           dispose() {}
         };
       },

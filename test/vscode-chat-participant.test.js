@@ -20,6 +20,20 @@ class ChatResponseThinkingProgressPart {
   }
 }
 
+class DeniedChatResponseThinkingProgressPart {
+  /**
+   * @param {string | string[]} value
+   * @param {string} [id]
+   * @param {Record<string, unknown>} [metadata]
+   */
+  constructor(value, id, metadata) {
+    void value;
+    void id;
+    void metadata;
+    throw new Error("Extension 'shortfuse.cocopi' CANNOT use API proposal: languageModelThinkingPart");
+  }
+}
+
 test("registerCocopiChatParticipant registers the Cocopi chat participant", () => {
   const context = fakeContext();
   const vscode = fakeVscode();
@@ -333,6 +347,27 @@ test("Cocopi chat handler streams reasoning summary deltas as thinking parts whe
     openai_summary_index: 0,
     openai_sequence_number: 7
   });
+});
+
+test("Cocopi chat handler falls back when native thinking proposal access is denied", async (testContext) => {
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  const response = fakeChatResponseStream();
+  const logger = fakeLogger();
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.reasoning_summary_text.delta", item_id: "rs-1", output_index: 0, summary_index: 0, delta: "Looking up context." }),
+    sseData({ type: "response.completed", response: { id: "resp-test" } })
+  ])));
+  const handler = createCocopiChatRequestHandler(context, fakeVscode(configurationValues({ model: "gpt-test" }), { chatThinkingPartDenied: true }), { logger });
+
+  await Promise.resolve(handler(fakeChatRequest("inspect"), fakeChatContext(), response, fakeCancellationToken()));
+
+  assert.deepEqual(response.markdownValues, ["Looking up context."]);
+  assert.deepEqual(response.pushedParts, []);
+  assert.ok(logger.infoMessages.some((message) => message.includes("using markdown fallback") && message.includes("CANNOT use API proposal: languageModelThinkingPart")));
 });
 
 test("Cocopi chat handler routes commentary output as normal text when thinking parts are supported", async (testContext) => {
@@ -1384,7 +1419,7 @@ function fakeContext(secrets = new Map()) {
 
 /**
  * @param {Map<string, string | number>} [configuration]
- * @param {{ chatThinkingPart?: boolean }} [options]
+ * @param {{ chatThinkingPart?: boolean, chatThinkingPartDenied?: boolean }} [options]
  */
 function fakeVscode(configuration = new Map(), options = {}) {
   const vscode = {
@@ -1396,7 +1431,9 @@ function fakeVscode(configuration = new Map(), options = {}) {
     toolInvocations: [],
     /** @type {import("vscode").ChatRequestHandler | undefined} */
     chatParticipantHandler: undefined,
-    ...(options.chatThinkingPart ? { ChatResponseThinkingProgressPart } : {}),
+    ...(options.chatThinkingPart || options.chatThinkingPartDenied
+      ? { ChatResponseThinkingProgressPart: options.chatThinkingPartDenied ? DeniedChatResponseThinkingProgressPart : ChatResponseThinkingProgressPart }
+      : {}),
     chat: {
       /**
        * @param {string} id
