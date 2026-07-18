@@ -208,6 +208,37 @@ test("bootstrap provider does not escape failures from storage, diagnostics, or 
   ));
 });
 
+test("fail-closed provider propagates delegate request failures for host retry handling", async () => {
+  const vscode = fakeVscode(configurationValues({ model: "gpt-protected" }));
+  const boundary = registerFailClosedCocopiLanguageModelProvider(fakeContext(), vscode);
+  const progress = fakeProgress();
+  const transportError = new Error("transport unavailable");
+  boundary.setDelegate({
+    async provideLanguageModelChatInformation() {
+      return [fakeModel("gpt-protected")];
+    },
+    async provideLanguageModelChatResponse() {
+      throw transportError;
+    },
+    async provideTokenCount() {
+      return 1;
+    }
+  });
+  assert.ok(vscode.languageModelProvider);
+
+  await assert.rejects(
+    async () => vscode.languageModelProvider?.provideLanguageModelChatResponse(
+      fakeModel("gpt-protected"),
+      [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "hello")],
+      fakeResponseOptions({ toolMode: 1 }),
+      progress,
+      fakeCancellationToken()
+    ),
+    /** @param {Error} error */ (error) => error === transportError
+  );
+  assert.equal(progress.parts.length, 0);
+});
+
 test("registered provider protects stored and configured Cocopi model identifiers", async () => {
   const secrets = new Map([
     [COCOPI_MODEL_CATALOG_STORAGE_KEY, JSON.stringify([{
@@ -291,24 +322,26 @@ test("registered provider returns protected models when discovery fails", async 
   assert.ok(logger.errorMessages.some((message) => message.includes("Cocopi model discovery failed")));
 });
 
-test("registered provider converts request failures to local non-authored text", async () => {
+test("registered provider propagates request failures without local response text", async () => {
   const logger = fakeLogger();
   const progress = fakeProgress();
   const vscode = fakeVscode(configurationValues({ model: "gpt-protected" }));
 
   registerCocopiLanguageModelProvider(fakeContext(), vscode, { logger });
-  await vscode.languageModelProvider?.provideLanguageModelChatResponse(
-    fakeModel("gpt-protected"),
-    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "hello")],
-    fakeResponseOptions({ toolMode: 1 }),
-    progress,
-    fakeCancellationToken()
+  assert.ok(vscode.languageModelProvider);
+  await assert.rejects(
+    async () => vscode.languageModelProvider?.provideLanguageModelChatResponse(
+      fakeModel("gpt-protected"),
+      [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "hello")],
+      fakeResponseOptions({ toolMode: 1 }),
+      progress,
+      fakeCancellationToken()
+    ),
+    /** @param {Error & { code?: string }} error */ (error) => error.code === "NoPermissions"
   );
 
-  assert.equal(progress.parts.length, 1);
-  assert.match(/** @type {LanguageModelTextPart} */ (progress.parts[0]).value, /^Cocopi local failure \(not model-authored\):/u);
-  assert.match(/** @type {LanguageModelTextPart} */ (progress.parts[0]).value, /did not invoke a replacement provider for gpt-protected/u);
-  assert.ok(logger.errorMessages.some((message) => message.includes("no replacement provider was invoked")));
+  assert.equal(progress.parts.length, 0);
+  assert.deepEqual(logger.errorMessages, []);
 });
 
 test("provideLanguageModelChatInformation returns fallback while signed out in silent mode", async () => {
