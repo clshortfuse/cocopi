@@ -135,10 +135,17 @@ Status key:
 - `[x]` Report provider errors in VS Code-friendly form.
 - `[?]` VS Code/Copilot Chat persistence semantics for custom provider `LanguageModelDataPart` state across edit, retry, fork, export, and compaction flows.
 - `[?]` Marketplace restrictions for custom model providers.
-- `[x]` Provider registration and per-model configuration target the VS Code 1.126 chat provider surface.
+- `[x]` Provider registration and per-model configuration target the VS Code 1.129 chat provider surface.
 - `[x]` Mark Cocopi provider models as BYOK so VS Code treats them as user-credential-backed rather than Copilot/CAPI-backed.
-- `[x]` Tag the package for VS Code 1.126+ Language Models editor provider discovery.
+- `[x]` Tag the package for VS Code 1.129+ Language Models editor provider discovery.
 - `[x]` Expose reasoning effort and recommended/full context-size choices through VS Code's unified model customization picker.
+- `[x]` Participate in VS Code 1.129 Agent Host Copilot SDK sessions through the host-owned BYOK language-model bridge; no Cocopi SDK dependency or runtime replacement is required.
+- `[x]` Confirm Agent Host session-management tools reach Cocopi as ordinary BYOK tool definitions while VS Code owns execution, confirmations, and fan-out limits.
+- `[x]` Confirm Agent Host `!` terminal commands are intercepted and executed by the host without making a Cocopi model request.
+- `[~]` Agent Host currently forwards Cocopi text and tool traffic but does not preserve thinking or hidden state-marker response parts.
+- `[x]` Audit every product feature and community fix listed in the VS Code 1.129 release notes; no additional Cocopi production integration gaps were found.
+- `[x]` Compare the exact VS Code `1.128.1` and `1.129.0` source/API trees for changes not individually advertised in the release notes; hidden provider-relevant deltas are host fixes, additive proposal changes, or known bridge limits, with no additional Cocopi production change required.
+- `[~]` Agent Host synthetic BYOK entries now retain the original Cocopi model identity for visibility and model management, but they still omit Cocopi's `configurationSchema`; the OpenAI proxy currently forwards only `temperature`, `top_p`, and `max_tokens`, not reasoning effort.
 - `[~]` Default compaction strategy follows VS Code; future custom strategy options are documented but not implemented.
 
 #### Provider Hidden-State Carrier

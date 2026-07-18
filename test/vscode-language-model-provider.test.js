@@ -844,6 +844,18 @@ test("languageModelInformationFromCodexModels omits configured fallback when the
   ]);
 });
 
+test("languageModelInformationFromCodexModels remains eligible for the Agent Host BYOK bridge", () => {
+  const [model] = languageModelInformationFromCodexModels([
+    { id: "gpt-agent-host", displayName: "GPT Agent Host" }
+  ], "gpt-agent-host", { useModelDefaultCompactionLimit: false, compactionFallbackStrategy: "ninety-percent" });
+
+  assert.ok(model);
+  assert.equal(model.isBYOK, true);
+  assert.equal("targetChatSessionType" in model, false);
+  assert.equal(/** @type {Record<string, unknown>} */ (model.capabilities).toolCalling, true);
+  assert.equal(/** @type {Record<string, unknown>} */ (model.capabilities).agentMode, true);
+});
+
 test("languageModelInformationFromCodexModels can use model-provided auto-compact limits", () => {
   const [model] = languageModelInformationFromCodexModels([
     { id: "gpt-catalog", displayName: "GPT Catalog", contextWindow: 100_000, autoCompactTokenLimit: 64_000 }

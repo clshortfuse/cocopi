@@ -137,7 +137,7 @@ function checkManifest(manifest) {
     readRecord(languageModelProvider.configuration, "language model provider configuration");
   }
   assertEqual(languageModelProvider.displayName, "Cocopi", "language model provider display name");
-  assertEqual(languageModelProvider.managementCommand, COCOPI_COMMANDS.manage, "language model provider management command");
+  assertPropertyAbsent(languageModelProvider, "managementCommand", "deprecated language model provider management command");
 }
 
 /**
@@ -287,7 +287,7 @@ function assertStringArrayEqual(actual, expected, label) {
  */
 function assertValidLanguageModelProviderKeys(languageModelProvider) {
   const actualKeys = Object.keys(languageModelProvider);
-  const allowedKeys = new Set(["vendor", "displayName", "configuration", "managementCommand", "when"]);
+  const allowedKeys = new Set(["vendor", "displayName", "configuration", "when"]);
   for (const key of actualKeys) {
     if (!allowedKeys.has(key)) {
       throw new Error(`Unexpected language model provider contribution key: ${JSON.stringify(key)}.`);

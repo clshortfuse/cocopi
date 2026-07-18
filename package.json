@@ -380,7 +380,6 @@
     "languageModelChatProviders": [
       {
         "displayName": "Cocopi",
-        "managementCommand": "cocopi.manage",
         "vendor": "cocopi"
       }
     ]
@@ -403,7 +402,7 @@
     "languageModelThinkingPart"
   ],
   "engines": {
-    "vscode": "^1.126.0"
+    "vscode": "^1.129.0"
   },
   "exports": {
     ".": {

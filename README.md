@@ -20,7 +20,7 @@ Use Cocopi when you want Codex-style responses without leaving VS Code: ask codi
 
 ## Requirements
 
-- VS Code 1.126+ with the chat model provider support used by this extension. See `package.json` for the current engine range.
+- VS Code 1.129+ with the chat model provider support used by this extension. See `package.json` for the current engine range.
 - A signed-in account with access to the ChatGPT/Codex backend services Cocopi uses.
 - Internet access for authentication and model requests.
 
@@ -28,7 +28,7 @@ Backend availability, model access, rate limits, and exact capabilities depend o
 
 ## Get started
 
-1. Install Cocopi from a VSIX package or a published build. In VS Code 1.126+, published model-provider builds can also be found from the Language Models editor's **Install Model Providers** search.
+1. Install Cocopi from a VSIX package or a published build. In VS Code 1.129+, published model-provider builds can also be found from the Language Models editor's **Install Model Providers** search.
 2. Run **Cocopi: Sign In** from the command palette.
 3. Complete the browser sign-in flow.
 4. Open VS Code Chat and pick a Cocopi model, or type `@cocopi` in chat.
@@ -41,7 +41,15 @@ Backend availability, model access, rate limits, and exact capabilities depend o
 
 Open VS Code Chat and select a Cocopi model from the model picker. If no Cocopi model is selected, Cocopi can fall back to the configured `cocopi.model` value.
 
-In VS Code 1.126+, Cocopi model entries participate in the unified model customization picker. Models with Codex reasoning metadata show **Thinking Effort** options, and models expose **Context Size** choices only when the signed-in Codex catalog advertises them, such as a lower recommended auto-compaction limit or a larger `max_context_window` than the default `context_window`.
+In VS Code 1.129+, Cocopi model entries participate in the unified model customization picker. Models with Codex reasoning metadata show **Thinking Effort** options, and models expose **Context Size** choices only when the signed-in Codex catalog advertises them, such as a lower recommended auto-compaction limit or a larger `max_context_window` than the default `context_window`.
+
+### Use Cocopi in Agent Host sessions
+
+VS Code 1.129 can route Cocopi's BYOK models into its built-in Copilot SDK harness when Agent Host and its BYOK-model bridge are enabled. VS Code owns the Agent Host process, Agent Host Protocol, and `@github/copilot-sdk` runtime; Cocopi continues to use its existing language-model provider and does not install or launch the Copilot SDK or CLI.
+
+The current Agent Host bridge forwards text, tool definitions, tool calls, and tool results to Cocopi. It does not preserve Cocopi thinking parts or hidden state-marker data parts, so standard VS Code Chat remains the fullest Cocopi experience for streamed reasoning and response continuation metadata.
+
+Agent Host session-management tools reach Cocopi through that same ordinary tool-definition path; VS Code owns their execution, confirmation prompts, and safety limits. A message beginning with `!` is different: Agent Host intercepts and runs the terminal command locally before any model request, so the command is not sent to Cocopi.
 
 ### Ask `@cocopi`
 
