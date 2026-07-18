@@ -7,7 +7,8 @@ const VSCODE_DTS_URL = new URL("data/vscode-dts/", ROOT_URL);
 const VSCODE_STABLE_RELEASES_URL = "https://update.code.visualstudio.com/api/releases/stable";
 
 const version = await resolveVersionArgument(process.argv[2]);
-const runtime = await resolveVscodeRuntime(version);
+const vscodeSource = await resolveVscodeSource(version);
+const runtime = await resolveVscodeRuntime(vscodeSource.packageJson);
 
 await updateJsonFile(new URL("package.json", ROOT_URL), (manifest) => {
   const packageJson = readRecord(manifest, "package.json");
@@ -17,9 +18,12 @@ await updateJsonFile(new URL("package.json", ROOT_URL), (manifest) => {
 });
 
 runNpmPackageLockInstall();
-runVscodeDts(version);
+runVscodeDts(vscodeSource.gitReference);
 
 console.log(`Resolved VS Code ${version} to Electron ${runtime.electronVersion} with Node.js ${runtime.nodeVersion}.`);
+if (vscodeSource.gitReference !== version) {
+  console.log(`Used microsoft/vscode ${vscodeSource.gitReference} because the ${version} Git tag is not available yet.`);
+}
 console.log(`Updated VS Code engine target to ^${version}.`);
 
 /**
@@ -51,10 +55,41 @@ async function resolveLatestStableVscodeVersion() {
 
 /**
  * @param {string} vscodeVersion
+ * @returns {Promise<{ gitReference: string, packageJson: import("../data/Codex.js").CodexJsonValue }>}
+ */
+async function resolveVscodeSource(vscodeVersion) {
+  const taggedPackage = await fetchOptionalJson(vscodePackageUrl(vscodeVersion));
+  if (taggedPackage !== undefined) {
+    return { gitReference: vscodeVersion, packageJson: taggedPackage };
+  }
+
+  const releaseBranch = vscodeReleaseBranch(vscodeVersion);
+  const branchPackage = await fetchJson(vscodePackageUrl(releaseBranch));
+  const branchVersion = readVersionString(readRecord(branchPackage, "VS Code package.json").version, "VS Code package.json version");
+  if (branchVersion !== vscodeVersion) {
+    throw new Error(`VS Code ${vscodeVersion} has no Git tag and ${releaseBranch} contains version ${branchVersion}.`);
+  }
+
+  return { gitReference: releaseBranch, packageJson: branchPackage };
+}
+
+/** @param {string} gitReference */
+function vscodePackageUrl(gitReference) {
+  return `https://raw.githubusercontent.com/microsoft/vscode/${gitReference}/package.json`;
+}
+
+/** @param {string} vscodeVersion */
+function vscodeReleaseBranch(vscodeVersion) {
+  const [major, minor] = vscodeVersion.split(".");
+  return `release/${major}.${minor}`;
+}
+
+/**
+ * @param {import("../data/Codex.js").CodexJsonValue} vscodePackageValue
  * @returns {Promise<{ electronVersion: string, nodeVersion: string }>}
  */
-async function resolveVscodeRuntime(vscodeVersion) {
-  const vscodePackage = readRecord(await fetchJson(`https://raw.githubusercontent.com/microsoft/vscode/${vscodeVersion}/package.json`), "VS Code package.json");
+async function resolveVscodeRuntime(vscodePackageValue) {
+  const vscodePackage = readRecord(vscodePackageValue, "VS Code package.json");
   const devDependencies = readRecord(vscodePackage.devDependencies, "VS Code package.json devDependencies");
   const electronVersion = readDependencyVersion(devDependencies.electron, "VS Code Electron dependency");
 
@@ -68,6 +103,19 @@ async function resolveVscodeRuntime(vscodeVersion) {
 
   const nodeVersion = readVersionString(release.node, `Electron ${electronVersion} Node.js runtime`);
   return { electronVersion, nodeVersion };
+}
+
+/** @param {string} url */
+async function fetchOptionalJson(url) {
+  const response = await fetch(url);
+  if (response.status === 404) {
+    return;
+  }
+  if (!response.ok) {
+    throw new Error(`Could not fetch ${url}: HTTP ${response.status}`);
+  }
+
+  return /** @type {import("../data/Codex.js").CodexJsonValue} */ (await response.json());
 }
 
 /** @param {string} url */
