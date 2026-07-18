@@ -85,7 +85,7 @@ test("activateWithVscode wires commands, provider, participant, and diagnostics"
   assert.deepEqual(vscode.selectedModelSelectors, [{ vendor: COCOPI_LANGUAGE_MODEL_VENDOR }]);
   assert.equal(vscode.chatParticipantId, COCOPI_CHAT_PARTICIPANT_ID);
   assert.equal(vscode.outputChannelName, COCOPI_OUTPUT_CHANNEL_NAME);
-  assert.equal(context.subscriptions.length, 15);
+  assert.equal(context.subscriptions.length, 16);
 });
 
 test("activateWithVscode registers the model provider when Chat status proposed API access is denied", () => {
@@ -103,6 +103,22 @@ test("activateWithVscode registers the model provider when Chat status proposed 
   assert.ok(vscode.outputChannelLines.some((line) => line.includes("Extension 'shortfuse.cocopi' CANNOT use API proposal: chatStatusItem")));
 });
 
+for (const [failure, options] of /** @type {const} */ ([
+  ["diagnostics output", { outputChannelDenied: true }],
+  ["command registration", { commandRegistrationDenied: true }],
+  ["inline provider registration", { inlineRegistrationDenied: true }],
+  ["chat participant registration", { participantRegistrationDenied: true }]
+])) {
+  test(`activateWithVscode keeps the model provider active after ${failure} fails`, () => {
+    const vscode = fakeVscode(options);
+
+    assert.doesNotThrow(() => activateWithVscode(fakeContext(), vscode));
+
+    assert.equal(vscode.languageModelVendor, COCOPI_LANGUAGE_MODEL_VENDOR);
+    assert.equal(vscode.registrationOrder[0], "languageModelProvider");
+  });
+}
+
 function fakeContext() {
   return {
     subscriptions: [],
@@ -117,7 +133,7 @@ function fakeContext() {
   };
 }
 
-/** @param {{ chatStatusProposalDenied?: boolean }} [options] */
+/** @param {{ chatStatusProposalDenied?: boolean, outputChannelDenied?: boolean, commandRegistrationDenied?: boolean, inlineRegistrationDenied?: boolean, participantRegistrationDenied?: boolean }} [options] */
 function fakeVscode(options = {}) {
   const vscode = {
     /** @type {string[]} */
@@ -139,6 +155,9 @@ function fakeVscode(options = {}) {
        */
       registerCommand(command, callback) {
         void callback;
+        if (options.commandRegistrationDenied) {
+          throw new Error("command registration denied");
+        }
         vscode.registeredCommands.push(command);
         return { dispose() {} };
       }
@@ -187,6 +206,9 @@ function fakeVscode(options = {}) {
       registerInlineCompletionItemProvider(selector, provider) {
         void selector;
         void provider;
+        if (options.inlineRegistrationDenied) {
+          throw new Error("inline provider registration denied");
+        }
         vscode.inlineCompletionProviders += 1;
         return { dispose() {} };
       }
@@ -198,6 +220,9 @@ function fakeVscode(options = {}) {
        */
       createChatParticipant(id, handler) {
         void handler;
+        if (options.participantRegistrationDenied) {
+          throw new Error("chat participant registration denied");
+        }
         vscode.chatParticipantId = id;
         return { dispose() {} };
       }
@@ -235,6 +260,9 @@ function fakeVscode(options = {}) {
       },
       /** @param {string} name */
       createOutputChannel(name) {
+        if (options.outputChannelDenied) {
+          throw new Error("output channel registration denied");
+        }
         vscode.outputChannelName = name;
         return {
           /** @param {string} value */

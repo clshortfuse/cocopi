@@ -19,6 +19,7 @@ import {
   registerCocopiLanguageModelProvider
 } from "../lib/vscode/language-model-provider.js";
 import { clearCocopiIssues, readCocopiIssues } from "../lib/vscode/issues.js";
+import { registerFailClosedCocopiLanguageModelProvider } from "../lib/vscode/fail-closed-language-model-provider.js";
 import { CODEX_SECRET_KEYS } from "../lib/vscode/secret-storage.js";
 import { clearCocopiTokenCacheDebugSummaries, readCocopiTokenCacheDebugSummaries } from "../lib/vscode/token-cache-debug.js";
 
@@ -32,6 +33,7 @@ const COCOPI_LEGACY_STATEFUL_MARKER_METADATA_PREFIX = "cocopi:state:v2:";
 const COCOPI_VERSIONED_STATEFUL_MARKER_METADATA_PREFIX = "cocopi:state:v3:";
 const COCOPI_STATEFUL_MARKER_PREFIX = "cocopi:state:";
 const COCOPI_MODEL_CATALOG_STORAGE_KEY = "cocopi.modelCatalog.v1";
+const COCOPI_PROTECTED_MODEL_IDS_STORAGE_KEY = "cocopi.protectedModelIds.v1";
 
 class LanguageModelTextPart {
   /** @param {string} value */
@@ -152,7 +154,161 @@ test("registerCocopiLanguageModelProvider registers the Cocopi vendor", () => {
   registerCocopiLanguageModelProvider(context, vscode);
 
   assert.equal(vscode.languageModelVendor, COCOPI_LANGUAGE_MODEL_VENDOR);
-  assert.equal(context.subscriptions.length, 1);
+  assert.ok(vscode.languageModelProvider);
+  assert.equal(context.subscriptions.length, 2);
+});
+
+test("bootstrap provider handles requests before the full provider loads", async () => {
+  const progress = fakeProgress();
+  const vscode = fakeVscode(configurationValues({ model: "gpt-bootstrap" }));
+
+  registerFailClosedCocopiLanguageModelProvider(fakeContext(), vscode);
+  const information = await vscode.languageModelProvider?.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken());
+  await vscode.languageModelProvider?.provideLanguageModelChatResponse(
+    fakeModel("gpt-bootstrap"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "hello")],
+    fakeResponseOptions({ toolMode: 1 }),
+    progress,
+    fakeCancellationToken()
+  );
+  const tokens = await vscode.languageModelProvider?.provideTokenCount(
+    fakeModel("gpt-bootstrap"),
+    "12345678",
+    fakeCancellationToken()
+  );
+
+  assert.deepEqual(information?.map((model) => model.id), ["gpt-bootstrap"]);
+  assert.match(/** @type {LanguageModelTextPart} */ (progress.parts[0]).value, /No model request was sent/u);
+  assert.equal(tokens, 2);
+});
+
+test("bootstrap provider does not escape failures from storage, diagnostics, or local progress", async () => {
+  const vscode = fakeVscode(configurationValues({ model: "gpt-bootstrap" }));
+  const logger = {
+    debug() {},
+    info() {},
+    error() {
+      throw new Error("diagnostics unavailable");
+    },
+    dispose() {}
+  };
+
+  registerFailClosedCocopiLanguageModelProvider(fakeContext(new Map(), {
+    getError: new Error("secret storage unavailable")
+  }), vscode, { logger });
+
+  const information = await vscode.languageModelProvider?.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken());
+  assert.deepEqual(information?.map((model) => model.id), ["gpt-bootstrap"]);
+  await assert.doesNotReject(async () => vscode.languageModelProvider?.provideLanguageModelChatResponse(
+    fakeModel("gpt-bootstrap"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "hello")],
+    fakeResponseOptions({ toolMode: 1 }),
+    { report() { throw new Error("progress unavailable"); } },
+    fakeCancellationToken()
+  ));
+});
+
+test("registered provider protects stored and configured Cocopi model identifiers", async () => {
+  const secrets = new Map([
+    [COCOPI_MODEL_CATALOG_STORAGE_KEY, JSON.stringify([{
+      key: "previous-account",
+      expiresAtMs: 1,
+      models: [{ id: "gpt-previous", displayName: "GPT Previous" }]
+    }])]
+  ]);
+  const context = fakeContext(secrets);
+  const vscode = fakeVscode(configurationValues({
+    model: "gpt-configured",
+    "chat.utilityModel": "cocopi/gpt-utility",
+    "chat.utilitySmallModel": "cocopi/gpt-small",
+    "inlineChat.defaultModel": "cocopi/gpt-inline",
+    "github.copilot.chat.executionSubagent.model": "cocopi/gpt-subagent"
+  }));
+
+  registerCocopiLanguageModelProvider(context, vscode);
+  const information = await vscode.languageModelProvider?.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken());
+  const modelIds = new Set(information?.map((model) => model.id));
+
+  assert.deepEqual(modelIds, new Set([
+    "gpt-configured",
+    "gpt-previous",
+    "gpt-utility",
+    "gpt-small",
+    "gpt-inline",
+    "gpt-subagent"
+  ]));
+  assert.deepEqual(
+    new Set(JSON.parse(secrets.get(COCOPI_PROTECTED_MODEL_IDS_STORAGE_KEY) ?? "[]")),
+    modelIds
+  );
+});
+
+test("registered provider never removes a model identifier after catalog refresh", async (testContext) => {
+  let nowMs = 1000;
+  let requestCount = 0;
+  testContext.mock.method(Date, "now", () => nowMs);
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => {
+    requestCount += 1;
+    return Response.json({
+      models: requestCount === 1
+        ? [{ slug: "gpt-catalog-one", display_name: "GPT Catalog One" }]
+        : [{ slug: "gpt-catalog-two", display_name: "GPT Catalog Two" }]
+    });
+  }));
+  /** @type {Map<string, string>} */
+  const secrets = new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]);
+  const vscode = fakeVscode(configurationValues({ model: "gpt-catalog-one" }));
+
+  registerCocopiLanguageModelProvider(fakeContext(secrets), vscode);
+  const first = await vscode.languageModelProvider?.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
+  nowMs += COCOPI_MODEL_CATALOG_CACHE_TTL_MS + 1;
+  const second = await vscode.languageModelProvider?.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
+
+  assert.deepEqual(new Set(first?.map((model) => model.id)), new Set(["gpt-catalog-one"]));
+  assert.deepEqual(new Set(second?.map((model) => model.id)), new Set(["gpt-catalog-one", "gpt-catalog-two"]));
+  assert.deepEqual(
+    new Set(JSON.parse(secrets.get(COCOPI_PROTECTED_MODEL_IDS_STORAGE_KEY) ?? "[]")),
+    new Set(["gpt-catalog-one", "gpt-catalog-two"])
+  );
+});
+
+test("registered provider returns protected models when discovery fails", async () => {
+  const logger = fakeLogger();
+  const vscode = fakeVscode(configurationValues({ model: "gpt-protected" }));
+  const globalState = new Map([[COCOPI_PROTECTED_MODEL_IDS_STORAGE_KEY, ["gpt-history"]]]);
+
+  registerCocopiLanguageModelProvider(fakeContext(new Map(), {
+    getError: new Error("secret storage unavailable"),
+    globalState
+  }), vscode, { logger });
+  const information = await vscode.languageModelProvider?.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
+
+  assert.deepEqual(new Set(information?.map((model) => model.id)), new Set(["gpt-protected", "gpt-history"]));
+  assert.ok(logger.errorMessages.some((message) => message.includes("Cocopi model discovery failed")));
+});
+
+test("registered provider converts request failures to local non-authored text", async () => {
+  const logger = fakeLogger();
+  const progress = fakeProgress();
+  const vscode = fakeVscode(configurationValues({ model: "gpt-protected" }));
+
+  registerCocopiLanguageModelProvider(fakeContext(), vscode, { logger });
+  await vscode.languageModelProvider?.provideLanguageModelChatResponse(
+    fakeModel("gpt-protected"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "hello")],
+    fakeResponseOptions({ toolMode: 1 }),
+    progress,
+    fakeCancellationToken()
+  );
+
+  assert.equal(progress.parts.length, 1);
+  assert.match(/** @type {LanguageModelTextPart} */ (progress.parts[0]).value, /^Cocopi local failure \(not model-authored\):/u);
+  assert.match(/** @type {LanguageModelTextPart} */ (progress.parts[0]).value, /did not invoke a replacement provider for gpt-protected/u);
+  assert.ok(logger.errorMessages.some((message) => message.includes("no replacement provider was invoked")));
 });
 
 test("provideLanguageModelChatInformation returns fallback while signed out in silent mode", async () => {
@@ -4722,7 +4878,7 @@ test("provideTokenCount ignores Cocopi stateful markers across model option chan
 
 /**
  * @param {Map<string, string>} [secrets]
- * @param {{ onStore?: (key: string, value: string) => void, fireSecretChanges?: boolean }} [options]
+ * @param {{ onStore?: (key: string, value: string) => void, fireSecretChanges?: boolean, getError?: Error, globalState?: Map<string, unknown> }} [options]
  */
 function fakeContext(secrets = new Map(), options = {}) {
   /** @type {Set<(event: { key: string }) => void>} */
@@ -4739,6 +4895,9 @@ function fakeContext(secrets = new Map(), options = {}) {
   const secretStorage = {
     /** @param {string} key */
     async get(key) {
+      if (options.getError) {
+        throw options.getError;
+      }
       return secrets.get(key);
     },
     /**
@@ -4771,7 +4930,20 @@ function fakeContext(secrets = new Map(), options = {}) {
 
   return {
     subscriptions: [],
-    secrets: secretStorage
+    secrets: secretStorage,
+    globalState: {
+      /** @param {string} key */
+      get(key) {
+        return options.globalState?.get(key);
+      },
+      /**
+       * @param {string} key
+       * @param {readonly string[]} value
+       */
+      async update(key, value) {
+        options.globalState?.set(key, value);
+      }
+    }
   };
 }
 
@@ -4782,6 +4954,8 @@ function fakeContext(secrets = new Map(), options = {}) {
 function fakeVscode(configuration = new Map(), options = {}) {
   const vscode = {
     languageModelVendor: "",
+    /** @type {import("vscode").LanguageModelChatProvider | undefined} */
+    languageModelProvider: undefined,
     /** @type {string[]} */
     warningMessages: [],
     /** @type {string[]} */
@@ -4798,8 +4972,8 @@ function fakeVscode(configuration = new Map(), options = {}) {
        * @param {import("vscode").LanguageModelChatProvider} provider
        */
       registerLanguageModelChatProvider(vendor, provider) {
-        void provider;
         vscode.languageModelVendor = vendor;
+        vscode.languageModelProvider = provider;
         return { dispose() {} };
       }
     },
@@ -4814,7 +4988,8 @@ function fakeVscode(configuration = new Map(), options = {}) {
     LanguageModelChatMessageRole,
     LanguageModelError,
     workspace: {
-      getConfiguration() {
+      /** @param {string} [section] */
+      getConfiguration(section) {
         return {
           /**
            * @template T
@@ -4823,10 +4998,11 @@ function fakeVscode(configuration = new Map(), options = {}) {
            * @returns {T}
            */
           get(key, defaultValue) {
-            if (key === "transport" && !configuration.has(key)) {
+            const qualifiedKey = section ? `${section}.${key}` : key;
+            if (key === "transport" && !configuration.has(qualifiedKey) && !configuration.has(key)) {
               return /** @type {T} */ ("sse");
             }
-            return /** @type {T} */ (configuration.get(key) ?? defaultValue);
+            return /** @type {T} */ (configuration.get(qualifiedKey) ?? configuration.get(key) ?? defaultValue);
           }
         };
       }
