@@ -22,7 +22,7 @@ Status key:
 | User feature | VS Code / Copilot surface | Cocopi status | Current Cocopi usage | Gap / next action |
 | --- | --- | --- | --- | --- |
 | Select Cocopi as a chat model | `contributes.languageModelChatProviders`, `vscode.lm.registerLanguageModelChatProvider` | Adopted | Cocopi registers the `cocopi` vendor, advertises live Codex model metadata, and streams responses into Chat. | Keep metadata aligned with live catalog capabilities. |
-| Model-provider discovery | Language Models editor / **Install Model Providers** discovery | Adopted | Package metadata targets VS Code 1.129+ provider discovery. | Recheck manifest shape on each engine bump. |
+| Model-provider discovery | Language Models editor / **Install Model Providers** discovery | Adopted | Package metadata targets VS Code 1.130+ provider discovery. | Recheck manifest shape on each engine bump. |
 | Unified model customization | Provider `LanguageModelChatInformation` options | Adopted | Cocopi exposes `reasoningEffort` and `contextSize` when Codex catalog metadata supports meaningful choices. | Add only server-backed options; avoid synthetic pricing/budget controls. |
 | `@cocopi` direct mention | `contributes.chatParticipants`, `vscode.chat.createChatParticipant` | Adopted | Cocopi provides a sticky `@cocopi` participant for direct Codex requests and fallback workflows. | Keep participant model-source behavior aligned with selected Cocopi model. |
 | Agent mode / chat tool loop | Host language-model request tools and tool-result replay | Indirect | When Cocopi is selected as the model, VS Code supplies tool metadata; Cocopi emits tool calls and consumes tool results. | Add real VS Code integration tests for tool replay, edit/retry, and compaction. |
@@ -47,7 +47,7 @@ Status key:
 | User feature | VS Code / Copilot surface | Cocopi status | Current Cocopi usage | Gap / next action |
 | --- | --- | --- | --- | --- |
 | Ask / Edit / Agent mode routing | VS Code Chat mode picker | Indirect | Cocopi participates when it is the selected model and VS Code routes the mode through normal language-model requests and tools. | Smoke-test each mode in real VS Code; document any Copilot-only routing. |
-| Agent Host Copilot SDK sessions | Agent Host BYOK model bridge | Indirect | VS Code 1.129 enumerates extension models with `isBYOK: true` and no `targetChatSessionType`, then routes Copilot SDK model calls through Cocopi's existing provider. VS Code owns the Agent Host, AHP, SDK, and CLI runtime. | Smoke-test in real VS Code. The current bridge carries text/tools but buffers output and omits Cocopi thinking/data marker parts. |
+| Agent Host Copilot SDK sessions | Agent Host BYOK model bridge | Indirect | VS Code 1.130 synchronizes extension models with `isBYOK: true` and no `targetChatSessionType`, then routes Copilot SDK model calls through Cocopi's existing provider. VS Code owns the Agent Host, AHP, SDK, CLI runtime, permissions, and worktree isolation. | Smoke-test in real VS Code. The current bridge carries text/tools but buffers output and omits Cocopi thinking/data marker parts. |
 | Inline chat / quick editor edit | Editor inline chat / quick edit UI | Watch | Cocopi has no editor-inline-chat-specific integration; it can participate only if the host routes the request through the selected model provider. | Verify current behavior before adding settings or docs claims. |
 | Copilot smart actions | Explain, fix, generate tests, review, docs, and similar chat actions | Watch | Cocopi should handle the expanded prompt if the action honors the selected model provider. | Source/behavior-check which actions route to third-party providers and which remain Copilot-only. |
 | Image / multimodal chat attachments | `LanguageModelDataPart` image data; provider `imageInput` metadata | Partial | Cocopi carries model image-input metadata and maps user image data parts to Codex `input_image` content. | Add tests/live smoke; ensure unsupported models are not advertised or selected for image requests. |
@@ -94,6 +94,68 @@ Status key:
 | Participant slash commands | Chat participant command contributions | Watch | `@cocopi` currently exposes commands through the Command Palette/dashboard, not participant subcommands. | Consider `/status`, `/signin`, or `/inline` only if supported by current VS Code manifest/API shape. |
 | Agent customization files in this repo | `.instructions.md`, `.prompt.md`, `.agent.md`, `AGENTS.md` | N/A | Cocopi itself follows repo guidance but does not ship user chat customizations. | Do not conflate development-agent customization with runtime Cocopi features. |
 | Ignored files / workspace exclusions | Host context and tool policy | Watch | Cocopi relies on VS Code-provided request content and tool permissions. | Consider provider-specific ignored-file integration only if a scoped, documented API exists. |
+
+## VS Code 1.130 Complete Release-Note Audit
+
+Audited against the complete [VS Code 1.130 release notes](https://code.visualstudio.com/updates/v1_130) and the exact `1.130.0` source tree on 2026-07-22. Every product-feature heading, sub-feature, engineering item, and community contribution on the page is covered below. No release-note-driven Cocopi manifest/API migration was found. Follow-up real-host validation found one provider behavior gap: terminal `task_complete` replay requests must emit host-recognized text instead of returning zero response parts.
+
+### Product Features
+
+| Release-note item | Cocopi status | Relevance and decision |
+| --- | --- | --- |
+| The agent host | Indirect | VS Code continues the 1.129 host-owned AHP architecture and progressively rolls it out in the editor and Agents windows. Cocopi remains an extension language-model provider and must not install `@github/copilot-sdk`, launch a CLI, or implement AHP. |
+| Assisted tool approvals (`chat.assistedPermissions.enabled`) | Indirect | When enabled, Agent Host asks its language model to assess tool-call risk and shows **Assisted permissions** in the host permission picker. Cocopi can participate as the selected BYOK model through ordinary requests, but VS Code/AHP owns risk state, approval explanations, policy, execution, and UI; there is no new provider API to implement. |
+| Agents window: file-level diff statistics | N/A | Live insertion/deletion counts are computed and rendered by the host Changes editor. Cocopi neither owns the diff model nor contributes this editor. |
+| Agents window: compact multi-file diff view | N/A | Gutter, header, line-number, and unchanged-region layout are host UI only. |
+| Agents window: compact quick chats | N/A | Agent Host quick-chat rows and regular-session metadata are host session-list presentation. Cocopi contributes no session-list provider. |
+| Agents window: worktree support for all Agent Host harnesses | N/A | VS Code now applies Git worktree isolation to Claude and native Codex harnesses as well as Copilot. This does not turn Cocopi into a Codex harness: Cocopi is only a selectable BYOK model, and the host owns worktree creation, branch setup, working directory, and cleanup. |
+| Chat timestamps (`chat.verbose`) | Indirect | VS Code records and renders request/response timestamps plus elapsed time. Cocopi needs no timestamp response part and should keep its own diagnostics timing separate from host message metadata. |
+| Aggregate AI credit usage for Copilot Business and Enterprise | Avoid | The Copilot status menu can show account-wide billing-cycle credits when no user budget exists. This is global Copilot entitlement data, not provider-scoped Cocopi quota state; do not copy it into Cocopi or write shared quota fields. |
+| Clickable terminal file links for Git mnemonic prefixes | N/A | VS Code strips `i/`, `w/`, `1/`, and `2/` prefixes when resolving Git diff links. Cocopi has no terminal-link provider and needs no parser change. |
+| Engineering: release TypeScript 7 compiler and extension | N/A | This is VS Code's build/tooling migration. Cocopi remains plain Node.js JavaScript with TypeScript used only for checking/declarations; no runtime rewrite or dependency change follows from the host compiler version. |
+
+### Community Fixes And Acknowledgements
+
+| Release-note contribution | Cocopi status | Relevance and decision |
+| --- | --- | --- |
+| Voice auto-narration opt-out ([#325799](https://github.com/microsoft/vscode/pull/325799)), delayed narration request ([#325928](https://github.com/microsoft/vscode/pull/325928)), and dropped-narration revalidation ([#325966](https://github.com/microsoft/vscode/pull/325966)) | N/A | Voice backend protocol and narration lifecycle are host/Copilot features; no language-model-provider contract changed. |
+| Detect Command Code as an agent CLI in terminal tab titles ([#324417](https://github.com/microsoft/vscode/pull/324417)) | N/A | Terminal process-title detection is unrelated to Cocopi requests or Agent Host participation. |
+| Fix PDFs sent to BYOK Anthropic endpoints as image blocks ([#324960](https://github.com/microsoft/vscode/pull/324960)) | N/A | This fixes VS Code's built-in Anthropic custom-endpoint adapter. Cocopi maps its own image/file data to the Codex Responses API and must not copy the Anthropic translation. |
+| Update `windows-process-tree` for UTF-8 Process Explorer command lines ([#324283](https://github.com/microsoft/vscode/pull/324283)) | N/A | Host process inspection only. |
+| Parse Git diff mnemonic prefixes in terminal links ([#298490](https://github.com/microsoft/vscode/pull/298490)) | N/A | Implements the terminal release-note feature; Cocopi has no terminal-link contribution. |
+| Fall back to lower-priority decoration colors ([#325422](https://github.com/microsoft/vscode/pull/325422)) | N/A | Host decoration rendering only. |
+| Remove dead `CODEOWNERS` rules ([#325932](https://github.com/microsoft/vscode/pull/325932)) | N/A | VS Code repository maintenance only. |
+| Voice barge-in playback/protocol ([#325808](https://github.com/microsoft/vscode/pull/325808), [#326159](https://github.com/microsoft/vscode/pull/326159)), client locale ([#325931](https://github.com/microsoft/vscode/pull/325931)), always-on streaming ([#326165](https://github.com/microsoft/vscode/pull/326165)), and scoped live transcripts ([#326134](https://github.com/microsoft/vscode/pull/326134)) | N/A | Voice-agent transport and rendering remain host-owned and do not add Cocopi response types. |
+| Avoid stale simple-dialog folder updates ([#321357](https://github.com/microsoft/vscode/pull/321357)) and create nested folders ([#321355](https://github.com/microsoft/vscode/pull/321355)) | N/A | Native file-dialog state and folder creation only. |
+| Fix quota-trajectory billing-period calculation ([#325895](https://github.com/microsoft/vscode/pull/325895)) | Avoid | Corrects Copilot billing-period projection. Cocopi must continue using its provider-owned rate-limit/usage data rather than global Copilot quota state. |
+| Recognize OCaml in settings labels ([#325457](https://github.com/microsoft/vscode/pull/325457)) | N/A | Settings UI language labeling only. |
+| Match uppercase query characters in `fuzzyContains` ([#324047](https://github.com/microsoft/vscode/pull/324047)) | N/A | General workbench fuzzy matching; no Cocopi-specific integration is needed. |
+| Fix `tunnelProtocol` resolving to HTTPS after focus ([#325445](https://github.com/microsoft/vscode/pull/325445)) | N/A | Remote tunnel context-key correctness, unrelated to Cocopi transport configuration. |
+| Issue-tracking contributor acknowledgements | N/A | Attribution only; no extension-facing behavior or migration. |
+
+## VS Code 1.130 Exact-Source Audit
+
+The release-note audit was supplemented with an uncapped local comparison of the exact `microsoft/vscode` `1.129.0` and `1.130.0` trees. The comparison found 1,144 changed paths and was used to catch API, provider, Agent Host, configuration, and runtime changes not called out individually in the release notes. Exact tag contents, not range commit subjects, are the compatibility evidence.
+
+No declaration or manifest migration is required. The engine target is now `^1.130.0`; the checked-in enabled declarations were refreshed from the release tag and produced no declaration diff. Real-host validation additionally required Cocopi's terminal completion short-circuit to emit a concise text acknowledgement when the full answer is already visible.
+
+| Exact-tree finding | Cocopi status | Relevance and decision |
+| --- | --- | --- |
+| Stable and enabled proposal declarations unchanged | Adopted | `vscode.d.ts`, `vscode.proposed.chatProvider.d.ts`, `vscode.proposed.chatStatusItem.d.ts`, and `vscode.proposed.languageModelThinkingPart.d.ts` are byte-for-byte unchanged. Cocopi's provider registration, metadata, model configuration, status item, and thinking-part code need no migration. |
+| `chatContextProvider` context-item icon rename | Watch | The only changed proposed declaration replaces `ChatContextItem.icon` with `iconPath` and updates related docs. Cocopi neither checks in nor enables this proposal, so no manifest or source edit is warranted. |
+| Agent Host BYOK model discovery changed from pull to pushed snapshots | Indirect | Each eligible renderer now pushes its current BYOK model list on subscribe and whenever `ILanguageModelsService` changes. The node registry caches one serving window's snapshot, prefers a populated serving connection, and excludes windows that never bind the provider. Cocopi already fires `onDidChangeLanguageModelChatInformation` for auth/catalog changes, so the host receives fresher model availability without a provider change. |
+| Agent Host BYOK transport remains lossy | Partial | The bridge still flattens text/tool messages, buffers completion output, and carries only text, tool calls, and best-effort usage. It still omits `LanguageModelThinkingPart`, Cocopi state-marker `LanguageModelDataPart` values, and per-model `configurationSchema`; ordinary VS Code Chat remains the full-fidelity Cocopi path. |
+| Copilot BYOK response success classification | Adopted | `extChatEndpoint.ts` returns success only when a provider stream contains nonempty text or at least one tool call; a zero-part or data-only terminal replay becomes `unknown` and Autopilot retries it. Cocopi now reports `Task completed.` after an already-visible `task_complete` answer instead of returning an empty stream. |
+| Shared model-selection state machine | Indirect | Workbench Chat and the Agents window now share configured/default, remembered, session-restored, pending, and fallback selection logic. Asynchronous vendor resolution can remain pending until absence is conclusive, reducing premature fallback while Cocopi's provider/catalog resolves. This is host state management, not a provider callback change. |
+| Selected-model storage moved to profile scope | Indirect | VS Code lazily migrates prior application-scoped selections and shares the profile-scoped remembered model across appropriate surfaces. Cocopi must not duplicate this storage or infer it from its own `cocopi.model` fallback setting. |
+| Per-editor model-configuration restoration hardened | Indirect | The host preserves editor-local snapshots, heals defaults after delayed provider registration, filters restored values against the live schema, avoids redundant writes, and protects persisted buckets from prototype keys. Cocopi's `reasoningEffort` and `contextSize` schemas benefit automatically; no schema workaround is needed. |
+| Agent Host assisted-permission and risk state | Indirect | The session schema adds an opt-in `assisted` approval level and host progress can carry loading/complete risk assessments with explanations and safety. Enterprise auto-approval policy normalization and picker visibility remain inside VS Code; Cocopi should not implement a parallel approval mode. |
+| Session mode/approval configuration and worktree isolation | N/A | Host code separates interactive/plan/autopilot mode from default/assisted/allow-all approvals and adds common worktree setup for harnesses. These settings configure Agent Host sessions before transport and are not Cocopi model options. |
+| Native Codex harness customizations | N/A | New Codex harness code scans and exposes native Codex skills, hooks, plugins, MCP data, and worktree configuration. It belongs to VS Code's Codex app-server harness, not Cocopi's remote Responses-backed BYOK model provider; do not import or emulate it. |
+| Chat timestamp persistence/rendering | Indirect | Request/response timing is maintained by the host chat model and UI. Cocopi's stream timing diagnostics remain useful for backend analysis but should not attempt to author host timestamps. |
+| Copilot aggregate credits and quota trajectory | Avoid | Source changes read and display Copilot organization entitlement/billing state. They remain unscoped to a third-party provider and do not supersede Cocopi's local usage/rate-limit surfaces. |
+| Electron and Node runtime | Adopted | VS Code 1.130 remains on Electron `42.6.0`; that runtime resolves to Node.js `24.18.0`, Chromium `148.0.7778.280`, and V8 `14.8.178.38`. No Cocopi runtime compatibility change was found. |
+| TypeScript 7 host toolchain | N/A | VS Code compiles itself and ships its language extension with TypeScript 7. This does not change the extension-host API declarations or require Cocopi to author TypeScript. |
 
 ## VS Code 1.129 Complete Release-Note Audit
 
@@ -159,11 +221,11 @@ No additional Cocopi production-code gap was found. The findings below record th
 
 ## Proposed API Watchlist
 
-Checked against `microsoft/vscode` `src/vscode-dts` on 2026-07-15. Keep this table source-backed: proposed APIs are unstable and should only become Cocopi dependencies when they unlock a clear provider-scoped feature.
+Checked against `microsoft/vscode` `src/vscode-dts` on 2026-07-22. Keep this table source-backed: proposed APIs are unstable and should only become Cocopi dependencies when they unlock a clear provider-scoped feature.
 
 | Proposed API | Cocopi status | Why it matters | Decision / next action |
 | --- | --- | --- | --- |
-| `chatProvider` | Adopted | Adds provider-facing model metadata, per-model configuration, model picker hints, and edit-tool preferences. VS Code 1.129 adds optional `warningText` and `promo` metadata. | Already checked in under `data/vscode-dts` and enabled in `package.json`; Cocopi does not currently have provider-backed warning or promotion data to publish. |
+| `chatProvider` | Adopted | Adds provider-facing model metadata, per-model configuration, model picker hints, and edit-tool preferences. VS Code 1.129 added optional `warningText` and `promo` metadata; the declaration is unchanged in 1.130. | Already checked in under `data/vscode-dts` and enabled in `package.json`; Cocopi does not currently have provider-backed warning or promotion data to publish. |
 | `chatStatusItem` | Adopted | Adds native Chat/Copilot status dashboard rows. | Already checked in and used for Cocopi-owned status only. |
 | `languageModelThinkingPart` | Adopted | Adds streamable thinking/reasoning response parts. | Already checked in and used when available. |
 | `inlineCompletionsAdditions` | Watch | Closest proposed surface to NES-like behavior: `InlineCompletionItem.isInlineEdit`, `showRange`, `showInlineEditMenu`, `jumpToPosition`, provider `modelInfo`, provider options, `yieldTo`, debounce, and lifecycle callbacks. | No dedicated provider-scoped Next Edit Suggestions API found. Consider only for Cocopi inline completions after the proposal stabilizes enough to replace Cocopi-owned controls. |
@@ -172,7 +234,7 @@ Checked against `microsoft/vscode` `src/vscode-dts` on 2026-07-15. Keep this tab
 | `chatPromptFiles` | Watch | Exposes providers and readers for agents, instructions, prompt files, skills, slash commands, hooks, and plugins. | Cocopi currently consumes expanded host prompts indirectly. Only add if Cocopi needs to contribute or inspect Cocopi-specific runtime resources. |
 | `chatSessionCustomizationProvider` | Watch | Lets a chat-session runtime expose supported agents, skills, prompts, instructions, hooks, plugins, and creation locations. | Relevant only if Cocopi owns a custom chat session type; not needed for plain model-provider participation. |
 | `chatSessionsProvider` | Watch | Lets extensions provide native chat session lists, session content, active response callbacks, forks, option groups, session metadata, and optional 1.129 promotion metadata. | Possible long-term replacement for Cocopi-local session UI/state bridges, but high scope and only useful if Cocopi owns sessions rather than just models. |
-| `chatContextProvider` | Watch | VS Code 1.129 separates explicit attach-context providers from automatic tab-context providers, including custom-editor `viewType` selectors. | Cocopi currently consumes context after the host expands it. Do not enable this unstable proposal merely to inspect or duplicate host attachments. |
+| `chatContextProvider` | Watch | VS Code 1.129 separated explicit attach-context providers from automatic tab-context providers; 1.130 replaces `ChatContextItem.icon` with `iconPath`. | Cocopi currently consumes context after the host expands it and does not enable this proposal. Do not adopt an unstable provider merely to inspect or duplicate host attachments. |
 | `agentEditorComments` | N/A | VS Code 1.129 adds comment-acceptance state, change notifications for that state, and comment deletion. | Cocopi contributes no Agent Editor Comments provider and should not enable the proposal. |
 | `languageModelCapabilities` | Watch | Adds runtime `LanguageModelChat.capabilities` fields such as tool calling, image-to-text, and `editToolsHint`. | Compare with stable/provider metadata during engine bumps; do not duplicate capability data unless host UI consumes it. |
 | `languageModelPricing` | Avoid | Adds display pricing/cost fields to model metadata and runtime model objects. | Do not use static public pricing. Revisit only if Cocopi has authenticated backend-provided Codex cost metadata that maps cleanly to VS Code's fields. |
@@ -183,6 +245,15 @@ Checked against `microsoft/vscode` `src/vscode-dts` on 2026-07-15. Keep this tab
 
 | VS Code version / source | Feature | Cocopi status | Decision / note |
 | --- | --- | --- | --- |
+| 1.130 | Stable and enabled proposed API declarations | Adopted | No contract delta: provider, status-item, and thinking declarations are unchanged after the exact-tag refresh. |
+| 1.130 | BYOK terminal response classification | Adopted | The host recognizes only nonempty text or tool calls as a successful BYOK response. Cocopi emits a concise acknowledgement after an already-visible terminal `task_complete` replay rather than returning zero parts. |
+| 1.130 | Agent Host pushed BYOK model snapshots | Indirect | Host model availability now follows renderer change events and serving-window state; Cocopi's existing catalog-change event is sufficient. |
+| 1.130 | Shared model selection/configuration restoration | Indirect | Host-side pending selection, profile storage, and per-editor schema restore reduce fallback/configuration races without a provider change. |
+| 1.130 | Assisted tool approvals | Indirect | Agent Host owns risk assessment, policy, picker UI, and execution. Do not add Cocopi approval settings or tool bypasses. |
+| 1.130 | Worktrees across Agent Host harnesses | N/A | Applies to Copilot, Claude, and native Codex harnesses; Cocopi remains a BYOK model, not a harness. |
+| 1.130 | Chat timestamps | Indirect | Host renders timestamps and elapsed time; Cocopi keeps separate transport diagnostics. |
+| 1.130 | Aggregate Copilot AI credits | Avoid | Copilot Business/Enterprise account state is not provider-scoped and must not back Cocopi quota UI. |
+| 1.130 | Proposed `chatContextProvider.iconPath` | Watch | Cocopi does not enable this proposal, so the rename requires no declaration or source change. |
 | 1.129 | Agent Host and built-in Copilot SDK harness | Indirect | Host-owned architecture, not a new extension API or Cocopi dependency. Keep Cocopi's direct OAuth/Codex backend bridge. |
 | 1.129 | Agent Host BYOK model bridge | Indirect | Cocopi's existing `isBYOK`, user-selectable, tool-capable models are automatically enumerated and routed through the provider when the host bridge is enabled. |
 | 1.129 | Agent Host session-management tools | Indirect | Tool definitions traverse the ordinary BYOK request path; VS Code owns execution and safety policy. |
