@@ -4583,7 +4583,7 @@ test("provideLanguageModelChatResponse renders task completion without a model f
   assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["Completed successfully."]);
 });
 
-test("provideLanguageModelChatResponse does not duplicate a completion summary already visible", async (testContext) => {
+test("provideLanguageModelChatResponse acknowledges a completion summary already visible", async (testContext) => {
   const fetchMock = testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => {
     throw new Error("terminal task completion must not reach Codex");
   }));
@@ -4612,7 +4612,41 @@ test("provideLanguageModelChatResponse does not duplicate a completion summary a
   );
 
   assert.equal(fetchMock.mock.callCount(), 0);
-  assert.deepEqual(progress.parts, []);
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["Task completed."]);
+  assert.ok(!progress.parts.some((part) => part instanceof LanguageModelTextPart && part.value === "Completed successfully."));
+});
+
+test("provideLanguageModelChatResponse acknowledges summaryless task completion after a visible answer", async (testContext) => {
+  const fetchMock = testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => {
+    throw new Error("terminal task completion must not reach Codex");
+  }));
+  const progress = fakeProgress();
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode());
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-test"),
+    [
+      fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "finish"),
+      fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
+        new LanguageModelTextPart("The requested changes are implemented and validated."),
+        new LanguageModelToolCallPart("call-complete", "task_complete", {})
+      ]),
+      fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
+        new LanguageModelToolResultPart("call-complete", [new LanguageModelTextPart("Task completed.")])
+      ])
+    ],
+    fakeResponseOptions({ toolMode: 1 }),
+    progress,
+    fakeCancellationToken()
+  );
+
+  assert.equal(fetchMock.mock.callCount(), 0);
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["Task completed."]);
+  assert.ok(!progress.parts.some((part) => part instanceof LanguageModelTextPart && part.value === "The requested changes are implemented and validated."));
 });
 
 test("provideLanguageModelChatResponse requests a follow-up when task completion has no visible summary", async (testContext) => {
