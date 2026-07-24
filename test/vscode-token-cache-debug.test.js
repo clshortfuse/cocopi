@@ -18,7 +18,8 @@ import {
   readCocopiUsageWindowStatus,
   recordCocopiRateLimitSnapshots,
   recordCocopiRemoteUsageAnalytics,
-  recordCocopiTokenCacheSummary
+  recordCocopiTokenCacheSummary,
+  waitForCocopiTokenCacheDebugStorage
 } from "../lib/vscode/token-cache-debug.js";
 
 const COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY = "cocopi.diagnostics.tokenTracker.v1";
@@ -189,26 +190,53 @@ test("recordCocopiTokenCacheSummary classifies compaction cache risk", () => {
   assert.equal(continuation?.uncachedInputTokens, 366);
 });
 
-test("token tracker persists records and deletion in private storage", async () => {
+test("token tracker persists compact records and deletion in private storage", async () => {
   const secrets = fakeSecretStorage();
   await initializeCocopiTokenCacheDebugStorage(secrets);
   clearCocopiTokenCacheDebugSummaries();
 
   recordCocopiTokenCacheSummary(tokenCacheSummary({ hostRequestIndex: 1, sessionId: "session-a", cachedTokens: 10 }));
   recordCocopiTokenCacheSummary(tokenCacheSummary({ hostRequestIndex: 2, sessionId: "session-b", cachedTokens: 20 }));
-  await Promise.resolve();
+  await waitForCocopiTokenCacheDebugStorage();
 
   const persisted = JSON.parse(secrets.values.get(COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY) ?? "[]");
-  assert.equal(persisted.length, 2);
-  assert.equal(persisted[0].sessionId, "session-b");
+  assert.equal(persisted.version, 2);
+  assert.equal(persisted.rows.length, 2);
+  assert.ok(persisted.strings.includes("session-b"));
+  assert.equal(secrets.storeCalls.filter((key) => key === COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY).length, 1);
 
-  assert.equal(deleteCocopiTokenCacheDebugSummary(persisted[0].id), true);
-  await Promise.resolve();
-  assert.equal(JSON.parse(secrets.values.get(COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY) ?? "[]").length, 1);
+  const sessionB = readCocopiTokenCacheDebugSummaries().find((entry) => entry.sessionId === "session-b");
+  assert.equal(deleteCocopiTokenCacheDebugSummary(sessionB?.id ?? 0), true);
+  await waitForCocopiTokenCacheDebugStorage();
+  assert.equal(JSON.parse(secrets.values.get(COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY) ?? "{}").rows.length, 1);
 
   assert.equal(deleteCocopiTokenCacheDebugSession("session-a"), true);
-  await Promise.resolve();
-  assert.deepEqual(JSON.parse(secrets.values.get(COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY) ?? "[]"), []);
+  await waitForCocopiTokenCacheDebugStorage();
+  assert.deepEqual(JSON.parse(secrets.values.get(COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY) ?? "{}").rows, []);
+});
+
+test("token tracker migrates legacy rows without retaining verbose request text", async () => {
+  const legacy = {
+    ...storedTokenCacheSummary({
+      id: 7,
+      recordedAt: "2026-04-30T10:00:00.000Z",
+      hostRequestIndex: 7,
+      billedTotalTokens: 250
+    }),
+    requestInputDigest: "sha256:request-input",
+    webSocketContinuationExpected: "verbose expected request description",
+    webSocketContinuationExpectedDigest: "sha256:expected"
+  };
+  const secrets = fakeSecretStorage(new Map([[COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY, JSON.stringify([legacy])]]));
+
+  await initializeCocopiTokenCacheDebugStorage(secrets);
+  await waitForCocopiTokenCacheDebugStorage();
+
+  const persisted = secrets.values.get(COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY) ?? "";
+  assert.match(persisted, /^\{"version":2,/u);
+  assert.doesNotMatch(persisted, /verbose expected request description|sha256:request-input/u);
+  assert.match(persisted, /sha256:expected/u);
+  assert.equal(readCocopiTokenCacheDebugSummaries()[0]?.billedTotalTokens, 250);
 });
 
 test("token tracker preserves in-memory records when storage loads", async () => {
@@ -325,6 +353,25 @@ test("token tracker stores continuation mismatch diagnostics", () => {
   assert.equal(entry?.webSocketContinuationMismatchIndex, 13);
   assert.equal(entry?.webSocketContinuationExpectedDigest, "sha256:expected");
   assert.equal(entry?.webSocketContinuationActualDigest, "sha256:actual");
+});
+
+test("token tracker retains verbose diagnostics only for recent rows", () => {
+  clearCocopiTokenCacheDebugSummaries();
+
+  for (let hostRequestIndex = 1; hostRequestIndex <= 101; hostRequestIndex += 1) {
+    recordCocopiTokenCacheSummary({
+      ...tokenCacheSummary({ hostRequestIndex, cachedTokens: 0 }),
+      requestInputDigest: `sha256:request-${hostRequestIndex}`,
+      webSocketContinuationExpected: `verbose expected ${hostRequestIndex}`,
+      webSocketContinuationExpectedDigest: `sha256:expected-${hostRequestIndex}`
+    });
+  }
+
+  const summaries = readCocopiTokenCacheDebugSummaries();
+  assert.equal(summaries[0]?.webSocketContinuationExpected, "verbose expected 101");
+  assert.equal(summaries[100]?.webSocketContinuationExpected, undefined);
+  assert.equal(summaries[100]?.requestInputDigest, undefined);
+  assert.equal(summaries[100]?.webSocketContinuationExpectedDigest, "sha256:expected-1");
 });
 
 test("readCocopiUsageWindowStatus reports recent local token activity", async () => {
@@ -642,8 +689,11 @@ function storedTokenCacheSummary(options) {
 
 /** @param {Map<string, string>} [values] */
 function fakeSecretStorage(values = new Map()) {
+  /** @type {string[]} */
+  const storeCalls = [];
   return {
     values,
+    storeCalls,
     /** @param {string} key */
     async get(key) {
       return values.get(key);
@@ -653,6 +703,7 @@ function fakeSecretStorage(values = new Map()) {
      * @param {string} value
      */
     async store(key, value) {
+      storeCalls.push(key);
       values.set(key, value);
     },
     /** @param {string} key */
