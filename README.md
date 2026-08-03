@@ -63,7 +63,7 @@ Hover the Cocopi status-bar item for a compact status summary. Click it to open 
 
 Hover the Cocopi status-bar icon for a compact account/model/usage summary plus quick links to the dashboard, Token Tracker, and Diagnostics. Click the icon to open the richer Cocopi dashboard with card-style status and configuration actions; VS Code builds with the proposed Chat status item API also mirror that summary in the native Chat/Copilot status dashboard. **Inline Options** expands autocomplete controls for Cocopi context-budget settings, VS Code's native inline-suggest setting, and event debug logs. You can also run **Cocopi: Toggle Inline Completions** from the command palette, or use **Manage Cocopi** → **Toggle Inline Completions**, to enable or disable Cocopi ghost-text completions. The command shows a small confirmation popup after changing the setting. You can also set `cocopi.inlineCompletions.enabled` directly in Settings.
 
-Run **Cocopi: Set Inline Completion Model** to choose the autocomplete model. If inline completions are disabled, the command offers an **Enable Now** popup action. The default `auto` mode prefers a Spark-like low-latency model from the signed-in account's model catalog when one is available, then falls back to `cocopi.model`. VS Code's own `editor.inlineSuggest.enabled` setting must also allow inline suggestions.
+Run **Cocopi: Set Inline Completion Model** to choose the autocomplete model. If inline completions are disabled, the command offers an **Enable Now** popup action. The default `auto` mode prefers a Spark-like low-latency model available to the signed-in account, then GPT-5.6 Luna, and only then `cocopi.model`. VS Code's own `editor.inlineSuggest.enabled` setting must also allow inline suggestions.
 
 For testing, set `cocopi.debugLevel` to `events` or `payloads` and open the **Cocopi** output channel. Inline completion attempts log request metadata, selected model, context sizes, and stream event types. `payloads` also logs request/event payloads and can include surrounding editor text.
 
@@ -94,7 +94,7 @@ Diagnostics are intended for troubleshooting extension behavior. They are stored
 | --- | --- | --- |
 | `cocopi.model` | `gpt-5.5` | Fallback Codex model id. |
 | `cocopi.chatParticipantModelSource` | `selected` | Whether `@cocopi` uses VS Code's selected Cocopi model or the configured fallback. |
-| `cocopi.reasoningEffort` | `default` | Reasoning mode for Cocopi requests: `default`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, or `ultra`. Ultra sends `max` on the wire but, unlike Max, adds proactive VS Code `runSubagent` policy and parallel independent delegation when the tool and model catalog permit it. The custom `@cocopi` participant keeps the real tool optionally available at other efforts without enabling that Ultra policy. |
+| `cocopi.reasoningEffort` | `default` | Reasoning mode for Cocopi requests: `default`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, or `ultra`. Ultra sends `max` on the wire but, unlike Max, adds proactive VS Code `runSubagent` policy and parallel independent delegation when the tool and model catalog permit it. If orchestration is unavailable, Ultra still uses the Max wire path; it never means model-default reasoning. The custom `@cocopi` participant keeps the real tool optionally available at other efforts without enabling that Ultra policy. |
 | `cocopi.reasoningSummary` | `auto` | Reasoning summary behavior: `auto`, `model-default`, `off`, `concise`, or `detailed`. |
 | `cocopi.serviceTier` | `auto` | Processing tier override: `auto`, `flex`, or `priority`. |
 | `cocopi.transport` | `websocket` | Responses transport: `websocket` or `sse`. |
@@ -107,7 +107,7 @@ Diagnostics are intended for troubleshooting extension behavior. They are stored
 | Setting | Default | Description |
 | --- | --- | --- |
 | `cocopi.inlineCompletions.enabled` | `false` | Enables Cocopi AI autocomplete. Kept opt-in because it sends editor context as you type. |
-| `cocopi.inlineCompletions.model` | `auto` | Autocomplete model id. `auto` prefers a Spark-like model from the catalog when available, then falls back to `cocopi.model`. |
+| `cocopi.inlineCompletions.model` | `auto` | Autocomplete model id. `auto` prefers an available Spark-like model, then GPT-5.6 Luna, then `cocopi.model`. |
 | `cocopi.inlineCompletions.maxPrefixCharacters` | `6000` | Maximum characters before the cursor sent as completion context. |
 | `cocopi.inlineCompletions.maxSuffixCharacters` | `2000` | Maximum characters after the cursor sent as completion context. |
 | `cocopi.inlineCompletions.timeoutMs` | `10000` | Inline completion stream idle timeout. Set `0` to disable this timeout. |

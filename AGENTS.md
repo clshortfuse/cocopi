@@ -32,9 +32,12 @@ Cocopi is a VS Code extension that provides a Codex-backed chat model provider f
 - Keep request construction and parsing deterministic and easy to unit test.
 - Avoid changing public behavior unless covered by tests and explicit docs.
 - For Codex UX and wire semantics, treat upstream Codex CLI / codex-cli-rs as the reference behavior and verify it before inventing local Cocopi semantics.
+- Preserve the upstream Ultra invariant: `ultra` is a symbolic orchestration selection, not a Responses API effort. Translate it to wire `max` before catalog compatibility adaptation. `runSubagent` availability and `multi_agent_version` gate only proactive orchestration instructions; they never change Ultra to the model default or omit its wire effort.
 - Use existing docs for detailed behavior:
   - `docs/construction-plan.md`
   - `docs/testing.md`
+  - `docs/cocopi-local-semantics.md`
+  - `docs/upstream-codex-tracking.md`
 
 ## Security and Privacy
 - Never commit or log auth tokens, bearer tokens, refresh tokens, or raw sensitive request payloads.

@@ -13,6 +13,23 @@ GitHub reports this compare as very large: 2,282 commits and 3,748 changed files
 
 Release tags observed in this range: `0.125.0`, `0.128.0` through `0.144.0`. GitHub releases for `0.126.0` and `0.127.0` were not present in the release listing used for this review.
 
+## Ultra Semantic Invariant
+
+This distinction is a regression guard, not optional terminology:
+
+- `Ultra` is a client-side symbol selecting Max request reasoning **and** proactive multi-agent orchestration.
+- The Responses request builder converts `ReasoningEffort::Ultra` to `ReasoningEffort::Max` unconditionally. Whether multi-agent instructions are available does not participate in that conversion.
+- MultiAgentV2 and tool availability govern only the additional orchestration environment/instructions. On V1, with orchestration disabled, or without a host subagent tool, selected Ultra still follows the Max wire path.
+- Cocopi may adapt Max to the nearest effort in an explicit older-model supported list. That catalog compatibility step is not a fallback to the model default. Missing catalog metadata means wire `max`, not omitted effort.
+
+Authoritative upstream evidence, in descending order of relevance:
+
+1. [`core/src/client.rs`](https://github.com/openai/codex/blob/rust-v0.144.0/codex-rs/core/src/client.rs): `reasoning_effort_for_request` maps `Ultra` to `Max` at the request boundary.
+2. [`core/src/client_tests.rs`](https://github.com/openai/codex/blob/rust-v0.144.0/codex-rs/core/src/client_tests.rs): `ultra_reasoning_uses_max_for_requests` locks that mapping.
+3. [`core/tests/suite/multi_agent_mode.rs`](https://github.com/openai/codex/blob/rust-v0.144.0/codex-rs/core/tests/suite/multi_agent_mode.rs): `ultra_reasoning_uses_max_and_proactive_mode` verifies both effects together, while `ultra_on_multi_agent_v1_uses_max_without_mode_instructions` proves the wire mapping survives without V2 instructions.
+
+The protocol enum's ability to parse, display, or serialize `"ultra"` is not evidence that Responses accepts an Ultra effort. Catalog and TUI representations preserve the client selection; request-builder code and request-body tests define the wire contract. Any future change to this invariant requires new upstream request-boundary evidence, not an inference from model defaults, orchestration availability, enum serialization, or UI labels.
+
 ## Cocopi Actions For `0.144.0`
 
 | Area | Upstream signal | Cocopi status |
@@ -82,10 +99,10 @@ Checked with active local credentials on 2026-07-09 using `client_version=0.144.
 | `gpt-5.6-luna` | `medium` | `low`, `medium`, `high`, `xhigh`, `max` | `max` | `max` |
 | `gpt-5.4` | `medium` | `low`, `medium`, `high`, `xhigh` | `xhigh` | `xhigh` |
 | `gpt-5.4-mini` | `medium` | `low`, `medium`, `high`, `xhigh` | `xhigh` | `xhigh` |
-| `gpt-5.3-codex-spark` | `high` | `low`, `medium`, `high`, `xhigh` | omitted because `supported_in_api: false` | omitted because `supported_in_api: false` |
+| `gpt-5.3-codex-spark` | `high` | `low`, `medium`, `high`, `xhigh` | `xhigh` | `xhigh` |
 | `codex-auto-review` | `medium` | `low`, `medium`, `high`, `xhigh` | `xhigh` | `xhigh` |
 
-Conclusion: the new global settings/schema values do not force unsupported wire efforts onto older models. Cocopi resolves per live catalog metadata, then applies the upstream Ultra translation: selected Ultra becomes `max` (or the nearest older wire effort) and separately enables proactive `runSubagent` guidance when that VS Code tool is present and the catalog does not explicitly select `v1` or `disabled`. Missing selector metadata remains compatible. API-unsupported reasoning models omit reasoning entirely.
+Conclusion: the new global settings/schema values do not force unsupported wire efforts onto older models. Cocopi resolves per live catalog metadata, then applies the upstream Ultra translation: selected Ultra becomes `max` (or the nearest older wire effort) and separately enables proactive `runSubagent` guidance when that VS Code tool is present and the catalog does not explicitly select `v1` or `disabled`. Missing selector metadata remains compatible. Upstream `ModelPreset::filter_by_auth` keeps every model in ChatGPT mode and applies `supported_in_api` only in API-key mode. Cocopi currently uses ChatGPT authentication, so a `supported_in_api: false` Spark remains a valid workload target with its advertised reasoning levels. For `cocopi/autocomplete`, Spark is preferred and an actually unavailable Spark falls back to GPT-5.6 Luna before the main chat fallback model.
 
 ## Release-Driven Impact Matrix
 
