@@ -417,7 +417,7 @@
  * @property {string} id
  * @property {string} displayName
  * @property {string} [description]
- * @property {boolean} [supportedInApi]
+ * @property {boolean} [supportedInApi] Whether the model is available in API-key mode; ChatGPT authentication may still use false entries.
  * @property {number} [priority]
  * @property {number} [contextWindow]
  * @property {number} [maxContextWindow]

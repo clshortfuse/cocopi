@@ -215,6 +215,34 @@ test("token tracker persists compact records and deletion in private storage", a
   assert.deepEqual(JSON.parse(secrets.values.get(COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY) ?? "{}").rows, []);
 });
 
+test("token tracker persists authoritative workload route metadata", async () => {
+  const secrets = fakeSecretStorage();
+  await initializeCocopiTokenCacheDebugStorage(secrets);
+  clearCocopiTokenCacheDebugSummaries();
+
+  recordCocopiTokenCacheSummary({
+    ...tokenCacheSummary({ hostRequestIndex: 1, cachedTokens: 10 }),
+    workload: "utility",
+    workloadSubtype: "small",
+    requestedModel: "cocopi/utility-small",
+    resolvedModel: "gpt-small"
+  });
+  await waitForCocopiTokenCacheDebugStorage();
+
+  const persisted = JSON.parse(secrets.values.get(COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY) ?? "{}");
+  assert.equal(persisted.version, 2);
+  assert.ok(persisted.strings.includes("utility"));
+  assert.ok(persisted.strings.includes("small"));
+  assert.ok(persisted.strings.includes("cocopi/utility-small"));
+  assert.ok(persisted.strings.includes("gpt-small"));
+
+  const [entry] = readCocopiTokenCacheDebugSummaries();
+  assert.equal(entry?.workload, "utility");
+  assert.equal(entry?.workloadSubtype, "small");
+  assert.equal(entry?.requestedModel, "cocopi/utility-small");
+  assert.equal(entry?.resolvedModel, "gpt-small");
+});
+
 test("token tracker migrates legacy rows without retaining verbose request text", async () => {
   const legacy = {
     ...storedTokenCacheSummary({
@@ -236,7 +264,12 @@ test("token tracker migrates legacy rows without retaining verbose request text"
   assert.match(persisted, /^\{"version":2,/u);
   assert.doesNotMatch(persisted, /verbose expected request description|sha256:request-input/u);
   assert.match(persisted, /sha256:expected/u);
-  assert.equal(readCocopiTokenCacheDebugSummaries()[0]?.billedTotalTokens, 250);
+  const migrated = readCocopiTokenCacheDebugSummaries().find((entry) => entry.hostRequestIndex === 7);
+  assert.equal(migrated?.billedTotalTokens, 250);
+  assert.equal(migrated?.workload, "unknown");
+  assert.equal(migrated?.workloadSubtype, "unknown");
+  assert.equal(migrated?.requestedModel, "gpt-test");
+  assert.equal(migrated?.resolvedModel, "gpt-test");
 });
 
 test("token tracker preserves in-memory records when storage loads", async () => {
@@ -617,6 +650,41 @@ test("rate limit snapshots load from private storage", async () => {
   assert.equal(readCocopiRateLimitSnapshots()[0]?.primary?.usedPercent, 75);
 
   clearCocopiRateLimitSnapshots();
+});
+
+test("usage analytics filters workloads and combines utility subtypes", () => {
+  clearCocopiTokenCacheDebugSummaries();
+  const rows = [
+    { workload: "chat", workloadSubtype: "main", requestedModel: "gpt-main", resolvedModel: "gpt-main", cachedTokens: 10 },
+    { workload: "utility", workloadSubtype: "general", requestedModel: "cocopi/utility", resolvedModel: "gpt-general", cachedTokens: 20 },
+    { workload: "utility", workloadSubtype: "small", requestedModel: "cocopi/utility-small", resolvedModel: "gpt-small", cachedTokens: 30 },
+    { workload: "autocomplete", workloadSubtype: "inline", requestedModel: "cocopi/autocomplete", resolvedModel: "gpt-inline", cachedTokens: 40 }
+  ];
+  for (const [index, row] of rows.entries()) {
+    recordCocopiTokenCacheSummary({
+      ...tokenCacheSummary({ hostRequestIndex: index + 1, cachedTokens: row.cachedTokens }),
+      workload: /** @type {"chat" | "utility" | "autocomplete"} */ (row.workload),
+      workloadSubtype: /** @type {"main" | "general" | "small" | "inline"} */ (row.workloadSubtype),
+      requestedModel: row.requestedModel,
+      resolvedModel: row.resolvedModel
+    });
+  }
+
+  const analytics = readCocopiUsageAnalytics();
+  const utility = analytics.workloads.find((workload) => workload.workload === "utility");
+  assert.equal(analytics.matchingRequestRows, 4);
+  assert.equal(utility?.requestCount, 2);
+  assert.deepEqual(utility?.subtypes.map((subtype) => subtype.workloadSubtype).toSorted(), ["general", "small"]);
+
+  const utilityOnly = readCocopiUsageAnalytics({ workload: "utility" });
+  assert.equal(utilityOnly.matchingRequestRows, 2);
+  assert.deepEqual(utilityOnly.workloads.map((workload) => workload.workload), ["utility"]);
+
+  const smallOnly = readCocopiUsageAnalytics({ workload: "utility", workloadSubtype: "small" });
+  assert.equal(smallOnly.matchingRequestRows, 1);
+  assert.deepEqual(smallOnly.workloads[0]?.subtypes.map((subtype) => subtype.workloadSubtype), ["small"]);
+
+  clearCocopiTokenCacheDebugSummaries();
 });
 
 /** @param {{ hostRequestIndex: number, sessionId?: string, totalTokens?: number, inputTokens?: number, outputTokens?: number, cachedTokens: number, cacheStatus?: 'hit' | 'miss' | 'unknown', cacheHitRatio?: number, selectedModel?: string, serviceTier?: string, serviceTierSource?: string, reasoningEffort?: string, reasoningSummary?: string, fastRequested?: boolean, automaticContinuation?: boolean, requestKind?: string, wireMode?: string, webSocketContinuationAction?: import("../data/Codex.js").CodexPreviousResponseDecisionAction, webSocketContinuationReason?: import("../data/Codex.js").CodexPreviousResponseDecisionReason, requestDurationMs?: number, firstOutputLatencyMs?: number }} options */

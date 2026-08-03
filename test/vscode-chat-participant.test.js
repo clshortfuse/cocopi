@@ -1025,7 +1025,7 @@ test("Cocopi chat handler exposes optional runSubagent without Ultra policy", as
   assert.equal(body.parallel_tool_calls, false);
 });
 
-test("Cocopi chat handler translates configured Ultra through runSubagent", async (testContext) => {
+test("Cocopi chat handler uses configured Ultra only for runSubagent orchestration", async (testContext) => {
   /** @type {RequestInit | undefined} */
   let requestOptions;
   const context = fakeContext(new Map([
@@ -1389,6 +1389,8 @@ test("Cocopi chat handler logs response diagnostics and reports terminal failure
   assert.equal(summaries[0].cacheStatus, "hit");
   assert.equal(summaries[0].inputTokens, 10);
   assert.equal(summaries[0].cachedTokens, 6);
+  assert.equal(summaries[0].workload, "chat");
+  assert.equal(summaries[0].workloadSubtype, "main");
 });
 
 /**
@@ -1567,6 +1569,11 @@ function fakeConfiguration(options = {}) {
     chatRegexFlags: "",
     chatInstructionsRegexReplacements: {},
     chatToolDescriptionRegexReplacements: {},
+    routes: {
+      utility: { model: "auto", reasoningEffort: "low", serviceTier: "auto" },
+      utilitySmall: { model: "auto", reasoningEffort: "lowest", serviceTier: "auto" },
+      autocomplete: { model: "", reasoningEffort: "lowest", serviceTier: "auto" }
+    },
     inlineCompletions: {
       enabled: false,
       model: "auto",

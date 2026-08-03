@@ -26,17 +26,17 @@ test("live Codex models smoke", { skip: liveSkipReason }, async () => {
   assert.ok(models.some((entry) => entry.id === model), `expected selected model ${model} in live model catalog`);
 });
 
-test("live Codex model catalog parses a no-reasoning model when present", { skip: liveSkipReason }, async (context) => {
+test("live Codex model catalog preserves API-key-disabled reasoning models", { skip: liveSkipReason }, async (context) => {
   const { models } = await readLiveCodexClient();
-  const model = readLiveModelWithoutReasoningSupport(models);
+  const model = readLiveApiKeyDisabledReasoningModel(models);
   if (!model) {
-    context.skip("live model catalog did not include a model without reasoning support");
+    context.skip("live model catalog did not include an API-key-disabled model with reasoning support");
     return;
   }
 
   context.diagnostic(formatLiveModelReasoningDiagnostic(model));
-  assert.equal(model.supportedInApi, false, "expected supported_in_api=false for a model without external reasoning support");
-  assert.equal(codexModelCatalogShowsReasoningSupport(model), false);
+  assert.equal(model.supportedInApi, false, "expected supported_in_api=false for a model excluded from API-key mode");
+  assert.equal(codexModelCatalogShowsReasoningSupport(model), true);
 });
 
 test("live Codex usage limits smoke", { skip: liveSkipReason }, async (context) => {
@@ -241,16 +241,12 @@ function configuredLiveCodexModel() {
 }
 
 /** @param {import("../data/Codex.js").CodexModelSummary[]} models */
-function readLiveModelWithoutReasoningSupport(models) {
-  return models.find((model) => !codexModelCatalogShowsReasoningSupport(model));
+function readLiveApiKeyDisabledReasoningModel(models) {
+  return models.find((model) => model.supportedInApi === false && codexModelCatalogShowsReasoningSupport(model));
 }
 
 /** @param {import("../data/Codex.js").CodexModelSummary} model */
 function codexModelCatalogShowsReasoningSupport(model) {
-  if (model.supportedInApi === false) {
-    return false;
-  }
-
   if (Array.isArray(model.supportedReasoningLevels)) {
     return model.supportedReasoningLevels.length > 0;
   }

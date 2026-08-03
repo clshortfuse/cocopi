@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { CODEX_CLIENT_VERSION } from "../lib/codex-api/config.js";
 import { buildInlineCompletionRequestBody, createCocopiInlineCompletionProvider, inlineCompletionContextFromDocument, chooseInlineCompletionModel, registerCocopiInlineCompletionProvider, sanitizeInlineCompletionText } from "../lib/vscode/inline-completions.js";
 import { CODEX_SECRET_KEYS } from "../lib/vscode/secret-storage.js";
+import { clearCocopiTokenCacheDebugSummaries, readCocopiTokenCacheDebugSummaries } from "../lib/vscode/token-cache-debug.js";
 
 class InlineCompletionItem {
   /**
@@ -96,8 +97,97 @@ test("inline completion provider builds a Codex request with the auto Spark mode
   assert.equal(body.stream, true);
   assert.equal(body.tool_choice, "none");
   assert.equal(body.store, false);
+  assert.equal("prompt_cache_key" in body, false);
   assert.equal(body.client_metadata["x-cocopi-request-kind"], "inline-completion");
+  assert.equal(body.client_metadata["x-cocopi-requested-model"], "cocopi/autocomplete");
+  assert.equal(body.client_metadata["x-cocopi-resolved-model"], "gpt-5-spark-test");
   assert.equal(parseInlineCompletionPromptRequest(body.input[0].content[0].text).prefix, "const value =");
+});
+
+test("inline completion provider uses API-key-disabled Spark in ChatGPT mode", async (testContext) => {
+  /** @type {Array<{ url: string, options: RequestInit }>} */
+  const calls = [];
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (String(url).endsWith(`/models?client_version=${CODEX_CLIENT_VERSION}`)) {
+      return Response.json({
+        models: [
+          { slug: "gpt-5.6-sol", display_name: "Sol", supported_in_api: true },
+          { slug: "gpt-5.6-luna", display_name: "Luna", supported_in_api: true, supported_reasoning_levels: [{ effort: "minimal" }] },
+          { slug: "gpt-5.3-codex-spark", display_name: "Spark", supported_in_api: false, supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }] }
+        ]
+      });
+    }
+
+    return new Response([
+      "data: {\"type\":\"response.output_text.delta\",\"delta\":\"spark\"}",
+      "",
+      "data: {\"type\":\"response.completed\",\"response\":{}}",
+      ""
+    ].join("\n"), {
+      headers: { "content-type": "text/event-stream" }
+    });
+  }));
+  const provider = createCocopiInlineCompletionProvider(
+    signedInContext(),
+    fakeVscode(configurationValues({
+      "inlineCompletions.enabled": true,
+      "inlineCompletions.model": "gpt-5.3-codex-spark",
+      "routes.autocomplete.model": "gpt-5.3-codex-spark",
+      model: "gpt-5.6-sol",
+      transport: "sse"
+    }))
+  );
+
+  const items = await provider.provideInlineCompletionItems(fakeDocument("abc", 3), { line: 0, character: 3 }, {}, fakeCancellationToken());
+
+  assert.equal(items?.[0]?.insertText, "spark");
+  assert.equal(calls.length, 2);
+  const body = JSON.parse(String(calls[1].options.body));
+  assert.equal(body.model, "gpt-5.3-codex-spark");
+  assert.deepEqual(body.reasoning, { effort: "low" });
+});
+
+test("inline completion provider falls back to Luna when Spark is unavailable", async (testContext) => {
+  /** @type {Array<{ url: string, options: RequestInit }>} */
+  const calls = [];
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (String(url).endsWith(`/models?client_version=${CODEX_CLIENT_VERSION}`)) {
+      return Response.json({
+        models: [
+          { slug: "gpt-5.6-sol", display_name: "Sol" },
+          { slug: "gpt-5.6-luna", display_name: "Luna", supported_reasoning_levels: [{ effort: "minimal" }] }
+        ]
+      });
+    }
+
+    return new Response([
+      "data: {\"type\":\"response.output_text.delta\",\"delta\":\"luna\"}",
+      "",
+      "data: {\"type\":\"response.completed\",\"response\":{}}",
+      ""
+    ].join("\n"), {
+      headers: { "content-type": "text/event-stream" }
+    });
+  }));
+  const provider = createCocopiInlineCompletionProvider(
+    signedInContext(),
+    fakeVscode(configurationValues({
+      "inlineCompletions.enabled": true,
+      "inlineCompletions.model": "auto",
+      "routes.autocomplete.model": "auto",
+      model: "gpt-5.6-sol",
+      transport: "sse"
+    }))
+  );
+
+  await provider.provideInlineCompletionItems(fakeDocument("abc", 3), { line: 0, character: 3 }, {}, fakeCancellationToken());
+
+  assert.equal(calls.length, 2);
+  const body = JSON.parse(String(calls[1].options.body));
+  assert.equal(body.model, "gpt-5.6-luna");
+  assert.deepEqual(body.reasoning, { effort: "minimal" });
 });
 
 test("inline completion request treats prompt-injection-like XML source text as inert data", () => {
@@ -185,6 +275,50 @@ test("inline completion provider uses the configured inline model without catalo
   assert.equal(JSON.parse(String(calls[0].options.body)).model, "gpt-configured");
 });
 
+test("inline completion provider gives the autocomplete route precedence over legacy model settings", async (testContext) => {
+  clearCocopiTokenCacheDebugSummaries();
+  /** @type {Array<{ url: string, options: RequestInit }>} */
+  const calls = [];
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    return new Response([
+      "data: {\"type\":\"response.output_text.delta\",\"delta\":\"routed\"}",
+      "",
+      "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-route\",\"usage\":{\"input_tokens\":10,\"output_tokens\":2,\"total_tokens\":12,\"input_tokens_details\":{\"cached_tokens\":0}}}}",
+      ""
+    ].join("\n"), {
+      headers: { "content-type": "text/event-stream" }
+    });
+  }));
+  const provider = createCocopiInlineCompletionProvider(
+    signedInContext(),
+    fakeVscode(configurationValues({
+      "inlineCompletions.enabled": true,
+      "inlineCompletions.model": "gpt-legacy-inline",
+      "routes.autocomplete.model": "gpt-route-inline",
+      "routes.autocomplete.reasoningEffort": "minimal",
+      "routes.autocomplete.serviceTier": "priority",
+      transport: "sse"
+    }))
+  );
+
+  const items = await provider.provideInlineCompletionItems(fakeDocument("abc", 3), { line: 0, character: 3 }, {}, fakeCancellationToken());
+
+  assert.equal(items?.[0]?.insertText, "routed");
+  assert.equal(calls.length, 1);
+  const body = JSON.parse(String(calls[0].options.body));
+  assert.equal(body.model, "gpt-route-inline");
+  assert.equal(body.service_tier, "priority");
+  assert.deepEqual(body.reasoning, { effort: "minimal" });
+  assert.equal("prompt_cache_key" in body, false);
+  const [summary] = readCocopiTokenCacheDebugSummaries();
+  assert.equal(summary?.source, "inline-completion");
+  assert.equal(summary?.workload, "autocomplete");
+  assert.equal(summary?.workloadSubtype, "inline");
+  assert.equal(summary?.requestedModel, "cocopi/autocomplete");
+  assert.equal(summary?.resolvedModel, "gpt-route-inline");
+});
+
 test("inline completion provider logs verbose diagnostics when debug output is enabled", async (testContext) => {
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => new Response([
     "data: {\"type\":\"response.output_text.delta\",\"delta\":\"diagnostic\"}",
@@ -253,6 +387,15 @@ test("inline completion helpers normalize context, model preference, and fenced 
     { id: "gpt-main", displayName: "Main" },
     { id: "gpt-5-spark-test", displayName: "Spark Test" }
   ], "gpt-main"), "gpt-5-spark-test");
+  assert.equal(chooseInlineCompletionModel([
+    { id: "gpt-main", displayName: "Main" },
+    { id: "gpt-5.6-luna", displayName: "Luna" },
+    { id: "gpt-5-spark-test", displayName: "Spark Test", supportedInApi: false }
+  ], "gpt-main"), "gpt-5-spark-test");
+  assert.equal(chooseInlineCompletionModel([
+    { id: "gpt-main", displayName: "Main" },
+    { id: "gpt-5.6-luna", displayName: "Luna" }
+  ], "gpt-main"), "gpt-5.6-luna");
   assert.equal(sanitizeInlineCompletionText("```js\nreturn value;\n```"), "return value;");
   assert.equal(sanitizeInlineCompletionText("   \n"), "");
 });

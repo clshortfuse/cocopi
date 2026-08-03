@@ -163,7 +163,7 @@
       "summary": "detailed"
     }
   },
-  "unsupportedCatalogOmitsReasoning": {
+  "apiKeyDisabledCatalogKeepsReasoning": {
     "model": "gpt-fixture-unsupported",
     "input": [
       {
@@ -190,6 +190,10 @@
       "x-cocopi-host-request-index": "1",
       "x-cocopi-turn-id": "<session-id>:1",
       "x-codex-turn-metadata": "{\"turn_id\":\"<session-id>:1\",\"thread_source\":\"vscode\",\"client\":\"cocopi\",\"source\":\"language-model\"}"
+    },
+    "reasoning": {
+      "effort": "high",
+      "summary": "detailed"
     }
   }
 }

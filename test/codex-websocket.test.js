@@ -1387,6 +1387,11 @@ function fakeRuntime(options) {
       chatRegexFlags: "g",
       chatInstructionsRegexReplacements: DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS,
       chatToolDescriptionRegexReplacements: DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
+      routes: {
+        utility: { model: "auto", reasoningEffort: "low", serviceTier: "auto" },
+        utilitySmall: { model: "auto", reasoningEffort: "lowest", serviceTier: "auto" },
+        autocomplete: { model: "", reasoningEffort: "lowest", serviceTier: "auto" }
+      },
       inlineCompletions: {
         enabled: false,
         model: "auto",

@@ -29,6 +29,11 @@ test("readCocopiConfiguration reads defaults", () => {
     chatRegexFlags: "g",
     chatInstructionsRegexReplacements: DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS,
     chatToolDescriptionRegexReplacements: DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
+    routes: {
+      utility: { model: "auto", reasoningEffort: "low", serviceTier: "auto" },
+      utilitySmall: { model: "auto", reasoningEffort: "lowest", serviceTier: "auto" },
+      autocomplete: { model: "", reasoningEffort: "lowest", serviceTier: "auto" }
+    },
     inlineCompletions: {
       enabled: false,
       model: COCOPI_INLINE_COMPLETION_MODEL_AUTO,
@@ -71,6 +76,15 @@ test("readCocopiConfiguration normalizes configured values", () => {
     chatToolDescriptionRegexReplacements: {
       "Do not restate": "Emit visible summary first"
     },
+    "routes.utility.model": "gpt-utility",
+    "routes.utility.reasoningEffort": "medium",
+    "routes.utility.serviceTier": "flex",
+    "routes.utilitySmall.model": "gpt-small",
+    "routes.utilitySmall.reasoningEffort": "none",
+    "routes.utilitySmall.serviceTier": "priority",
+    "routes.autocomplete.model": "gpt-autocomplete",
+    "routes.autocomplete.reasoningEffort": "minimal",
+    "routes.autocomplete.serviceTier": "flex",
     "inlineCompletions.enabled": true,
     "inlineCompletions.model": "gpt-5-spark",
     "inlineCompletions.maxPrefixCharacters": 1234.56,
@@ -111,6 +125,11 @@ test("readCocopiConfiguration normalizes configured values", () => {
       ...DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
       "Do not restate": "Emit visible summary first"
     },
+    routes: {
+      utility: { model: "gpt-utility", reasoningEffort: "medium", serviceTier: "flex" },
+      utilitySmall: { model: "gpt-small", reasoningEffort: "none", serviceTier: "priority" },
+      autocomplete: { model: "gpt-autocomplete", reasoningEffort: "minimal", serviceTier: "flex" }
+    },
     inlineCompletions: {
       enabled: true,
       model: "gpt-5-spark",
@@ -135,6 +154,15 @@ test("readCocopiConfiguration falls back from blank and disabled values", () => 
     transport: "unsupported",
     debugLevel: "unsupported",
     chatInstructionsPlacement: "unsupported",
+    "routes.utility.model": "  ",
+    "routes.utility.reasoningEffort": "unsupported",
+    "routes.utility.serviceTier": "unsupported",
+    "routes.utilitySmall.model": "cocopi/utility",
+    "routes.utilitySmall.reasoningEffort": "default",
+    "routes.utilitySmall.serviceTier": "unsupported",
+    "routes.autocomplete.model": "  ",
+    "routes.autocomplete.reasoningEffort": "ultra",
+    "routes.autocomplete.serviceTier": "priority",
     tokenTrackerTimelineDays: 0,
     tokenTrackerTimelineMode: "unsupported",
     editProgressIntervalMs: 0,
@@ -171,6 +199,11 @@ test("readCocopiConfiguration falls back from blank and disabled values", () => 
     chatRegexFlags: "g",
     chatInstructionsRegexReplacements: DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS,
     chatToolDescriptionRegexReplacements: DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
+    routes: {
+      utility: { model: "", reasoningEffort: "low", serviceTier: "auto" },
+      utilitySmall: { model: "cocopi/utility", reasoningEffort: "default", serviceTier: "auto" },
+      autocomplete: { model: "", reasoningEffort: "lowest", serviceTier: "priority" }
+    },
     inlineCompletions: {
       enabled: false,
       model: COCOPI_INLINE_COMPLETION_MODEL_AUTO,
@@ -279,7 +312,7 @@ test("codexReasoningFromCocopiOptions maps unsupported selected effort to neares
   }), { effort: "medium", summary: "auto" });
 });
 
-test("codexReasoningFromCocopiOptions maps catalog-advertised ultra to max on the wire", () => {
+test("codexReasoningFromCocopiOptions sends Max on the wire for Ultra orchestration", () => {
   assert.deepEqual(codexReasoningFromCocopiOptions(readCocopiConfiguration(fakeVscodeConfiguration()), {
     reasoningEffort: "ultra"
   }, {
@@ -288,13 +321,19 @@ test("codexReasoningFromCocopiOptions maps catalog-advertised ultra to max on th
   }), { effort: "max", summary: "auto" });
 });
 
-test("codexReasoningFromCocopiOptions maps ultra to max without catalog metadata", () => {
+test("codexReasoningFromCocopiOptions sends Max for Ultra orchestration without catalog metadata", () => {
   assert.deepEqual(codexReasoningFromCocopiOptions(readCocopiConfiguration(fakeVscodeConfiguration()), {
     reasoningEffort: "ultra"
   }), { effort: "max", summary: "auto" });
 });
 
-test("codexReasoningFromCocopiOptions maps max and ultra to a model-supported xhigh effort", () => {
+test("codexReasoningFromCocopiOptions translates a catalog-default Ultra to wire Max", () => {
+  assert.deepEqual(codexReasoningFromCocopiOptions(readCocopiConfiguration(fakeVscodeConfiguration()), undefined, {
+    defaultEffort: "ultra"
+  }), { effort: "max", summary: "auto" });
+});
+
+test("codexReasoningFromCocopiOptions maps Max and Ultra to the nearest supported wire effort", () => {
   const configuration = readCocopiConfiguration(fakeVscodeConfiguration());
   const options = {
     defaultEffort: /** @type {import("../data/Codex.js").CodexReasoningEffort} */ ("medium"),

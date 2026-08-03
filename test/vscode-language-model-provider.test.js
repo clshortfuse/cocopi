@@ -177,7 +177,7 @@ test("bootstrap provider handles requests before the full provider loads", async
     fakeCancellationToken()
   );
 
-  assert.deepEqual(information?.map((model) => model.id), ["gpt-bootstrap"]);
+  assert.deepEqual(ordinaryProviderModelInformation(information ?? []).map((model) => model.id), ["gpt-bootstrap"]);
   assert.match(/** @type {LanguageModelTextPart} */ (progress.parts[0]).value, /No model request was sent/u);
   assert.equal(tokens, 2);
 });
@@ -198,7 +198,7 @@ test("bootstrap provider does not escape failures from storage, diagnostics, or 
   }), vscode, { logger });
 
   const information = await vscode.languageModelProvider?.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken());
-  assert.deepEqual(information?.map((model) => model.id), ["gpt-bootstrap"]);
+  assert.deepEqual(ordinaryProviderModelInformation(information ?? []).map((model) => model.id), ["gpt-bootstrap"]);
   await assert.doesNotReject(async () => vscode.languageModelProvider?.provideLanguageModelChatResponse(
     fakeModel("gpt-bootstrap"),
     [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "hello")],
@@ -262,6 +262,9 @@ test("registered provider protects stored and configured Cocopi model identifier
 
   assert.deepEqual(modelIds, new Set([
     "gpt-configured",
+    "utility",
+    "utility-small",
+    "autocomplete",
     "gpt-previous",
     "gpt-utility",
     "gpt-small",
@@ -299,11 +302,11 @@ test("registered provider never removes a model identifier after catalog refresh
   nowMs += COCOPI_MODEL_CATALOG_CACHE_TTL_MS + 1;
   const second = await vscode.languageModelProvider?.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
 
-  assert.deepEqual(new Set(first?.map((model) => model.id)), new Set(["gpt-catalog-one"]));
-  assert.deepEqual(new Set(second?.map((model) => model.id)), new Set(["gpt-catalog-one", "gpt-catalog-two"]));
+  assert.deepEqual(new Set(first?.map((model) => model.id)), new Set(["gpt-catalog-one", "utility", "utility-small", "autocomplete"]));
+  assert.deepEqual(new Set(second?.map((model) => model.id)), new Set(["gpt-catalog-one", "gpt-catalog-two", "utility", "utility-small", "autocomplete"]));
   assert.deepEqual(
     new Set(JSON.parse(secrets.get(COCOPI_PROTECTED_MODEL_IDS_STORAGE_KEY) ?? "[]")),
-    new Set(["gpt-catalog-one", "gpt-catalog-two"])
+    new Set(["gpt-catalog-one", "gpt-catalog-two", "utility", "utility-small", "autocomplete"])
   );
 });
 
@@ -318,7 +321,7 @@ test("registered provider returns protected models when discovery fails", async 
   }), vscode, { logger });
   const information = await vscode.languageModelProvider?.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
 
-  assert.deepEqual(new Set(information?.map((model) => model.id)), new Set(["gpt-protected", "gpt-history"]));
+  assert.deepEqual(new Set(information?.map((model) => model.id)), new Set(["gpt-protected", "gpt-history", "utility", "utility-small", "autocomplete"]));
   assert.ok(logger.errorMessages.some((message) => message.includes("Cocopi model discovery failed")));
 });
 
@@ -351,7 +354,7 @@ test("provideLanguageModelChatInformation returns fallback while signed out in s
     vscode
   );
 
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken()), [modelInformation("gpt-test", "gpt-test", "Sign in required")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-test", "gpt-test", "Sign in required")]);
   assert.deepEqual(vscode.warningMessages, []);
 });
 
@@ -362,7 +365,7 @@ test("provideLanguageModelChatInformation exposes generic configured model while
     vscode
   );
 
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken()), [modelInformation("gpt-test", "gpt-test", "Sign in required")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken())), [modelInformation("gpt-test", "gpt-test", "Sign in required")]);
   assert.deepEqual(vscode.warningMessages, ["Cocopi is not signed in, so VS Code can only show the fallback model (gpt-test)."]);
   await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
   assert.equal(vscode.warningMessages.length, 1);
@@ -393,13 +396,69 @@ test("provideLanguageModelChatInformation refreshes metadata from Codex models a
     fakeVscode(configurationValues({ apiBaseUrl: "https://chatgpt.example.test/backend-api/codex", model: "gpt-5-codex" }))
   );
 
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken()), [
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken())), [
     modelInformation("gpt-5-codex", "GPT-5 Codex"),
     modelInformation("gpt-5.2", "GPT-5.2", "gpt-5.2", { contextWindow: 272_000, tooltip: "Professional work model." })
   ]);
   assert.equal(calls[0].url, `https://chatgpt.example.test/backend-api/codex/models?client_version=${CODEX_CLIENT_VERSION}`);
   assert.equal(calls[0].options.headers.Authorization, "Bearer access-token");
   assert.equal(calls[0].options.headers["ChatGPT-Account-ID"], "account-id");
+});
+
+test("specialized workload metadata follows its target but suppresses target reasoning choices", async (testContext) => {
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => Response.json({
+    models: [{
+      slug: "gpt-route-target",
+      display_name: "Route Target",
+      context_window: 100_000,
+      auto_compact_token_limit: 64_000,
+      default_reasoning_level: "medium",
+      supported_reasoning_levels: [
+        { effort: "low", description: "Fast" },
+        { effort: "medium", description: "Balanced" }
+      ]
+    }]
+  })));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(configurationValues({
+    model: "gpt-route-target",
+    "routes.utility.model": "gpt-route-target"
+  })));
+
+  const information = await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
+  const target = information?.find((model) => model.id === "gpt-route-target");
+  const utility = information?.find((model) => model.id === "utility");
+
+  assert.ok(target);
+  assert.ok(utility);
+  assert.equal(utility.version, "gpt-route-target");
+  assert.equal(utility.maxInputTokens, target.maxInputTokens);
+  assert.equal(utility.maxOutputTokens, target.maxOutputTokens);
+  assert.equal(utility.capabilities.imageInput, target.capabilities.imageInput);
+  assert.match(utility.detail ?? "", /Specialized general workload/u);
+  assert.doesNotMatch(utility.detail ?? "", /Hidden/u);
+  assert.equal(utility.configurationSchema?.properties?.reasoningEffort, undefined);
+  assert.deepEqual(utility.configurationSchema?.properties?.contextSize, target.configurationSchema?.properties?.contextSize);
+  assert.equal(utility.isUserSelectable, false);
+});
+
+test("workload route configuration changes refresh language model information", () => {
+  const vscode = fakeVscode(configurationValues({ model: "gpt-test" }), { configurationChanges: true });
+  const provider = createCocopiLanguageModelProvider(fakeContext(), vscode);
+  let refreshes = 0;
+  const subscription = provider.onDidChangeLanguageModelChatInformation?.(() => {
+    refreshes += 1;
+  });
+
+  vscode.fireConfigurationChange("cocopi.reasoningEffort");
+  assert.equal(refreshes, 0);
+  vscode.fireConfigurationChange("cocopi.routes.utility.model");
+  assert.equal(refreshes, 1);
+
+  subscription?.dispose();
 });
 
 test("provideLanguageModelChatInformation logs model-provided compaction limits", async (testContext) => {
@@ -419,7 +478,7 @@ test("provideLanguageModelChatInformation logs model-provided compaction limits"
     { logger }
   );
 
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken()), [
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken())), [
     {
       ...modelInformation("gpt-5-codex", "GPT-5 Codex", "gpt-5-codex", { contextWindow: 100_000 }),
       maxInputTokens: 83_616,
@@ -502,7 +561,7 @@ test("provideLanguageModelChatInformation logs each compaction limit once", asyn
   await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
   await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
 
-  assert.equal(logger.debugMessages.filter((message) => message.includes("Cocopi language model compaction limit.")).length, 1);
+  assert.equal(logger.debugMessages.filter((message) => message.includes("Cocopi language model compaction limit.")).length, 4);
 });
 
 test("provideLanguageModelChatInformation does not log compaction limits when debug is off", async (testContext) => {
@@ -555,12 +614,12 @@ test("provideLanguageModelChatInformation returns fallback immediately during si
     changeEvents.push("changed");
   });
 
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken()), [modelInformation("gpt-test", "gpt-test", "Model catalog loading")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-test", "gpt-test", "Model catalog loading")]);
   await fetchStarted;
   resolveFetch();
   await nextMacrotask();
   assert.equal(changeEvents.length, 1);
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken()), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
 });
 
 test("provideLanguageModelChatInformation coalesces silent background catalog refreshes", async (testContext) => {
@@ -584,13 +643,13 @@ test("provideLanguageModelChatInformation coalesces silent background catalog re
     fakeVscode(configurationValues({ model: "gpt-test" }))
   );
 
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken()), [modelInformation("gpt-test", "gpt-test", "Model catalog loading")]);
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken()), [modelInformation("gpt-test", "gpt-test", "Model catalog loading")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-test", "gpt-test", "Model catalog loading")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-test", "gpt-test", "Model catalog loading")]);
   assert.equal(calls.length, 1);
 
   resolveFetch();
   await nextMacrotask();
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken()), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
 });
 
 test("provideLanguageModelChatInformation returns stored catalog during silent startup refresh", async (testContext) => {
@@ -622,12 +681,12 @@ test("provideLanguageModelChatInformation returns stored catalog during silent s
     changeEvents.push("changed");
   });
 
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken()), [modelInformation("gpt-stored", "GPT Stored")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-stored", "GPT Stored")]);
 
   resolveFetch();
   await nextMacrotask();
   assert.equal(changeEvents.length, 1);
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken()), [modelInformation("gpt-refreshed", "GPT Refreshed", "gpt-refreshed")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-refreshed", "GPT Refreshed", "gpt-refreshed")]);
   assert.match(secrets.get(COCOPI_MODEL_CATALOG_STORAGE_KEY) ?? "", /gpt-refreshed/u);
 });
 
@@ -675,6 +734,7 @@ test("provideLanguageModelChatResponse restores orchestration metadata from stor
   );
 
   const body = JSON.parse(String(requestOptions?.body));
+  assert.deepEqual(body.reasoning, { effort: "max", summary: "auto" });
   assert.match(body.instructions, /delegate one task at a time/u);
   assert.equal(body.parallel_tool_calls, false);
 });
@@ -702,7 +762,7 @@ test("provideLanguageModelChatInformation does not refresh expired auth before r
     fakeVscode(configurationValues({ model: "gpt-stored" }))
   );
 
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken()), [modelInformation("gpt-stored", "GPT Stored")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-stored", "GPT Stored")]);
   assert.ok(calls.every((url) => !url.endsWith("/oauth/token")));
 });
 
@@ -728,11 +788,11 @@ test("provideLanguageModelChatInformation serves stale catalog during silent ref
     fakeVscode(configurationValues({ model: "gpt-5-codex" }))
   );
 
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken()), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken())), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
   nowMs += COCOPI_MODEL_CATALOG_CACHE_TTL_MS + 1;
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken()), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
   await nextMacrotask();
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken()), [modelInformation("gpt-5.2-codex", "GPT-5.2 Codex")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-5.2-codex", "GPT-5.2 Codex")]);
 });
 
 test("provideLanguageModelChatInformation does not let model catalog storage trigger a second model-info event", async (testContext) => {
@@ -759,7 +819,7 @@ test("provideLanguageModelChatInformation does not let model catalog storage tri
     changeEvents.push("changed");
   });
 
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken()), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken())), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
 
   assert.equal(storeKeys.filter((key) => key === COCOPI_MODEL_CATALOG_STORAGE_KEY).length, 1);
   assert.equal(changeEvents.length, 1);
@@ -801,7 +861,7 @@ test("provideLanguageModelChatInformation does not rewrite unchanged stored mode
     changeEvents.push("changed");
   });
 
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken()), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
   await nextMacrotask();
 
   assert.equal(calls.length, 1);
@@ -809,7 +869,7 @@ test("provideLanguageModelChatInformation does not rewrite unchanged stored mode
   assert.equal(changeEvents.length, 0);
 
   nowMs += 1;
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken()), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
   assert.equal(calls.length, 1);
 });
 
@@ -832,7 +892,7 @@ test("provideLanguageModelChatInformation warns when silent background catalog r
     { logger }
   );
 
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken()), [modelInformation("gpt-test", "gpt-test", "Model catalog loading")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-test", "gpt-test", "Model catalog loading")]);
   await nextMacrotask();
 
   assert.deepEqual(vscode.warningMessages, ["Cocopi could not refresh your Codex sign-in, so VS Code is showing only the fallback model (gpt-test)."]);
@@ -864,24 +924,24 @@ test("provideLanguageModelChatInformation uses exponential backoff after failed 
     { logger }
   );
 
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken()), [modelInformation("gpt-test", "gpt-test", "Model catalog loading")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-test", "gpt-test", "Model catalog loading")]);
   for (let index = 0; index < 20; index += 1) {
     await nextMacrotask();
   }
   assert.equal(calls.filter((url) => url.includes("/models")).length, 1);
 
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken()), [modelInformation("gpt-test", "gpt-test", "Model catalog loading")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-test", "gpt-test", "Model catalog loading")]);
   await nextMacrotask();
   assert.equal(calls.filter((url) => url.includes("/models")).length, 1);
 
   nowMs += 10_001;
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken()), [modelInformation("gpt-test", "gpt-test", "Model catalog loading")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-test", "gpt-test", "Model catalog loading")]);
   for (let index = 0; index < 20; index += 1) {
     await nextMacrotask();
   }
   assert.equal(calls.filter((url) => url.includes("/models")).length, 2);
 
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken()), [modelInformation("gpt-test", "gpt-test", "Model catalog loading")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-test", "gpt-test", "Model catalog loading")]);
   await nextMacrotask();
   assert.equal(calls.filter((url) => url.includes("/models")).length, 2);
   assert.ok(logger.debugMessages.some((message) => /reason=backoff/u.test(message) && /delayMs=10000/u.test(message)));
@@ -921,8 +981,8 @@ test("provideLanguageModelChatInformation reuses fresh model catalog cache", asy
     fakeVscode(configurationValues({ apiBaseUrl: "https://chatgpt.example.test/backend-api/codex", model: "gpt-5-codex" }))
   );
 
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken()), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken()), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken())), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
   assert.equal(calls.length, 1);
 });
 
@@ -949,9 +1009,9 @@ test("provideLanguageModelChatInformation refreshes expired model catalog cache"
     fakeVscode(configurationValues({ apiBaseUrl: "https://chatgpt.example.test/backend-api/codex", model: "gpt-5-codex" }))
   );
 
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken()), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken())), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
   nowMs += COCOPI_MODEL_CATALOG_CACHE_TTL_MS + 1;
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken()), [
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken())), [
     modelInformation("gpt-5.2-codex", "GPT-5.2 Codex")
   ]);
   assert.equal(calls.length, 2);
@@ -989,7 +1049,7 @@ test("provideLanguageModelChatInformation refreshes and retries after 401", asyn
     fakeVscode(configurationValues({ apiBaseUrl: "https://chatgpt.example.test/backend-api/codex", model: "gpt-5-codex" }))
   );
 
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken()), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken())), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
   assert.equal(calls[0].options.headers.Authorization, "Bearer old-access-token");
   assert.equal(calls[2].options.headers.Authorization, "Bearer new-access-token");
   assert.equal(secrets.get(CODEX_SECRET_KEYS.accessToken), "new-access-token");
@@ -1008,7 +1068,7 @@ test("provideLanguageModelChatInformation falls back when runtime model refresh 
     { logger }
   );
 
-  assert.deepEqual(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken()), [modelInformation("gpt-test", "gpt-test", "Model catalog unavailable")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken())), [modelInformation("gpt-test", "gpt-test", "Model catalog unavailable")]);
   assert.deepEqual(vscode.warningMessages, ["Cocopi could not load your Codex model list, so VS Code is showing only the fallback model (gpt-test). Check your sign-in and Cocopi output logs."]);
   assert.ok(logger.errorMessages.some((message) => /Cocopi model catalog refresh failed/u.test(message)));
   await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken());
@@ -1267,7 +1327,7 @@ test("languageModelInformationFromCodexModels omits configuration schema for uns
   assert.equal(/** @type {{ configurationSchema?: unknown }} */ (model).configurationSchema, undefined);
 });
 
-test("languageModelInformationFromCodexModels keeps picker reasoning schema for external unsupported catalog models", () => {
+test("languageModelInformationFromCodexModels keeps picker reasoning schema for API-key-disabled catalog models", () => {
   const [model] = languageModelInformationFromCodexModels([
     {
       id: "gpt-external-unsupported",
@@ -2727,6 +2787,64 @@ test("provideLanguageModelChatResponse applies VS Code persisted modelConfigurat
   )));
 });
 
+test("provideLanguageModelChatResponse resolves authoritative workload profiles before request options", async (testContext) => {
+  clearCocopiTokenCacheDebugSummaries();
+  /** @type {RequestInit | undefined} */
+  let requestOptions;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    requestOptions = options;
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "ok" }),
+      sseData({
+        type: "response.completed",
+        response: {
+          id: "resp-route",
+          usage: {
+            input_tokens: 10,
+            output_tokens: 2,
+            total_tokens: 12,
+            input_tokens_details: { cached_tokens: 0 }
+          }
+        }
+      })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(configurationValues({
+    "routes.utility.model": "gpt-route-target",
+    "routes.utility.reasoningEffort": "low",
+    "routes.utility.serviceTier": "flex"
+  })));
+
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("utility"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "route this")],
+    fakeResponseOptions({
+      toolMode: 1,
+      modelOptions: { reasoningEffort: "ultra", reasoningSummary: "detailed", serviceTier: "priority" },
+      tools: [{ name: "runSubagent", description: "Run a subagent.", inputSchema: { type: "object" } }]
+    }),
+    fakeProgress(),
+    fakeCancellationToken()
+  );
+
+  const body = JSON.parse(String(requestOptions?.body));
+  assert.equal(body.model, "gpt-route-target");
+  assert.equal(body.service_tier, "flex");
+  assert.deepEqual(body.reasoning, { effort: "low", summary: "detailed" });
+  assert.doesNotMatch(body.instructions ?? "", /Proactive multi-agent delegation is active/u);
+  assert.equal(body.parallel_tool_calls, false);
+  const [summary] = readCocopiTokenCacheDebugSummaries();
+  assert.equal(summary?.workload, "utility");
+  assert.equal(summary?.workloadSubtype, "general");
+  assert.equal(summary?.requestedModel, "cocopi/utility");
+  assert.equal(summary?.resolvedModel, "gpt-route-target");
+  assert.equal(summary?.serviceTierSource, "route");
+});
+
 test("provideLanguageModelChatResponse sends direct reasoning model options", async (testContext) => {
   /** @type {RequestInit | undefined} */
   let requestOptions;
@@ -2978,7 +3096,7 @@ test("provideLanguageModelChatResponse requests auto summary when catalog defaul
   assert.deepEqual(body.reasoning, { effort: "high", summary: "auto" });
 });
 
-test("provideLanguageModelChatResponse omits reasoning when catalog reports no reasoning support", async (testContext) => {
+test("provideLanguageModelChatResponse keeps reasoning for API-key-disabled models in ChatGPT mode", async (testContext) => {
   /** @type {RequestInit | undefined} */
   let responseRequestOptions;
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
@@ -3001,7 +3119,7 @@ test("provideLanguageModelChatResponse omits reasoning when catalog reports no r
   await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
   const models = parseModelsResponse(chatgptProCatalogFixture);
   const unsupportedModel = models.find((model) => model.supportedInApi === false);
-  assert.ok(unsupportedModel, "expected fixture to include a model marked unsupported in the external API");
+  assert.ok(unsupportedModel, "expected fixture to include a model disabled for API-key mode");
   await provider.provideLanguageModelChatResponse(
     fakeModel(unsupportedModel.id),
     [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "think")],
@@ -3011,7 +3129,7 @@ test("provideLanguageModelChatResponse omits reasoning when catalog reports no r
   );
 
   const body = JSON.parse(String(responseRequestOptions?.body));
-  assert.equal("reasoning" in body, false);
+  assert.deepEqual(body.reasoning, { effort: "high", summary: "detailed" });
 });
 
 test("provideLanguageModelChatResponse matches reasoning request payload fixtures", async (testContext) => {
@@ -3088,7 +3206,7 @@ test("provideLanguageModelChatResponse matches reasoning request payload fixture
       responseOptions: fakeResponseOptions({ toolMode: 1, modelOptions: { reasoningEffort: "high", reasoningSummary: "detailed" } })
     },
     {
-      fixture: "unsupportedCatalogOmitsReasoning",
+      fixture: "apiKeyDisabledCatalogKeepsReasoning",
       model: "gpt-fixture-unsupported",
       catalog: {
         models: [{
@@ -3619,6 +3737,10 @@ test("provideLanguageModelChatResponse logs token/cache summary for successful r
   assert.equal(summary?.conversationDescription, "say hello");
   assert.equal(summary?.selectedModel, "gpt-test:fast");
   assert.equal(summary?.model, "gpt-test");
+  assert.equal(summary?.workload, "chat");
+  assert.equal(summary?.workloadSubtype, "main");
+  assert.equal(summary?.requestedModel, "gpt-test:fast");
+  assert.equal(summary?.resolvedModel, "gpt-test");
   assert.equal(summary?.serviceTier, "priority");
   assert.equal(summary?.serviceTierSource, "model");
   assert.equal(summary?.reasoningEffort, "xhigh");
@@ -4061,7 +4183,7 @@ test("provideLanguageModelChatResponse pins blank runSubagent model input", asyn
   assertMetadataOnlyStatefulMarker(dataPart, 1);
 });
 
-test("provideLanguageModelChatResponse translates Ultra into Max with proactive runSubagent guidance", async (testContext) => {
+test("provideLanguageModelChatResponse uses Ultra only for proactive subagent orchestration", async (testContext) => {
   /** @type {RequestInit | undefined} */
   let requestOptions;
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
@@ -4101,7 +4223,6 @@ test("provideLanguageModelChatResponse translates Ultra into Max with proactive 
 
   const body = JSON.parse(String(requestOptions?.body));
   assert.deepEqual(body.reasoning, { effort: "max", summary: "auto" });
-  assert.notEqual(body.reasoning.effort, "ultra");
   assert.match(body.instructions, /Proactive multi-agent delegation is active/u);
   assert.match(body.instructions, /`runSubagent` tool/u);
   assert.equal(body.parallel_tool_calls, true);
@@ -4201,12 +4322,13 @@ test("provideLanguageModelChatResponse uses serial Ultra guidance when parallel 
   );
 
   const body = JSON.parse(String(responseRequest?.body));
+  assert.deepEqual(body.reasoning, { effort: "max", summary: "auto" });
   assert.match(body.instructions, /delegate one task at a time/u);
   assert.doesNotMatch(body.instructions, /host can run them in parallel/u);
   assert.equal(body.parallel_tool_calls, false);
 });
 
-test("provideLanguageModelChatResponse maps Ultra to Max without unavailable subagent guidance", async (testContext) => {
+test("provideLanguageModelChatResponse still sends wire Max when Ultra orchestration is unavailable", async (testContext) => {
   /** @type {RequestInit | undefined} */
   let requestOptions;
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
@@ -5016,9 +5138,11 @@ function fakeContext(secrets = new Map(), options = {}) {
 
 /**
  * @param {Map<string, string | number | boolean>} [configuration]
- * @param {{ warningSelection?: string, thinkingPart?: boolean, thinkingPartDenied?: boolean }} [options]
+ * @param {{ warningSelection?: string, thinkingPart?: boolean, thinkingPartDenied?: boolean, configurationChanges?: boolean }} [options]
  */
 function fakeVscode(configuration = new Map(), options = {}) {
+  /** @type {Set<(event: { affectsConfiguration(section: string): boolean }) => void>} */
+  const configurationListeners = new Set();
   const vscode = {
     languageModelVendor: "",
     /** @type {import("vscode").LanguageModelChatProvider | undefined} */
@@ -5027,6 +5151,18 @@ function fakeVscode(configuration = new Map(), options = {}) {
     warningMessages: [],
     /** @type {string[]} */
     executedCommands: [],
+    /** @param {string} changedSection */
+    fireConfigurationChange(changedSection) {
+      for (const listener of configurationListeners) {
+        listener({
+          affectsConfiguration(section) {
+            return changedSection === section
+              || changedSection.startsWith(`${section}.`)
+              || section.startsWith(`${changedSection}.`);
+          }
+        });
+      }
+    },
     commands: {
       /** @param {string} command */
       async executeCommand(command) {
@@ -5085,6 +5221,20 @@ function fakeVscode(configuration = new Map(), options = {}) {
       }
     }
   };
+
+  if (options.configurationChanges) {
+    Object.assign(vscode.workspace, {
+      /** @param {(event: { affectsConfiguration(section: string): boolean }) => void} listener */
+      onDidChangeConfiguration(listener) {
+        configurationListeners.add(listener);
+        return {
+          dispose() {
+            configurationListeners.delete(listener);
+          }
+        };
+      }
+    });
+  }
 
   return vscode;
 }
@@ -5451,6 +5601,16 @@ function modelInformation(id, name, detail = id, options = {}) {
       agentMode: true
     }
   };
+}
+
+/** @param {import("vscode").LanguageModelChatInformation[] | null | undefined} information */
+function ordinaryProviderModelInformation(information) {
+  const models = information ?? [];
+  const workloadIds = ["utility", "utility-small", "autocomplete"];
+  const workloadInformation = models.filter((model) => workloadIds.includes(model.id));
+  assert.deepEqual(workloadInformation.map((model) => model.id), workloadIds);
+  assert.ok(workloadInformation.every((model) => model.isUserSelectable === false));
+  return models.filter((model) => !workloadIds.includes(model.id));
 }
 
 function fakeAbortSignal() {

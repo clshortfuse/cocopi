@@ -170,11 +170,11 @@ test("parseModelsResponse preserves explicit false reasoning summary support", (
   }]);
 });
 
-test("parseModelsResponse preserves live catalog external API support metadata", () => {
+test("parseModelsResponse preserves live catalog API-key-mode support metadata", () => {
   const models = parseModelsResponse(chatgptProCatalogFixture);
   const unsupportedModel = models.find((model) => model.supportedInApi === false);
 
-  assert.ok(unsupportedModel, "expected fixture to include a model marked unsupported in the external API");
+  assert.ok(unsupportedModel, "expected fixture to include a model disabled for API-key mode");
   assert.equal(unsupportedModel.supportedInApi, false);
   assert.equal(unsupportedModel.defaultReasoningLevel, "high");
   assert.equal(unsupportedModel.supportedReasoningLevels?.length, 4);

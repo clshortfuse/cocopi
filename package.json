@@ -201,7 +201,7 @@
         },
         "cocopi.inlineCompletions.model": {
           "default": "auto",
-          "description": "Codex model id for Cocopi AI inline completions. Use 'auto' to prefer a Spark-like low-latency catalog model when available, falling back to cocopi.model.",
+          "description": "Codex model id for Cocopi AI inline completions. Use 'auto' to prefer a Spark-like low-latency model available to the signed-in account, falling back to GPT-5.6 Luna before cocopi.model.",
           "type": "string"
         },
         "cocopi.inlineCompletions.maxPrefixCharacters": {
@@ -229,6 +229,57 @@
           "description": "Codex model id to request by default.",
           "type": "string"
         },
+        "cocopi.routes.autocomplete.model": {
+          "default": "",
+          "description": "Concrete Codex target for the specialized cocopi/autocomplete workload model. Leave blank to use cocopi.inlineCompletions.model as a compatibility fallback. Workload aliases and :fast variants are not valid targets.",
+          "type": "string"
+        },
+        "cocopi.routes.autocomplete.reasoningEffort": {
+          "default": "lowest",
+          "description": "Reasoning effort for the specialized autocomplete workload model. Lowest selects the least effort supported by its resolved model.",
+          "enum": ["lowest", "default", "none", "minimal", "low", "medium", "high", "xhigh", "max"],
+          "type": "string"
+        },
+        "cocopi.routes.autocomplete.serviceTier": {
+          "default": "auto",
+          "description": "Processing tier for the specialized autocomplete workload model.",
+          "enum": ["auto", "flex", "priority"],
+          "type": "string"
+        },
+        "cocopi.routes.utility.model": {
+          "default": "auto",
+          "description": "Concrete Codex target for the specialized cocopi/utility workload model. Auto chooses a catalog model. Workload aliases and :fast variants are not valid targets.",
+          "type": "string"
+        },
+        "cocopi.routes.utility.reasoningEffort": {
+          "default": "low",
+          "description": "Reasoning effort for the specialized general utility workload model. Lowest selects the least effort supported by its resolved model.",
+          "enum": ["lowest", "default", "none", "minimal", "low", "medium", "high", "xhigh", "max"],
+          "type": "string"
+        },
+        "cocopi.routes.utility.serviceTier": {
+          "default": "auto",
+          "description": "Processing tier for the specialized general utility workload model.",
+          "enum": ["auto", "flex", "priority"],
+          "type": "string"
+        },
+        "cocopi.routes.utilitySmall.model": {
+          "default": "auto",
+          "description": "Concrete Codex target for the specialized cocopi/utility-small workload model. Auto chooses a catalog model. Workload aliases and :fast variants are not valid targets.",
+          "type": "string"
+        },
+        "cocopi.routes.utilitySmall.reasoningEffort": {
+          "default": "lowest",
+          "description": "Reasoning effort for the specialized small utility workload model. Lowest selects the least effort supported by its resolved model.",
+          "enum": ["lowest", "default", "none", "minimal", "low", "medium", "high", "xhigh", "max"],
+          "type": "string"
+        },
+        "cocopi.routes.utilitySmall.serviceTier": {
+          "default": "auto",
+          "description": "Processing tier for the specialized small utility workload model.",
+          "enum": ["auto", "flex", "priority"],
+          "type": "string"
+        },
         "cocopi.reasoningEffort": {
           "default": "default",
           "description": "Reasoning effort for Cocopi requests. Request-specific model options still override this setting.",
@@ -252,7 +303,7 @@
             "Greater reasoning depth for complex problems.",
             "Extra high reasoning depth for complex problems.",
             "Maximum reasoning depth for the hardest problems.",
-            "Max wire reasoning plus proactive VS Code subagent orchestration, including parallel delegation, when runSubagent and the model catalog permit it."
+            "Proactive VS Code subagent orchestration, including parallel delegation, when runSubagent and the model catalog permit it. Sends Max as the wire reasoning effort."
           ],
           "enumItemLabels": [
             "Model Default",
