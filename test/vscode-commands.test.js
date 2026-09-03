@@ -6,7 +6,7 @@ import { COCOPI_COMMANDS, registerCocopiCommands, selectInlineCompletionModel, s
 import { clearCocopiInstructionReplacementSnapshots, recordCocopiInstructionReplacementSnapshot } from "../lib/vscode/instruction-replacements.js";
 import { recordCocopiIssue, clearCocopiIssues } from "../lib/vscode/issues.js";
 import { CODEX_SECRET_KEYS } from "../lib/vscode/secret-storage.js";
-import { clearCocopiRateLimitSnapshots, clearCocopiRemoteUsageAnalyticsSnapshots, clearCocopiTokenCacheDebugSummaries, recordCocopiRemoteUsageAnalytics, recordCocopiTokenCacheSummary, waitForCocopiTokenCacheDebugStorage } from "../lib/vscode/token-cache-debug.js";
+import { clearCocopiRateLimitSnapshots, clearCocopiRemoteUsageAnalyticsSnapshots, clearCocopiTokenCacheDebugSummaries, recordCocopiRateLimitSnapshots, recordCocopiRemoteUsageAnalytics, recordCocopiTokenCacheSummary, waitForCocopiTokenCacheDebugStorage } from "../lib/vscode/token-cache-debug.js";
 
 class MarkdownString {
   constructor(value = "", supportThemeIcons = false) {
@@ -190,7 +190,7 @@ test("registerCocopiCommands wires diagnostics webview commands", async () => {
   assert.match(vscode.panels[1].postedMessages[0].analyticsHtml ?? "", /Current weekly cycle token totals/u);
 
   vscode.panels[1].dispose();
-  assert.equal(context.subscriptions.length, Object.keys(COCOPI_COMMANDS).length);
+  assert.equal(context.subscriptions.length, Object.keys(COCOPI_COMMANDS).length + 1);
 });
 
 test("Cocopi status bar item is clickable", () => {
@@ -466,6 +466,48 @@ test("Cocopi commands stay registered if chat status item setup fails", async ()
   await vscode.commands.callbacks.get(COCOPI_COMMANDS.status)?.();
 
   assert.equal(vscode.panels[0].viewType, "cocopiStatus");
+});
+
+test("Cocopi notifies when main account usage resets to effectively full", async (testContext) => {
+  clearCocopiRateLimitSnapshots();
+  const vscode = fakeVscode();
+  const context = fakeContext();
+  registerCocopiCommands(context, vscode);
+  testContext.after(() => {
+    for (const subscription of context.subscriptions) {
+      subscription.dispose();
+    }
+    clearCocopiRateLimitSnapshots();
+  });
+  await waitForCocopiTokenCacheDebugStorage();
+
+  recordCocopiRateLimitSnapshots({
+    limitId: "codex_bengalfox",
+    primary: { usedPercent: 40 }
+  });
+  recordCocopiRateLimitSnapshots({
+    limitId: "codex_bengalfox",
+    primary: { usedPercent: 0 }
+  });
+  recordCocopiRateLimitSnapshots({
+    limitId: "codex",
+    primary: { usedPercent: 42 },
+    secondary: { usedPercent: 21 }
+  });
+  assert.deepEqual(vscode.informationMessages, []);
+
+  recordCocopiRateLimitSnapshots({
+    limitId: "codex",
+    primary: { usedPercent: 0.01 },
+    secondary: { usedPercent: 21 }
+  });
+  recordCocopiRateLimitSnapshots({
+    limitId: "codex",
+    primary: { usedPercent: 0 },
+    secondary: { usedPercent: 21 }
+  });
+
+  assert.deepEqual(vscode.informationMessages, ["Account usage has been reset"]);
 });
 
 test("Cocopi dashboard reports features limited by user settings", async () => {

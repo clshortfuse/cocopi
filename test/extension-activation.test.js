@@ -85,7 +85,7 @@ test("activateWithVscode wires commands, provider, participant, and diagnostics"
   assert.deepEqual(vscode.selectedModelSelectors, [{ vendor: COCOPI_LANGUAGE_MODEL_VENDOR }]);
   assert.equal(vscode.chatParticipantId, COCOPI_CHAT_PARTICIPANT_ID);
   assert.equal(vscode.outputChannelName, COCOPI_OUTPUT_CHANNEL_NAME);
-  assert.equal(context.subscriptions.length, 16);
+  assert.equal(context.subscriptions.length, 17);
 });
 
 test("activateWithVscode registers the model provider when Chat status proposed API access is denied", () => {

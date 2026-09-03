@@ -672,9 +672,10 @@ test("provideLanguageModelChatInformation returns stored catalog during silent s
     });
     return Response.json({ models: [{ slug: "gpt-refreshed", display_name: "GPT Refreshed" }] });
   }));
+  const vscode = fakeVscode(configurationValues({ model: "gpt-stored" }));
   const provider = createCocopiLanguageModelProvider(
     fakeContext(secrets),
-    fakeVscode(configurationValues({ model: "gpt-stored" }))
+    vscode
   );
   const changeEvents = [];
   provider.onDidChangeLanguageModelChatInformation?.(() => {
@@ -688,6 +689,7 @@ test("provideLanguageModelChatInformation returns stored catalog during silent s
   assert.equal(changeEvents.length, 1);
   assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-refreshed", "GPT Refreshed", "gpt-refreshed")]);
   assert.match(secrets.get(COCOPI_MODEL_CATALOG_STORAGE_KEY) ?? "", /gpt-refreshed/u);
+  assert.deepEqual(vscode.informationMessages, ["New model available: GPT Refreshed"]);
 });
 
 test("provideLanguageModelChatResponse restores orchestration metadata from stored catalog", async (testContext) => {
@@ -996,9 +998,13 @@ test("provideLanguageModelChatInformation refreshes expired model catalog cache"
     return Response.json({
       models: calls.length === 1
         ? [{ slug: "gpt-5-codex", display_name: "GPT-5 Codex" }]
-        : [{ slug: "gpt-5.2-codex", display_name: "GPT-5.2 Codex" }]
+        : [
+            { slug: "gpt-5-codex", display_name: "GPT-5 Codex" },
+            { slug: "gpt-5.7", display_name: "GPT-5.7" }
+          ]
     });
   }));
+  const vscode = fakeVscode(configurationValues({ apiBaseUrl: "https://chatgpt.example.test/backend-api/codex", model: "gpt-5-codex" }));
   const provider = createCocopiLanguageModelProvider(
     fakeContext(new Map([
       [CODEX_SECRET_KEYS.accessToken, "access-token"],
@@ -1006,15 +1012,18 @@ test("provideLanguageModelChatInformation refreshes expired model catalog cache"
       [CODEX_SECRET_KEYS.idToken, "id-token"],
       [CODEX_SECRET_KEYS.chatgptAccountId, "account-id"]
     ])),
-    fakeVscode(configurationValues({ apiBaseUrl: "https://chatgpt.example.test/backend-api/codex", model: "gpt-5-codex" }))
+    vscode
   );
 
   assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken())), [modelInformation("gpt-5-codex", "GPT-5 Codex")]);
+  assert.deepEqual(vscode.informationMessages, []);
   nowMs += COCOPI_MODEL_CATALOG_CACHE_TTL_MS + 1;
   assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken())), [
-    modelInformation("gpt-5.2-codex", "GPT-5.2 Codex")
+    modelInformation("gpt-5-codex", "GPT-5 Codex"),
+    modelInformation("gpt-5.7", "GPT-5.7", "gpt-5.7")
   ]);
   assert.equal(calls.length, 2);
+  assert.deepEqual(vscode.informationMessages, ["New model available: GPT-5.7"]);
 });
 
 test("provideLanguageModelChatInformation refreshes and retries after 401", async (testContext) => {
@@ -5150,6 +5159,8 @@ function fakeVscode(configuration = new Map(), options = {}) {
     /** @type {string[]} */
     warningMessages: [],
     /** @type {string[]} */
+    informationMessages: [],
+    /** @type {string[]} */
     executedCommands: [],
     /** @param {string} changedSection */
     fireConfigurationChange(changedSection) {
@@ -5211,6 +5222,10 @@ function fakeVscode(configuration = new Map(), options = {}) {
       }
     },
     window: {
+      /** @param {string} message */
+      async showInformationMessage(message) {
+        vscode.informationMessages.push(message);
+      },
       /**
        * @param {string} message
        * @returns {Promise<string | undefined>}
