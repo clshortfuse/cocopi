@@ -2,7 +2,52 @@
 
 This file tracks Cocopi-visible drift from the OpenAI Codex CLI baseline that Cocopi uses as a behavior reference. It is intentionally focused on remote API, model-catalog, auth, transport, tool, and VS Code bridge implications. It is not an exhaustive copy of every upstream CLI/TUI/app-server change.
 
-## Current Baseline Review
+## GPT-6 Baseline Review
+
+- Previous Cocopi baseline: [`rust-v0.144.0`](https://github.com/openai/codex/releases/tag/rust-v0.144.0)
+- Current Cocopi baseline: [`rust-v0.153.3`](https://github.com/openai/codex/releases/tag/rust-v0.153.3)
+- Upstream compare: [`rust-v0.144.0...rust-v0.153.3`](https://github.com/openai/codex/compare/rust-v0.144.0...rust-v0.153.3)
+
+The upstream bundled catalog defines `gpt-6-astra` (`GPT-6-Astra`) with `minimal_client_version: "0.153.0"`. Cocopi therefore advertises stable client version `0.153.3` when fetching the live catalog and making requests. Model exposure remains catalog-driven: GPT-6 is not hardcoded into Cocopi, and the existing `gpt-5.5` fallback is unchanged.
+
+Verified GPT-6 Astra catalog metadata:
+
+| Field | Upstream value |
+| --- | --- |
+| Visibility | `hide` |
+| API support | `supported_in_api: true` |
+| Context window | 272,000 tokens; 872,000 maximum |
+| Default reasoning | `low` |
+| Supported reasoning | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` |
+| Multi-agent mode | `v2`, with `xhigh` multi-agent reasoning |
+
+Ultra remains a symbolic orchestration selection rather than a literal Responses effort. In `0.153.3`, however, the request boundary first uses a valid catalog `multi_agent_reasoning_effort`; GPT-6 Astra selects wire `xhigh`. Max-compatible fallback remains in effect when the override is absent or invalid, while multi-agent availability affects only proactive orchestration instructions. Relevant upstream evidence:
+
+1. [`models-manager/models.json`](https://github.com/openai/codex/blob/rust-v0.153.3/codex-rs/models-manager/models.json) defines the GPT-6 Astra gate and capabilities.
+2. [`rust-v0.153.3`](https://github.com/openai/codex/releases/tag/rust-v0.153.3) is the stable release selected for the client baseline.
+3. [`model-provider-info/src/lib.rs`](https://github.com/openai/codex/blob/rust-v0.153.3/codex-rs/model-provider-info/src/lib.rs) confirms the ChatGPT Codex endpoint and client-version request identity.
+
+### `0.144.0...0.153.3` Source Contract Audit
+
+Reviewed on 2026-09-04 from both tagged source trees rather than inferring compatibility from Cargo's `0.x` version numbering.
+
+| Upstream change | Cocopi disposition |
+| --- | --- |
+| `reasoning_effort_for_request` now honors a valid model `multi_agent_reasoning_effort` before Max fallback. | Parse/cache the field and use it for Ultra. GPT-6 Astra Ultra sends `xhigh`; models without an override retain Max-compatible behavior. |
+| `supports_reasoning_summaries` request gating was replaced by `supports_reasoning_summary_parameter`; reasoning parameters and encrypted reasoning inclusion are sent consistently. | Prefer the current catalog field with the old field as compatibility fallback. Cocopi already sends configured reasoning and `reasoning.encrypted_content`. |
+| Codex backend requests add `x-codex-routing-hint: model=<slug>[;tier=<tier>]`. | Added to Cocopi HTTP and WebSocket handshakes. |
+| Upstream removed `supports_parallel_tool_calls` from request gating and sets parallel calls on all model prompts. | Cocopi now sets `parallel_tool_calls` whenever it exposes model-visible tools. Stored stale `false` metadata no longer suppresses it. |
+| Prompt cache keys default to session IDs. | Already matched: Cocopi uses its stable session ID for `prompt_cache_key`, `session-id`, and `thread-id`. |
+| Outbound response-item IDs must be typed/prefixed. | No request change required: Cocopi omits IDs on authored messages and preserves server-issued IDs on replayed reasoning/output items. |
+| WebSocket catalog ETags moved from upgrade headers to `codex.response.metadata`; `response.metadata` also carries richer safety/turn data. | Non-blocking. Cocopi catalog refresh remains endpoint/TTL-driven and preserves raw events for diagnostics. |
+| Added stream events include content-part completion, output-text completion, refusal deltas, MCP argument deltas, and explicit function/custom-tool completion. | Additive for Cocopi's bridge. Existing output deltas, output-item completion, function calls, reasoning, and terminal events remain sufficient; unknown events remain diagnostic-safe. |
+| Streaming connection recovery and rate-limit error classification became more specific. | Cocopi already has bounded HTTP retries, WebSocket fallback/reconnect behavior, and terminal error surfacing. Richer user-facing classification remains optional follow-up. |
+| Provider-owned auth recovery, workload identity, and stricter workspace auth were added. | Not applicable to Cocopi's extension-owned ChatGPT OAuth and SecretStorage flow. OAuth endpoints and ordinary bearer/account headers remain compatible. |
+| GPT-6 Astra advertises `use_responses_lite: true`, which upstream implements with an internal header plus prefixed instruction/tool input items. | Parse and retain the flag, but do not enable Lite yet. A live GPT-6 Astra standard `/responses` smoke succeeded, and adopting Lite requires a complete namespace-tool/replay implementation rather than sending only its internal header. |
+
+Live account verification on 2026-09-04 returned `gpt-6-astra` from `/models?client_version=0.153.3`. A minimal request using Cocopi's current standard Responses payload completed with the expected `GPT6_OK` output. This confirms the deferred Lite adaptation does not block current GPT-6 use on the tested account.
+
+## Previous `0.144.0` Baseline Review
 
 - Previous Cocopi baseline: [`rust-v0.125.0`](https://github.com/openai/codex/releases/tag/rust-v0.125.0)
 - Target upstream baseline: [`rust-v0.144.0`](https://github.com/openai/codex/releases/tag/rust-v0.144.0)
@@ -13,7 +58,9 @@ GitHub reports this compare as very large: 2,282 commits and 3,748 changed files
 
 Release tags observed in this range: `0.125.0`, `0.128.0` through `0.144.0`. GitHub releases for `0.126.0` and `0.127.0` were not present in the release listing used for this review.
 
-## Ultra Semantic Invariant
+## Ultra Semantic Invariant At `0.144.0` (Superseded)
+
+This section records the contract Cocopi implemented for `0.144.0`. The `0.153.3` audit above supersedes its unconditional Ultra-to-Max rule and parallel-call catalog gating.
 
 This distinction is a regression guard, not optional terminology:
 

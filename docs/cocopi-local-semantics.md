@@ -178,39 +178,39 @@ Primary code/tests:
 
 ### Ultra Mode And VS Code Subagents
 
-`ultra` is a Codex client orchestration mode, not a Responses API `reasoning.effort` value. Upstream Codex `rust-v0.144.0` translates selected Ultra to `max` on the wire. With MultiAgentV2 active, it also adds developer instructions and exposes the native collaboration environment.
+`ultra` is a Codex client orchestration mode, not a Responses API `reasoning.effort` value. Upstream Codex `rust-v0.153.3` translates selected Ultra to a valid catalog `multi_agent_reasoning_effort`, falling back to `max`, the last supported non-Ultra effort, or `medium`. With MultiAgentV2 active, it also adds developer instructions and exposes the native collaboration environment.
 
-> **Regression invariant:** Ultra has two independent effects. Its request effort is always translated to `max` before Cocopi applies ordinary catalog compatibility adaptation. Separately, Ultra may enable proactive subagent instructions when the host and catalog support that bridge. Missing `runSubagent`, `multi_agent_version: "v1"`, `multi_agent_version: "disabled"`, or disabled parallel calls suppress only the corresponding orchestration behavior. They must never make Ultra use the model default or omit an otherwise supported wire effort.
+> **Regression invariant:** Ultra has two independent effects. Its request effort is translated to the catalog's valid `multi_agent_reasoning_effort` or the ordinary Max compatibility path. Separately, Ultra may enable proactive subagent instructions when the host and catalog support that bridge. Missing `runSubagent`, `multi_agent_version: "v1"`, or `multi_agent_version: "disabled"` suppresses only proactive orchestration behavior. It must never make Ultra use the model default or omit an otherwise supported wire effort.
 
 Interpret the upstream contract in this order:
 
 1. Preserve `ultra` as the selected client mode so orchestration policy can inspect it.
-2. Translate the root Responses request effort from `ultra` to `max`.
-3. Apply the same explicit supported-effort adaptation used for a selected Max. With no catalog metadata, send `max`; with a populated older-model effort list that lacks Max, select the nearest supported effort; omit reasoning only when the model exposes no supported reasoning efforts. `supported_in_api` controls upstream API-key visibility and does not disable reasoning for Cocopi's ChatGPT-authenticated requests.
+2. Translate the root Responses request effort from `ultra` to a valid `multi_agent_reasoning_effort` when the catalog supplies one; GPT-6 Astra currently selects `xhigh`.
+3. Otherwise apply the explicit supported-effort adaptation used for a selected Max. With no catalog metadata, send `max`; with a populated older-model effort list that lacks Max, select the nearest supported effort; omit reasoning only when the model exposes no supported reasoning efforts. `supported_in_api` controls upstream API-key visibility and does not disable reasoning for Cocopi's ChatGPT-authenticated requests.
 4. Independently decide whether to add proactive multi-agent instructions and parallel delegation.
 
-Do not infer request semantics from the protocol enum accepting or serializing the string `"ultra"`, from a model catalog advertising Ultra, or from TUI wording. The authoritative request boundary is upstream `reasoning_effort_for_request`, backed by tests that assert both `Ultra -> Max` and Ultra's separate proactive-mode behavior.
+Do not infer request semantics from the protocol enum accepting or serializing the string `"ultra"`, from a model catalog advertising Ultra, or from TUI wording. The authoritative request boundary is upstream `reasoning_effort_for_request`, backed by tests for catalog overrides, fallback behavior, and Ultra's separate proactive mode.
 
 The native V2 environment is a `collaboration` namespace with `spawn_agent`, `send_message`, `followup_task`, `wait_agent`, `interrupt_agent`, and `list_agents`. Those operations manage persistent Codex-owned child threads. VS Code exposes a different real primitive: `runSubagent` runs one delegated task and returns its result. Cocopi therefore translates the orchestration policy onto `runSubagent`; it does not advertise six fake lifecycle tools that the host cannot implement.
 
 Cocopi applies the equivalent bridge when VS Code supplies its `runSubagent` tool:
 
-- Send `reasoning.effort: "max"`, never `"ultra"`.
-- Parse and cache the catalog's closed `multi_agent_version` (`disabled`, `v1`, or `v2`), `tool_mode`, and `supports_parallel_tool_calls` fields. Explicit `v2` permits this bridge; explicit `v1` or `disabled` suppresses V2 guidance. Missing or unknown selector metadata remains unknown and uses the compatibility fallback instead of being treated as disabled.
+- Send the valid catalog `multi_agent_reasoning_effort` or Max-compatible fallback, never `"ultra"`.
+- Parse and cache the catalog's closed `multi_agent_version` (`disabled`, `v1`, or `v2`), `tool_mode`, and `multi_agent_reasoning_effort` fields. Explicit `v2` permits this bridge; explicit `v1` or `disabled` suppresses V2 guidance. Missing or unknown selector metadata remains unknown and uses the compatibility fallback instead of being treated as disabled.
 - Append a narrow `<multi_agent_mode>` instruction that explains the real one-shot VS Code tool, permits proactive delegation, and asks for multiple independent calls in one response when parallel tool calls are supported.
 - For the custom `@cocopi` participant, include the registered `runSubagent` tool automatically as an optional capability at every reasoning effort. Ordinary Max may use it opportunistically, but receives neither the proactive `<multi_agent_mode>` policy nor Ultra's parallel-call behavior. The auto-added tool remains optional with `tool_choice: "auto"`; explicit user tool references may still require a tool call. Language-model-provider requests use only the tools supplied by VS Code for that request.
-- Set `parallel_tool_calls` for Ultra unless the selected model explicitly reports `supports_parallel_tool_calls: false`. The custom participant invokes multiple returned calls concurrently and replays their call/result pairs in stable model order.
-- Keep the ordinary `max` reasoning translation without V2 instructions when `runSubagent` is unavailable or the catalog explicitly selects `v1` or `disabled`.
+- Set `parallel_tool_calls` whenever model-visible tools are present. Upstream `0.153` removed `supports_parallel_tool_calls` from request gating and enables parallel calls for all model prompts. The custom participant invokes multiple returned calls concurrently and replays their call/result pairs in stable model order.
+- Keep the resolved wire effort without V2 instructions when `runSubagent` is unavailable or the catalog explicitly selects `v1` or `disabled`.
 
 Cocopi does not synthesize subagent calls. The model decides whether delegation is useful and invokes the standard VS Code tool, so VS Code remains responsible for subagent execution, lifecycle, permissions, and results.
 
-There is no separate root-request Ultra header. The server-visible root contract is the ordinary Responses body: Max reasoning, developer instructions, the actual tool definition, and `parallel_tool_calls`. Cocopi deliberately does not send `x-openai-subagent` or `x-codex-parent-thread-id` on root requests. Upstream adds child identity and parent lineage only when its own runtime creates a real child; VS Code owns that child path for `runSubagent`, so Cocopi has no reliable lineage to attach.
+There is no separate root-request Ultra header. The server-visible root contract is the ordinary Responses body: resolved reasoning, developer instructions, the actual tool definition, and `parallel_tool_calls`. Cocopi deliberately does not send `x-openai-subagent` or `x-codex-parent-thread-id` on root requests. Upstream adds child identity and parent lineage only when its own runtime creates a real child; VS Code owns that child path for `runSubagent`, so Cocopi has no reliable lineage to attach.
 
 Primary upstream references:
 
-- [`codex-rs/core/src/client.rs`](https://github.com/openai/codex/blob/rust-v0.144.0/codex-rs/core/src/client.rs) (`reasoning_effort_for_request`: unconditional `Ultra -> Max` request translation)
-- [`codex-rs/core/src/client_tests.rs`](https://github.com/openai/codex/blob/rust-v0.144.0/codex-rs/core/src/client_tests.rs) (`ultra_reasoning_uses_max_for_requests`)
-- [`codex-rs/core/tests/suite/multi_agent_mode.rs`](https://github.com/openai/codex/blob/rust-v0.144.0/codex-rs/core/tests/suite/multi_agent_mode.rs) (`ultra_reasoning_uses_max_and_proactive_mode` and `ultra_on_multi_agent_v1_uses_max_without_mode_instructions`)
+- [`codex-rs/core/src/client.rs`](https://github.com/openai/codex/blob/rust-v0.153.3/codex-rs/core/src/client.rs) (`reasoning_effort_for_request`: catalog override and fallback translation)
+- [`codex-rs/core/src/client_tests.rs`](https://github.com/openai/codex/blob/rust-v0.153.3/codex-rs/core/src/client_tests.rs) (valid and invalid multi-agent effort override coverage)
+- [`codex-rs/core/src/session/turn.rs`](https://github.com/openai/codex/blob/rust-v0.153.3/codex-rs/core/src/session/turn.rs) (parallel tool calls enabled for all model prompts)
 - `codex-rs/protocol/src/protocol.rs` (`MultiAgentVersion`)
 - `codex-rs/protocol/src/openai_models.rs` (`ToolMode`, `supports_parallel_tool_calls`)
 - `codex-rs/core/src/tools/spec_plan.rs` (V2 collaboration tool registration)

@@ -94,7 +94,7 @@ Diagnostics are intended for troubleshooting extension behavior. They are stored
 | --- | --- | --- |
 | `cocopi.model` | `gpt-5.5` | Fallback Codex model id. |
 | `cocopi.chatParticipantModelSource` | `selected` | Whether `@cocopi` uses VS Code's selected Cocopi model or the configured fallback. |
-| `cocopi.reasoningEffort` | `default` | Reasoning mode for Cocopi requests: `default`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, or `ultra`. Ultra sends `max` on the wire but, unlike Max, adds proactive VS Code `runSubagent` policy and parallel independent delegation when the tool and model catalog permit it. If orchestration is unavailable, Ultra still uses the Max wire path; it never means model-default reasoning. The custom `@cocopi` participant keeps the real tool optionally available at other efforts without enabling that Ultra policy. |
+| `cocopi.reasoningEffort` | `default` | Reasoning mode for Cocopi requests: `default`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, or `ultra`. Ultra sends the model's valid catalog `multi_agent_reasoning_effort` when present, otherwise `max` or its compatibility fallback; unlike Max, it also adds proactive VS Code `runSubagent` policy when the tool and model catalog permit it. It never sends literal `ultra` or means model-default reasoning. The custom `@cocopi` participant keeps the real tool optionally available at other efforts without enabling that Ultra policy. |
 | `cocopi.reasoningSummary` | `auto` | Reasoning summary behavior: `auto`, `model-default`, `off`, `concise`, or `detailed`. |
 | `cocopi.serviceTier` | `auto` | Processing tier override: `auto`, `flex`, or `priority`. |
 | `cocopi.transport` | `websocket` | Responses transport: `websocket` or `sse`. |

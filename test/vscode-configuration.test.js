@@ -321,6 +321,16 @@ test("codexReasoningFromCocopiOptions sends Max on the wire for Ultra orchestrat
   }), { effort: "max", summary: "auto" });
 });
 
+test("codexReasoningFromCocopiOptions uses the model's Ultra wire effort", () => {
+  assert.deepEqual(codexReasoningFromCocopiOptions(readCocopiConfiguration(fakeVscodeConfiguration()), {
+    reasoningEffort: "ultra"
+  }, {
+    defaultEffort: "low",
+    supportedEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
+    multiAgentReasoningEffort: "xhigh"
+  }), { effort: "xhigh", summary: "auto" });
+});
+
 test("codexReasoningFromCocopiOptions sends Max for Ultra orchestration without catalog metadata", () => {
   assert.deepEqual(codexReasoningFromCocopiOptions(readCocopiConfiguration(fakeVscodeConfiguration()), {
     reasoningEffort: "ultra"

@@ -1022,7 +1022,7 @@ test("Cocopi chat handler exposes optional runSubagent without Ultra policy", as
   assert.deepEqual(body.reasoning, { effort: "max", summary: "auto" });
   assert.doesNotMatch(body.instructions, /Proactive multi-agent delegation is active/u);
   assert.equal(body.tool_choice, "auto");
-  assert.equal(body.parallel_tool_calls, false);
+  assert.equal(body.parallel_tool_calls, true);
 });
 
 test("Cocopi chat handler uses configured Ultra only for runSubagent orchestration", async (testContext) => {

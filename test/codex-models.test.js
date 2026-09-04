@@ -8,6 +8,10 @@ import { chooseCodexModel, fetchCodexModelsResponse, listCodexModels, parseModel
 
 const chatgptProCatalogFixture = JSON.parse(await readFile(new URL("fixtures/codex-models/chatgpt-pro-catalog.json", import.meta.url), "utf8"));
 
+test("default client version satisfies the GPT-6 Astra catalog gate", () => {
+  assert.equal(CODEX_CLIENT_VERSION, "0.153.3");
+});
+
 test("chatgpt pro catalog fixture uses captured server model ids", () => {
   const rawModels = chatgptProCatalogFixture.models;
 
@@ -42,9 +46,12 @@ test("parseModelsResponse reads Codex backend model catalog", () => {
           { effort: "ultra", description: "Automatic task delegation" }
         ],
         supports_reasoning_summaries: true,
+        supports_reasoning_summary_parameter: true,
         default_reasoning_summary: "detailed",
         multi_agent_version: "v2",
+        multi_agent_reasoning_effort: "xhigh",
         tool_mode: "direct",
+        use_responses_lite: true,
         supports_parallel_tool_calls: true,
         available_in_plans: ["pro", "business"],
         capabilities: { image_input: false }
@@ -77,7 +84,9 @@ test("parseModelsResponse reads Codex backend model catalog", () => {
       supportsReasoningSummaries: true,
       defaultReasoningSummary: "detailed",
       multiAgentVersion: "v2",
+      multiAgentReasoningEffort: "xhigh",
       toolMode: "direct",
+      useResponsesLite: true,
       supportsParallelToolCalls: true,
       availableInPlans: ["pro", "business"],
       imageInput: false
@@ -167,6 +176,20 @@ test("parseModelsResponse preserves explicit false reasoning summary support", (
     displayName: "gpt-no-summary",
     supportsReasoningSummaries: false,
     defaultReasoningSummary: "detailed"
+  }]);
+});
+
+test("parseModelsResponse prefers current reasoning summary parameter support", () => {
+  assert.deepEqual(parseModelsResponse({
+    models: [{
+      slug: "gpt-current-summary-contract",
+      supports_reasoning_summary_parameter: false,
+      supports_reasoning_summaries: true
+    }]
+  }), [{
+    id: "gpt-current-summary-contract",
+    displayName: "gpt-current-summary-contract",
+    supportsReasoningSummaries: false
   }]);
 });
 

@@ -692,7 +692,7 @@ test("provideLanguageModelChatInformation returns stored catalog during silent s
   assert.deepEqual(vscode.informationMessages, ["New model available: GPT Refreshed"]);
 });
 
-test("provideLanguageModelChatResponse restores orchestration metadata from stored catalog", async (testContext) => {
+test("provideLanguageModelChatResponse does not gate parallel tools on stored catalog metadata", async (testContext) => {
   /** @type {RequestInit | undefined} */
   let requestOptions;
   const secrets = new Map([
@@ -705,7 +705,11 @@ test("provideLanguageModelChatResponse restores orchestration metadata from stor
       models: [{
         id: "gpt-stored-v2",
         displayName: "GPT Stored V2",
+        defaultReasoningLevel: "low",
+        supportedReasoningLevels: ["low", "medium", "high", "xhigh", "max", "ultra"].map((effort) => ({ effort })),
         multiAgentVersion: "v2",
+        multiAgentReasoningEffort: "xhigh",
+        useResponsesLite: true,
         toolMode: "direct",
         supportsParallelToolCalls: false
       }]
@@ -736,9 +740,9 @@ test("provideLanguageModelChatResponse restores orchestration metadata from stor
   );
 
   const body = JSON.parse(String(requestOptions?.body));
-  assert.deepEqual(body.reasoning, { effort: "max", summary: "auto" });
-  assert.match(body.instructions, /delegate one task at a time/u);
-  assert.equal(body.parallel_tool_calls, false);
+  assert.deepEqual(body.reasoning, { effort: "xhigh", summary: "auto" });
+  assert.match(body.instructions, /host can run them in parallel/u);
+  assert.equal(body.parallel_tool_calls, true);
 });
 
 test("provideLanguageModelChatInformation does not refresh expired auth before returning stored silent catalog", async (testContext) => {
@@ -2845,7 +2849,7 @@ test("provideLanguageModelChatResponse resolves authoritative workload profiles 
   assert.equal(body.service_tier, "flex");
   assert.deepEqual(body.reasoning, { effort: "low", summary: "detailed" });
   assert.doesNotMatch(body.instructions ?? "", /Proactive multi-agent delegation is active/u);
-  assert.equal(body.parallel_tool_calls, false);
+  assert.equal(body.parallel_tool_calls, true);
   const [summary] = readCocopiTokenCacheDebugSummaries();
   assert.equal(summary?.workload, "utility");
   assert.equal(summary?.workloadSubtype, "general");
@@ -4199,8 +4203,11 @@ test("provideLanguageModelChatResponse uses Ultra only for proactive subagent or
     if (String(url).includes("/models?")) {
       return Response.json({
         models: [{
-          slug: "gpt-5.6-sol",
+          slug: "gpt-6-astra",
+          default_reasoning_level: "low",
+          supported_reasoning_levels: ["low", "medium", "high", "xhigh", "max", "ultra"].map((effort) => ({ effort })),
           multi_agent_version: "v2",
+          multi_agent_reasoning_effort: "xhigh",
           supports_parallel_tool_calls: true
         }]
       });
@@ -4219,7 +4226,7 @@ test("provideLanguageModelChatResponse uses Ultra only for proactive subagent or
 
   await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
   await provider.provideLanguageModelChatResponse(
-    fakeModel("gpt-5.6-sol", "GPT-5.6 Sol"),
+    fakeModel("gpt-6-astra", "GPT-6 Astra"),
     [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "delegate when useful")],
     fakeResponseOptions({
       toolMode: 2,
@@ -4231,7 +4238,7 @@ test("provideLanguageModelChatResponse uses Ultra only for proactive subagent or
   );
 
   const body = JSON.parse(String(requestOptions?.body));
-  assert.deepEqual(body.reasoning, { effort: "max", summary: "auto" });
+  assert.deepEqual(body.reasoning, { effort: "xhigh", summary: "auto" });
   assert.match(body.instructions, /Proactive multi-agent delegation is active/u);
   assert.match(body.instructions, /`runSubagent` tool/u);
   assert.equal(body.parallel_tool_calls, true);
@@ -4285,14 +4292,14 @@ test("provideLanguageModelChatResponse honors explicit and unknown multi-agent s
     const body = JSON.parse(String(options.body));
     assert.deepEqual(body.reasoning, { effort: "max", summary: "auto" });
     assert.doesNotMatch(body.instructions ?? "", /Proactive multi-agent delegation is active/u);
-    assert.equal(body.parallel_tool_calls, false);
+    assert.equal(body.parallel_tool_calls, true);
   }
   const unknownBody = JSON.parse(String(responseRequests[2].body));
   assert.match(unknownBody.instructions, /Proactive multi-agent delegation is active/u);
   assert.equal(unknownBody.parallel_tool_calls, true);
 });
 
-test("provideLanguageModelChatResponse uses serial Ultra guidance when parallel tools are unsupported", async (testContext) => {
+test("provideLanguageModelChatResponse ignores removed parallel-tool catalog gating", async (testContext) => {
   /** @type {RequestInit | undefined} */
   let responseRequest;
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
@@ -4332,9 +4339,8 @@ test("provideLanguageModelChatResponse uses serial Ultra guidance when parallel 
 
   const body = JSON.parse(String(responseRequest?.body));
   assert.deepEqual(body.reasoning, { effort: "max", summary: "auto" });
-  assert.match(body.instructions, /delegate one task at a time/u);
-  assert.doesNotMatch(body.instructions, /host can run them in parallel/u);
-  assert.equal(body.parallel_tool_calls, false);
+  assert.match(body.instructions, /host can run them in parallel/u);
+  assert.equal(body.parallel_tool_calls, true);
 });
 
 test("provideLanguageModelChatResponse still sends wire Max when Ultra orchestration is unavailable", async (testContext) => {
@@ -4367,7 +4373,7 @@ test("provideLanguageModelChatResponse still sends wire Max when Ultra orchestra
   const body = JSON.parse(String(requestOptions?.body));
   assert.deepEqual(body.reasoning, { effort: "max", summary: "auto" });
   assert.doesNotMatch(body.instructions ?? "", /Proactive multi-agent delegation is active/u);
-  assert.equal(body.parallel_tool_calls, false);
+  assert.equal(body.parallel_tool_calls, true);
 });
 
 test("provideLanguageModelChatResponse lets VS Code render tool starts without synthetic thinking", async (testContext) => {
@@ -4642,7 +4648,7 @@ test("provideLanguageModelChatResponse sends tools and streams tool calls from a
   assert.deepEqual(body.include, ["reasoning.encrypted_content"]);
   assert.equal(body.tool_choice, "required");
   assert.equal(body.stream, true);
-  assert.equal(body.parallel_tool_calls, false);
+  assert.equal(body.parallel_tool_calls, true);
   assert.ok(requestOptions);
   assert.equal(/** @type {Record<string, string>} */ (requestOptions.headers).Accept, "text/event-stream");
 });

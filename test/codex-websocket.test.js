@@ -72,6 +72,7 @@ test("fetchCodexResponseWebSocketStream connects with Codex headers and streams 
   assert.equal(socket.init?.headers?.["session-id"], "cocopi-language-model");
   assert.equal(socket.init?.headers?.["thread-id"], "cocopi-language-model");
   assert.equal(socket.init?.headers?.["x-client-request-id"], "cocopi-language-model");
+  assert.equal(socket.init?.headers?.["x-codex-routing-hint"], "model=gpt-5-codex");
   assert.equal(socket.init?.headers?.session_id, undefined);
   assert.equal(socket.init?.headers?.conversation_id, undefined);
   assert.equal(socket.init?.headers?.["x-codex-turn-metadata"], '{"turn_id":"turn-1"}');

@@ -89,7 +89,8 @@ test("fetchCodexResponseStream posts to Codex Responses endpoint", async (contex
     accessToken: "access-token",
     body: buildTextResponseBody({
       model: "gpt-5-codex",
-      input: "Tell me the current datetime in ISO 8601 format. Return only the datetime string."
+      input: "Tell me the current datetime in ISO 8601 format. Return only the datetime string.",
+      serviceTier: "priority"
     })
   }));
 
@@ -99,6 +100,7 @@ test("fetchCodexResponseStream posts to Codex Responses endpoint", async (contex
   assert.equal(calls[0].options.headers.Authorization, "Bearer access-token");
   assert.equal(calls[0].options.headers.Accept, "text/event-stream");
   assert.equal(calls[0].options.headers.originator, CODEX_ORIGINATOR);
+  assert.equal(calls[0].options.headers["x-codex-routing-hint"], "model=gpt-5-codex;tier=priority");
   assert.equal(typeof calls[0].options.headers["session-id"], "string");
   assert.equal(calls[0].options.headers["thread-id"], calls[0].options.headers["session-id"]);
   assert.equal(calls[0].options.headers.session_id, undefined);
@@ -134,6 +136,7 @@ test("fetchCodexResponseStream uses prompt cache key as stable request identity"
   assert.equal(calls[0].options.headers["session-id"], "cocopi-language-model");
   assert.equal(calls[0].options.headers["thread-id"], "cocopi-language-model");
   assert.equal(calls[0].options.headers["x-client-request-id"], "cocopi-language-model");
+  assert.equal(calls[0].options.headers["x-codex-routing-hint"], "model=gpt-5-codex");
   assert.equal(calls[0].options.headers["x-codex-turn-metadata"], '{"turn_id":"turn-1"}');
   const body = JSON.parse(String(calls[0].options.body));
   assert.equal(body.prompt_cache_key, "cocopi-language-model");
