@@ -81,6 +81,48 @@
     },
     "configuration": {
       "properties": {
+        "cocopi.subagents": {
+          "type": "object",
+          "scope": "application",
+          "restricted": true,
+          "default": { "preset": "gpt6-ultra" },
+          "description": "Experimental subagent model/effort matrix. Configure visually in Cocopi settings. Explicit models remain allowed; this is not a total token budget.",
+          "additionalProperties": false,
+          "properties": {
+            "preset": { "type": "string", "enum": ["gpt6-ultra"] },
+            "enabled": { "type": "boolean" },
+            "defaultChoice": { "type": "string" },
+            "routes": {
+              "type": "array",
+              "maxItems": 256,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["parent", "targets"],
+                "properties": {
+                  "parent": { "type": "string" },
+                  "targets": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "type": "string" } }
+                }
+              }
+            },
+            "choices": {
+              "type": "array",
+              "maxItems": 256,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "model", "reasoningEffort", "label", "description"],
+                "properties": {
+                  "id": { "type": "string", "pattern": "^[a-z0-9-]{1,48}$" },
+                  "model": { "type": "string", "pattern": "^[a-zA-Z0-9._-]+$" },
+                  "reasoningEffort": { "type": "string", "pattern": "^[a-zA-Z0-9_-]{1,64}$" },
+                  "label": { "type": "string", "maxLength": 60 },
+                  "description": { "type": "string", "maxLength": 240 }
+                }
+              }
+            }
+          }
+        },
         "cocopi.apiBaseUrl": {
           "default": "https://chatgpt.com/backend-api/codex",
           "description": "Base URL for the ChatGPT Codex backend API.",

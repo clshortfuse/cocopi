@@ -78,6 +78,41 @@ test("Cocopi chat handler sends slash-prefixed fast text as a regular prompt", a
   assert.equal(body.service_tier, undefined);
 });
 
+test("Cocopi participant resolves a selected matrix alias without inheriting Ultra", async (testContext) => {
+  /** @type {RequestInit | undefined} */
+  let sent;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    if (!options.body) {
+      return Response.json({ models: [{ slug: "gpt-matrix", display_name: "Matrix", supported_reasoning_levels: [{ effort: "low" }] }] });
+    }
+    sent = options;
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "found" }),
+      sseData({ type: "response.completed", response: { id: "resp-matrix" } })
+    ]);
+  }));
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  const vscode = fakeVscode(configurationValues({
+    reasoningEffort: "ultra",
+    serviceTier: "priority",
+    subagents: { enabled: true, defaultChoice: "lookup", choices: [{ id: "lookup", model: "gpt-matrix", reasoningEffort: "low", label: "Lookup", description: "Narrow tasks" }] }
+  }));
+  const response = fakeChatResponseStream();
+  await createCocopiChatRequestHandler(context, vscode)(
+    fakeChatRequest("Find this", { model: { id: "subagent-lookup", name: "Cocopi Subagent lookup", vendor: "cocopi" } }),
+    fakeChatContext(), response, fakeCancellationToken());
+  assert.deepEqual(response.markdownValues, ["found"]);
+  const body = JSON.parse(String(sent?.body));
+  assert.equal(body.model, "gpt-matrix");
+  assert.equal(body.reasoning.effort, "low");
+  assert.notEqual(body.service_tier, "priority");
+  assert.doesNotMatch(body.instructions ?? "", /Proactive multi-agent delegation is active/u);
+});
+
 test("Cocopi chat handler streams Codex text deltas", async (testContext) => {
   /** @type {Array<{ url: string, options: RequestInit & { headers: Record<string, string>, body?: string | null } }>} */
   const calls = [];
@@ -1420,10 +1455,11 @@ function fakeContext(secrets = new Map()) {
 }
 
 /**
- * @param {Map<string, string | number>} [configuration]
+ * @param {Map<string, string | number | import('../lib/vscode/subagent-matrix.js').SubagentMatrix>} [configuration]
  * @param {{ chatThinkingPart?: boolean, chatThinkingPartDenied?: boolean }} [options]
  */
 function fakeVscode(configuration = new Map(), options = {}) {
+  if (!configuration.has("subagents")) configuration.set("subagents", { enabled: false, defaultChoice: "", choices: [] });
   const vscode = {
     chatParticipantId: "",
     outputChannelName: "",
@@ -1507,10 +1543,10 @@ function fakeVscode(configuration = new Map(), options = {}) {
 }
 
 /**
- * @param {Record<string, string | number>} record
+ * @param {Record<string, string | number | import('../lib/vscode/subagent-matrix.js').SubagentMatrix>} record
  */
 function configurationValues(record) {
-  /** @type {Map<string, string | number>} */
+  /** @type {Map<string, string | number | import('../lib/vscode/subagent-matrix.js').SubagentMatrix>} */
   const values = new Map();
   for (const [key, value] of Object.entries(record)) {
     values.set(key, value);

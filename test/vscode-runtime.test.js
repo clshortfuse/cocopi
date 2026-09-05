@@ -43,6 +43,7 @@ test("readCocopiRuntime combines configuration with SecretStorage auth", async (
       chatRegexFlags: "g",
       chatInstructionsRegexReplacements: DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS,
       chatToolDescriptionRegexReplacements: DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
+      subagents: { enabled: true, defaultChoice: "", choices: [], preset: "gpt6-ultra" },
       routes: {
         utility: { model: "auto", reasoningEffort: "low", serviceTier: "auto" },
         utilitySmall: { model: "auto", reasoningEffort: "lowest", serviceTier: "auto" },
@@ -92,6 +93,7 @@ test("readCocopiRuntime returns signed-out runtime state", async () => {
       chatRegexFlags: "g",
       chatInstructionsRegexReplacements: DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS,
       chatToolDescriptionRegexReplacements: DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
+      subagents: { enabled: true, defaultChoice: "", choices: [], preset: "gpt6-ultra" },
       routes: {
         utility: { model: "auto", reasoningEffort: "low", serviceTier: "auto" },
         utilitySmall: { model: "auto", reasoningEffort: "lowest", serviceTier: "auto" },

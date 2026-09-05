@@ -2,6 +2,14 @@
 
 # Cocopi
 
+## Subagent model matrix (experimental)
+
+Use **Cocopi: Show Status → Chat and background tasks → Subagents**. Select a parent model/effort on the left, then add or remove its allowed subagents on the right. Up to 256 model/effort pairs are supported.
+
+When enabled, Cocopi adds Codex-style model-choice guidance to compatible `runSubagent` tools and uses the matrix default for blank model arguments. Choices appear as **Cocopi Subagent …** models and enforce their configured reasoning effort instead of inheriting the parent's high/Ultra setting. Explicit model selections remain allowed. Unavailable routes fail rather than silently switching models or providers.
+
+The operating default allows **GPT-6 Ultra** to spawn all available **GPT-5.6 and GPT-6** model/effort pairs, excluding **Ultra and Fast** targets. Other parents receive no `runSubagent` tool. Ordinary xhigh/max parents are distinct from symbolic Ultra. Saved custom routes remain authoritative; use **Restore operating defaults** to return to the catalog-driven preset. Disabling routing restores ordinary host behavior. Settings live in the user-level `cocopi.subagents` object and control model and reasoning effort, **not total token usage**, agent workflow complexity, or recursion. Live VS Code subagent alias resolution has not yet been verified. See [the design and compatibility gates](docs/subagent-model-matrix.md).
+
 Bring Codex-backed ChatGPT models into VS Code Chat.
 
 Cocopi is an unofficial VS Code extension for using ChatGPT/Codex-backed models from the editor. It adds Cocopi models to the VS Code Chat model picker, provides an `@cocopi` chat participant, and includes local status, token, cache, and diagnostics views to help you understand what happened during a request.

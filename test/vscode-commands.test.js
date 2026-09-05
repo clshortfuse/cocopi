@@ -1,6 +1,7 @@
 // @ts-nocheck
 import test from "node:test";
 import assert from "node:assert/strict";
+import { runInNewContext } from "node:vm";
 
 import { COCOPI_COMMANDS, registerCocopiCommands, selectInlineCompletionModel, selectModel, showAuthStatus, showInlineCompletionOptions, signIn, signOut, toggleInlineCompletions } from "../lib/vscode/commands.js";
 import { clearCocopiInstructionReplacementSnapshots, recordCocopiInstructionReplacementSnapshot } from "../lib/vscode/instruction-replacements.js";
@@ -331,7 +332,8 @@ test("Cocopi status action opens the dashboard webview", async (testContext) => 
   assert.match(vscode.panels[0].webview.html, /Chat fallback model/u);
   assert.match(vscode.panels[0].webview.html, /Inline autocomplete/u);
   assert.doesNotMatch(vscode.panels[0].webview.html, /\$\(check\)|\$\(server\)|\$\(sparkle\)|\$\(pulse\)|\$\(bug\)/u);
-  assert.doesNotMatch(vscode.panels[0].webview.html, /<table/u);
+  assert.match(vscode.panels[0].webview.html, /data-subagent-matrix/u);
+  assert.match(vscode.panels[0].webview.html, /data-matrix-parents/u);
   assert.match(vscode.panels[0].webview.html, /data-command="refresh">Refresh/u);
   assert.match(vscode.panels[0].webview.html, /<select name="model">/u);
   assert.match(vscode.panels[0].webview.html, /<option value="gpt-current" selected>gpt-current/u);
@@ -662,6 +664,48 @@ test("Cocopi dashboard previews and applies instruction replacements", async (te
   vscode.panels[0].dispose();
   recordCocopiInstructionReplacementSnapshot("instructions", "After close.", "After close.");
   assert.equal(vscode.panels[0].postedMessages.length, 1);
+});
+
+test("Cocopi status matrix persists choices atomically and escapes unavailable entries", async () => {
+  const vscode = fakeVscode({ statusBar: true });
+  registerCocopiCommands(fakeContext(), vscode);
+  await vscode.commands.callbacks.get(COCOPI_COMMANDS.status)?.();
+  const matrix = {
+    enabled: true, defaultChoice: "lookup",
+    choices: [{ id: "lookup", model: "gpt-missing", reasoningEffort: "low", label: '<img src="x">', description: '<script>alert(1)</script>' }]
+  };
+  await vscode.panels[0].receiveMessage({ type: "updateSettings", settings: { subagents: matrix } });
+  assert.deepEqual(vscode.configurationUpdates, [{ key: "subagents", value: matrix, target: true }]);
+  const html = vscode.panels[0].webview.html;
+  assert.match(html, /gpt-missing/u);
+  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/u);
+  assert.doesNotMatch(html, /<script>alert\(1\)/u);
+  assert.match(html, /<summary>Subagents<\/summary>/u);
+  assert.match(html, /data-matrix-targets/u);
+  assert.match(html, /data-matrix-catalog/u);
+  assert.match(html, /class="subagent-checklist" role="group" aria-label="Parent models"/u);
+  assert.match(html, /class="subagent-checklist" role="group" aria-label="Allowed subagents"/u);
+  const makeRow = (choice) => {
+    const input = {};
+    return { dataset: { choice }, style: {}, querySelector: (selector) => selector === 'input' ? input : { setAttribute() {} } };
+  };
+  const parents = { children: [makeRow('a'), makeRow('b')], scrollTop: 50 };
+  const targets = { children: [makeRow('a'), makeRow('b')], scrollTop: 60 };
+  const renderSource = html.slice(html.indexOf('const renderMatrix = () => {'), html.indexOf('const createMatrix = () => {'));
+  const renderContext = { parents, targets, selected: 'b', state: { routes: [{ parent: 'b', targets: ['b'] }] } };
+  runInNewContext(renderSource + 'renderMatrix();', renderContext);
+  assert.deepEqual(parents.children.map(row => row.style.order), ['0', '-1']);
+  assert.deepEqual(targets.children.map(row => row.style.order), ['0', '-1']);
+  renderContext.selected = 'a';
+  runInNewContext('renderMatrix();', renderContext);
+  assert.deepEqual(targets.children.map(row => row.style.order), ['0', '0']);
+  assert.equal(parents.scrollTop, 50);
+  assert.equal(targets.scrollTop, 60);
+  const matrixHtml = html.slice(html.indexOf('<details class="nested-disclosure" data-subagent-matrix>'), html.indexOf('data-matrix-feedback'));
+  assert.doesNotMatch(matrixHtml, /> Enable|data-choice-label|name="subagent-default"|data-matrix-enabled|data-matrix-add|data-matrix-remove/u);
+  const cross = { ...matrix, routes: [{ parent: "lookup", targets: ["lookup"] }] };
+  await vscode.panels[0].receiveMessage({ type: "updateSettings", settings: { subagents: cross } });
+  assert.deepEqual(vscode.configurationUpdates.at(-1), { key: "subagents", value: cross, target: true });
 });
 
 test("Cocopi status webview applies embedded settings immediately", async () => {

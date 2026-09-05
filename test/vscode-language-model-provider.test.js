@@ -2858,6 +2858,109 @@ test("provideLanguageModelChatResponse resolves authoritative workload profiles 
   assert.equal(summary?.serviceTierSource, "route");
 });
 
+test("matrix alias publishes a host-selectable model and overrides parent Ultra", async (testContext) => {
+  /** @type {RequestInit | undefined} */
+  let requestOptions;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    if (!options.body) {
+      return Response.json({ models: [{ slug: "gpt-matrix-target", display_name: "Matrix Target", supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }] }] });
+    }
+    requestOptions = options;
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "ok" }),
+      sseData({ type: "response.completed", response: { id: "resp-matrix" } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(configurationValues({
+    subagents: { enabled: true, defaultChoice: "lookup", choices: [{ id: "lookup", model: "gpt-matrix-target", reasoningEffort: "low", label: "Lookup", description: "Narrow searches" }] }
+  })));
+  const information = await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
+  const alias = information?.find((model) => model.id === "subagent-lookup");
+  assert.ok(alias);
+  assert.equal(alias.name, "Cocopi Subagent lookup");
+  assert.equal(alias.isBYOK, true);
+  assert.equal(alias.isUserSelectable, true);
+  assert.equal(alias.configurationSchema?.properties?.reasoningEffort, undefined);
+  await provider.provideLanguageModelChatResponse(alias,
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "Find a definition")],
+    fakeResponseOptions({ toolMode: 1, modelOptions: { reasoningEffort: "ultra", serviceTier: "priority" }, tools: [{ name: "runSubagent", description: "Delegate", inputSchema: { type: "object", properties: { model: { type: "string" } } } }] }),
+    fakeProgress(), fakeCancellationToken());
+  const body = JSON.parse(String(requestOptions?.body));
+  assert.equal(body.model, "gpt-matrix-target");
+  assert.equal(body.reasoning.effort, "low");
+  assert.notEqual(body.service_tier, "priority");
+  assert.doesNotMatch(body.instructions ?? "", /Proactive multi-agent delegation is active/u);
+  assert.match(body.tools.find((/** @type {{ name: string }} */ tool) => tool.name === "runSubagent").description, /Narrow searches/u);
+});
+
+test("operating preset distinguishes Ultra parent from xhigh and keeps child requests non-Fast", async (testContext) => {
+  /** @type {RequestInit | undefined} */
+  let requestOptions;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    if (!options.body) return Response.json({ models: ["gpt-6-astra", "gpt-5.6"].map((slug) => ({ slug, display_name: slug, multi_agent_reasoning_effort: "xhigh", supported_reasoning_levels: [{ effort: "low" }, { effort: "xhigh" }] })) });
+    requestOptions = options;
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "ok" }),
+      sseData({ type: "response.completed", response: { id: "resp-operating-default" } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(configurationValues({ subagents: { enabled: true, defaultChoice: "", choices: [], preset: "gpt6-ultra" } })));
+  const information = await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
+  const child = information?.find((model) => model.id === "subagent-gpt-5-6-low");
+  assert.ok(child);
+  assert.equal(information?.some((model) => model.id === "subagent-gpt-6-astra-ultra"), false);
+  for (const effort of ["ultra", "xhigh"]) {
+    await provider.provideLanguageModelChatResponse(fakeModel("gpt-6-astra"),
+      [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "Work")],
+      fakeResponseOptions({ toolMode: 1, modelOptions: { reasoningEffort: effort }, tools: [{ name: "runSubagent", description: "Delegate", inputSchema: { type: "object", properties: { model: { type: "string" } } } }] }),
+      fakeProgress(), fakeCancellationToken());
+    const body = JSON.parse(String(requestOptions?.body));
+    assert.equal(body.reasoning.effort, "xhigh");
+    assert.equal((body.tools ?? []).some((/** @type {{ name: string }} */ tool) => tool.name === "runSubagent"), effort === "ultra");
+  }
+  await provider.provideLanguageModelChatResponse(child,
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "Lookup")],
+    fakeResponseOptions({ toolMode: 1, modelOptions: { reasoningEffort: "ultra", serviceTier: "priority" } }),
+    fakeProgress(), fakeCancellationToken());
+  const body = JSON.parse(String(requestOptions?.body));
+  assert.equal(body.model, "gpt-5.6");
+  assert.equal(body.reasoning.effort, "low");
+  assert.notEqual(body.service_tier, "priority");
+});
+
+test("parent without allowed subagents omits spawn tool from backend request", async (testContext) => {
+  /** @type {RequestInit | undefined} */
+  let requestOptions;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    requestOptions = options;
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "ok" }),
+      sseData({ type: "response.completed", response: { id: "resp-no-spawn" } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(configurationValues({ subagents: { enabled: true, defaultChoice: "", choices: [], routes: [] } })));
+  await provider.provideLanguageModelChatResponse(fakeModel("gpt-test"),
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "Work locally")],
+    fakeResponseOptions({ toolMode: 1, tools: [{ name: "runSubagent", description: "Delegate", inputSchema: { type: "object", properties: { model: { type: "string" } } } }] }),
+    fakeProgress(), fakeCancellationToken());
+  const body = JSON.parse(String(requestOptions?.body));
+  assert.equal((body.tools ?? []).some((/** @type {{ name: string }} */ tool) => tool.name === "runSubagent"), false);
+  assert.notEqual(body.tool_choice, "required");
+  assert.doesNotMatch(body.instructions ?? "", /Proactive multi-agent delegation is active/u);
+});
+
 test("provideLanguageModelChatResponse sends direct reasoning model options", async (testContext) => {
   /** @type {RequestInit | undefined} */
   let requestOptions;
@@ -5152,10 +5255,11 @@ function fakeContext(secrets = new Map(), options = {}) {
 }
 
 /**
- * @param {Map<string, string | number | boolean>} [configuration]
+ * @param {Map<string, string | number | boolean | import('../lib/vscode/subagent-matrix.js').SubagentMatrix>} [configuration]
  * @param {{ warningSelection?: string, thinkingPart?: boolean, thinkingPartDenied?: boolean, configurationChanges?: boolean }} [options]
  */
 function fakeVscode(configuration = new Map(), options = {}) {
+  if (!configuration.has("subagents")) configuration.set("subagents", { enabled: false, defaultChoice: "", choices: [] });
   /** @type {Set<(event: { affectsConfiguration(section: string): boolean }) => void>} */
   const configurationListeners = new Set();
   const vscode = {
@@ -5261,10 +5365,10 @@ function fakeVscode(configuration = new Map(), options = {}) {
 }
 
 /**
- * @param {Record<string, string | number | boolean>} record
+ * @param {Record<string, string | number | boolean | import('../lib/vscode/subagent-matrix.js').SubagentMatrix>} record
  */
 function configurationValues(record) {
-  /** @type {Map<string, string | number | boolean>} */
+  /** @type {Map<string, string | number | boolean | import('../lib/vscode/subagent-matrix.js').SubagentMatrix>} */
   const values = new Map();
   for (const [key, value] of Object.entries(record)) {
     values.set(key, value);

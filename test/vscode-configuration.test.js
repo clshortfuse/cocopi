@@ -29,6 +29,7 @@ test("readCocopiConfiguration reads defaults", () => {
     chatRegexFlags: "g",
     chatInstructionsRegexReplacements: DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS,
     chatToolDescriptionRegexReplacements: DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
+    subagents: { enabled: true, defaultChoice: "", choices: [], preset: "gpt6-ultra" },
     routes: {
       utility: { model: "auto", reasoningEffort: "low", serviceTier: "auto" },
       utilitySmall: { model: "auto", reasoningEffort: "lowest", serviceTier: "auto" },
@@ -125,6 +126,7 @@ test("readCocopiConfiguration normalizes configured values", () => {
       ...DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
       "Do not restate": "Emit visible summary first"
     },
+    subagents: { enabled: true, defaultChoice: "", choices: [], preset: "gpt6-ultra" },
     routes: {
       utility: { model: "gpt-utility", reasoningEffort: "medium", serviceTier: "flex" },
       utilitySmall: { model: "gpt-small", reasoningEffort: "none", serviceTier: "priority" },
@@ -199,6 +201,7 @@ test("readCocopiConfiguration falls back from blank and disabled values", () => 
     chatRegexFlags: "g",
     chatInstructionsRegexReplacements: DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS,
     chatToolDescriptionRegexReplacements: DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
+    subagents: { enabled: true, defaultChoice: "", choices: [], preset: "gpt6-ultra" },
     routes: {
       utility: { model: "", reasoningEffort: "low", serviceTier: "auto" },
       utilitySmall: { model: "cocopi/utility", reasoningEffort: "default", serviceTier: "auto" },

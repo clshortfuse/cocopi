@@ -161,7 +161,7 @@ Cocopi mutates or repairs some tool-related data before sending it to Codex:
 - Strips unsupported VS Code tool schema metadata.
 - Removes optional `null` tool arguments when strict schema output would reject them.
 - Prunes unpaired replayed function calls or outputs.
-- Fills blank `runSubagent` model input with the active Cocopi model.
+- `cocopi.subagents` defaults to catalog-driven GPT-6 Ultra parents with all available GPT-5.6/GPT-6 efforts except Ultra and Fast as targets. Parents without allowed targets receive no `runSubagent`. Symbolic Ultra is matched before wire effort translation. Blank model input uses an allowed default alias; explicit model arguments remain unchanged. Disabling routing restores parent inheritance. Aliases enforce catalog-validated effort and ordinary service tier without inheriting root Ultra. See [subagent routing](subagent-model-matrix.md) for custom lists and pending live host validation.
 - Ignores malformed duplicate function-call output items after a valid arguments-done event already reported the same tool call.
 
 Why it exists: VS Code tool schemas/results and Codex Responses tool-call wire shape are similar but not identical. VS Code can also replay partial tool state.
@@ -198,7 +198,7 @@ Cocopi applies the equivalent bridge when VS Code supplies its `runSubagent` too
 - Send the valid catalog `multi_agent_reasoning_effort` or Max-compatible fallback, never `"ultra"`.
 - Parse and cache the catalog's closed `multi_agent_version` (`disabled`, `v1`, or `v2`), `tool_mode`, and `multi_agent_reasoning_effort` fields. Explicit `v2` permits this bridge; explicit `v1` or `disabled` suppresses V2 guidance. Missing or unknown selector metadata remains unknown and uses the compatibility fallback instead of being treated as disabled.
 - Append a narrow `<multi_agent_mode>` instruction that explains the real one-shot VS Code tool, permits proactive delegation, and asks for multiple independent calls in one response when parallel tool calls are supported.
-- For the custom `@cocopi` participant, include the registered `runSubagent` tool automatically as an optional capability at every reasoning effort. Ordinary Max may use it opportunistically, but receives neither the proactive `<multi_agent_mode>` policy nor Ultra's parallel-call behavior. The auto-added tool remains optional with `tool_choice: "auto"`; explicit user tool references may still require a tool call. Language-model-provider requests use only the tools supplied by VS Code for that request.
+- For the custom `@cocopi` participant, discover the registered `runSubagent` as an optional capability, then apply the parent routing policy before exposing tools or generating Ultra instructions. Language-model-provider requests similarly filter the host-supplied tools. Disabling routing leaves the optional tool available at other efforts without proactive Ultra policy. Explicit tool references only require a call when an allowed tool remains.
 - Set `parallel_tool_calls` whenever model-visible tools are present. Upstream `0.153` removed `supports_parallel_tool_calls` from request gating and enables parallel calls for all model prompts. The custom participant invokes multiple returned calls concurrently and replays their call/result pairs in stable model order.
 - Keep the resolved wire effort without V2 instructions when `runSubagent` is unavailable or the catalog explicitly selects `v1` or `disabled`.
 
