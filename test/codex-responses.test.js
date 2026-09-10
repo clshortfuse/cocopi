@@ -383,6 +383,29 @@ test("fetchCodexResponseStream reports idle streams", async (context) => {
   );
 });
 
+test("fetchCodexResponseStream clears its idle watchdog when consumption is cancelled", async (context) => {
+  const timers = context.mock.method(globalThis, "setTimeout");
+  const cleared = context.mock.method(globalThis, "clearTimeout");
+  context.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.output_text.delta", delta: "hello" })
+  ], { close: false })));
+  const events = await fetchCodexResponseStream({
+    apiBaseUrl: "https://chatgpt.example.test/backend-api/codex",
+    accessToken: "access-token",
+    body: buildTextResponseBody({ model: "gpt-5-codex", input: "fixture" }),
+    idleTimeoutMs: 1000
+  });
+  const reader = events.getReader();
+  await reader.read();
+  await reader.cancel();
+  await new Promise((resolve) => setImmediate(resolve));
+  const watchdogs = timers.mock.calls.filter((call) => call.arguments[1] === 1000);
+  assert.ok(watchdogs.length > 0);
+  for (const watchdog of watchdogs) {
+    assert.ok(cleared.mock.calls.some((call) => call.arguments[0] === watchdog.result), "cancel must clear every armed idle watchdog");
+  }
+});
+
 test("fetchCodexResponseStream treats SSE comments as heartbeat activity", async (context) => {
   context.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => new Response(heartbeatThenDataStream(), {
     status: 200,

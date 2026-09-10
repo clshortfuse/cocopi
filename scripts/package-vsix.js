@@ -13,7 +13,6 @@ const vsceArgs = [
   "--yes",
   "@vscode/vsce",
   "package",
-  "--no-dependencies",
   "--skip-license",
   "--out",
   outputPath

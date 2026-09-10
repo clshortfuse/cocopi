@@ -462,6 +462,11 @@
           ],
           "type": "string"
         },
+        "cocopi.workerTransport": {
+          "default": true,
+          "description": "Receive Codex WebSocket/SSE responses in a worker while the extension host is busy. Protects stream reception, not UI rendering. Uses bounded private temporary response storage. Requires direct network access; VS Code proxy and certificate patches are not inherited. Worker failures are reported without silently switching transport or replaying a generation.",
+          "type": "boolean"
+        },
         "cocopi.useModelDefaultCompactionLimit": {
           "default": true,
           "description": "Use the model-provided auto_compact_token_limit as VS Code's compaction threshold when available.",
@@ -478,9 +483,13 @@
     ]
   },
   "description": "VS Code extension that bridges VS Code Chat with Codex backend servers.",
+  "bundledDependencies": [
+    "ws"
+  ],
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.19.17",
+    "@types/ws": "^8.18.1",
     "@vscode/dts": "^0.4.1",
     "eslint": "^10.2.1",
     "eslint-plugin-jsdoc": "^62.9.0",
@@ -522,6 +531,7 @@
     "extension.js",
     "lib",
     "media",
+    "node_modules/ws",
     "types"
   ],
   "galleryBanner": {
@@ -572,5 +582,8 @@
       ]
     }
   },
-  "version": "0.0.1"
+  "version": "0.0.1",
+  "dependencies": {
+    "ws": "^8.21.3"
+  }
 }

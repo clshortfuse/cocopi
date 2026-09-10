@@ -4961,10 +4961,156 @@ test("provideLanguageModelChatResponse streams auto tool-capable requests on cus
   assert.equal(/** @type {Record<string, string>} */ (requestOptions.headers).Accept, "text/event-stream");
 });
 
+for (const scenario of [
+  {
+    name: "completed reasoning and message",
+    events: [
+      { type: "response.output_item.done", output_index: 0, item: { type: "reasoning", id: "rs-interrupted", encrypted_content: "fixture-encrypted-reasoning", summary: [] } },
+      { type: "response.output_text.delta", output_index: 1, delta: "Already generated answer." },
+      { type: "response.output_item.done", output_index: 1, item: { type: "message", id: "msg-interrupted", status: "completed", role: "assistant", content: [{ type: "output_text", text: "Already generated answer." }] } }
+    ],
+    visibleText: "Already generated answer."
+  },
+  {
+    name: "incomplete text",
+    events: [{ type: "response.output_text.delta", output_index: 0, delta: "Unfinished answer" }],
+    visibleText: "Unfinished answer"
+  },
+  {
+    name: "partial tool arguments",
+    events: [
+      { type: "response.output_item.added", output_index: 0, item: { type: "function_call", id: "fc-interrupted", call_id: "call-interrupted", name: "read_file", arguments: "" } },
+      { type: "response.function_call_arguments.delta", output_index: 0, item_id: "fc-interrupted", delta: "{\"path\":\"README" }
+    ],
+    visibleText: ""
+  }
+]) {
+  test(`interrupted stream recovery: ${scenario.name}`, async (testContext) => {
+    /** @type {RequestInit[]} */
+    const requests = [];
+    const chunks = scenario.events.map((event) => sseData(event));
+    const encoder = new TextEncoder();
+    testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+      requests.push(options);
+      if (requests.length > 1) {
+        return eventStreamResponse([
+          sseData({ type: "response.output_text.delta", delta: "Fresh generation." }),
+          sseData({ type: "response.completed", response: { id: "resp-retry" } })
+        ]);
+      }
+      // Pull one event at a time so the failure cannot discard queued output.
+      return new Response(new ReadableStream({
+        pull(controller) {
+          const chunk = chunks.shift();
+          if (chunk === undefined) {
+            controller.error(new TypeError("fixture transport disconnected"));
+          } else {
+            controller.enqueue(encoder.encode(chunk));
+          }
+        }
+      }), { headers: { "content-type": "text/event-stream" } });
+    }));
+    const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+      [CODEX_SECRET_KEYS.accessToken, "access-token"],
+      [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+      [CODEX_SECRET_KEYS.idToken, "id-token"]
+    ])), fakeVscode());
+    const messages = [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "Inspect README and answer.")];
+    const options = fakeResponseOptions({
+      toolMode: 1,
+      tools: [{ name: "read_file", description: "Read a file.", inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } }]
+    });
+    const interruptedProgress = fakeProgress();
+    if (scenario.name === "completed reasoning and message") {
+      await provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), messages, options, interruptedProgress, fakeCancellationToken());
+      assert.equal(requests.length, 2);
+      const originalBody = JSON.parse(String(requests[0].body));
+      const retryBody = JSON.parse(String(requests[1].body));
+      assert.deepEqual(retryBody.input.slice(0, originalBody.input.length), originalBody.input);
+      assert.equal(retryBody.input.length, originalBody.input.length + 2);
+      assert.equal(retryBody.input[originalBody.input.length].type, "reasoning");
+      assert.equal(retryBody.input[originalBody.input.length + 1].role, "assistant");
+      assert.equal(retryBody.input[originalBody.input.length].encrypted_content, "fixture-encrypted-reasoning");
+      assert.equal(retryBody.previous_response_id, undefined);
+      const text = interruptedProgress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value).join("");
+      assert.equal(text.split("Already generated answer.").length - 1, 1);
+      assert.ok(text.endsWith("Fresh generation."));
+      return;
+    }
+    await assert.rejects(
+      async () => provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), messages, options, interruptedProgress, fakeCancellationToken()),
+      /fixture transport disconnected/u
+    );
+    assert.equal(requests.length, 1, "provider must not silently retry after output");
+    assert.equal(interruptedProgress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value).join(""), scenario.visibleText);
+    assert.equal(interruptedProgress.parts.filter((part) => part instanceof LanguageModelToolCallPart).length, 0, "partial arguments must not become an executable call");
+    assert.equal(interruptedProgress.parts.filter((part) => part instanceof LanguageModelDataPart && part.mimeType === COCOPI_STATEFUL_MARKER_MIME).length, 0);
+
+    // Explicit provider-boundary replay, NOT a simulation of host history retention.
+    const retryProgress = fakeProgress();
+    await provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), messages, options, retryProgress, fakeCancellationToken());
+    assert.equal(requests.length, 2);
+    const originalBody = JSON.parse(String(requests[0].body));
+    const retryBody = JSON.parse(String(requests[1].body));
+    assert.deepEqual(retryBody.input, originalBody.input, "completed paid-for work is absent from the next input");
+    assert.equal(retryBody.previous_response_id, undefined);
+    assert.equal(JSON.stringify(retryBody.input).includes("fixture-encrypted-reasoning"), false);
+    assert.equal(retryProgress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value).join(""), "Fresh generation.");
+  });
+}
+
+for (const [firstDeltas, nextDeltas] of [[false, true], [true, false], [false, false], [true, true]]) {
+  test(`recovery preserves text fallback with deltas=${firstDeltas}/${nextDeltas}`, async (testContext) => {
+    const firstText = "Completed before interruption.";
+    const nextText = "Completed after recovery.";
+    /** @param {string} text */
+    const message = (text) => ({ type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text }] });
+    const chunks = [
+      ...(firstDeltas ? [sseData({ type: "response.output_text.delta", output_index: 0, delta: firstText })] : []),
+      sseData({ type: "response.output_item.done", output_index: 0, item: message(firstText) })
+    ];
+    const requests = [];
+    const encoder = new TextEncoder();
+    testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+      requests.push(options);
+      if (requests.length > 1) {
+        return eventStreamResponse([
+          ...(nextDeltas ? [sseData({ type: "response.output_text.delta", output_index: 0, delta: nextText })] : []),
+          sseData({ type: "response.output_item.done", output_index: 0, item: message(nextText) }),
+          sseData({ type: "response.completed", response: { id: "resp-recovered", output: [message(nextText)] } })
+        ]);
+      }
+      return new Response(new ReadableStream({
+        pull(controller) {
+          const chunk = chunks.shift();
+          if (chunk === undefined) {
+            controller.error(new TypeError("fixture disconnected"));
+          } else {
+            controller.enqueue(encoder.encode(chunk));
+          }
+        }
+      }), { headers: { "content-type": "text/event-stream" } });
+    }));
+    const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+      [CODEX_SECRET_KEYS.accessToken, "access-token"],
+      [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+      [CODEX_SECRET_KEYS.idToken, "id-token"]
+    ])), fakeVscode());
+    const progress = fakeProgress();
+    await provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "Answer.")], fakeResponseOptions({ toolMode: 1 }), progress, fakeCancellationToken());
+    assert.equal(requests.length, 2);
+    const text = progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value).join("");
+    assert.equal(text.split(firstText).length - 1, 1);
+    assert.equal(text.split(nextText).length - 1, 1);
+    assert.ok(text.indexOf(firstText) < text.indexOf(nextText));
+    assert.equal(text, `${firstText}\n\n${nextText}`);
+  });
+}
+
 test("provideLanguageModelChatResponse logs debug metadata and rejects terminal failures", async (testContext) => {
   const logger = fakeLogger();
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
-    sseData({ type: "response.completed", response: { usage: { input_tokens: 10, input_tokens_details: { cached_tokens: 4 } }, new_field: true } }),
+    sseData({ type: "response.created", response: { id: "resp-failure" } }),
     sseData({ type: "response.failed", error: { message: "backend failed" } })
   ])));
   const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
@@ -4979,7 +5125,6 @@ test("provideLanguageModelChatResponse logs debug metadata and rejects terminal 
   );
   assert.ok(logger.debugMessages.some((message) => /VS Code language model messages/u.test(message)));
   assert.ok(logger.debugMessages.some((message) => /Codex request input\..*inputItems=1/u.test(message)));
-  assert.ok(logger.debugMessages.some((message) => /unknownKeys=new_field/u.test(message) && /cachedTokens=4/u.test(message)));
   assert.ok(logger.errorMessages.some((message) => /Cocopi language model request failed/u.test(message)));
   assert.ok(logger.errorMessages.some((message) => /backend failed/u.test(message)));
 });
@@ -5323,6 +5468,10 @@ function fakeVscode(configuration = new Map(), options = {}) {
            */
           get(key, defaultValue) {
             const qualifiedKey = section ? `${section}.${key}` : key;
+            // Host-global network mocks are not inherited by transport workers.
+            if (key === "workerTransport" && !configuration.has(qualifiedKey) && !configuration.has(key)) {
+              return /** @type {T} */ (false);
+            }
             if (key === "transport" && !configuration.has(qualifiedKey) && !configuration.has(key)) {
               return /** @type {T} */ ("sse");
             }

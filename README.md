@@ -133,6 +133,7 @@ Diagnostics are intended for troubleshooting extension behavior. They are stored
 | `cocopi.chatToolDescriptionRegexReplacements` | built-in regex map | Regex pattern-to-replacement entries always applied to VS Code tool descriptions. User entries add patterns or override defaults by using the same pattern key. Empty replacement text removes matches for a custom pattern; set a default pattern to empty text to disable that built-in replacement. |
 | `cocopi.editProgressIntervalMs` | `30000` | Elapsed-time edit progress cadence in milliseconds. Set `0` to disable timed edit progress. |
 | `cocopi.streamIdleTimeoutMs` | `120000` | Stream idle timeout in milliseconds. Set `0` to disable. |
+| `cocopi.workerTransport` | `true` | Worker-owned WebSocket/SSE reception and idle timers. Keeps receiving during extension-host stalls; does not make a frozen UI responsive. Requires direct network access; VS Code proxy/certificate patches are not inherited. Set to `false` to use in-host transport. |
 | `cocopi.useModelDefaultCompactionLimit` | `true` | Uses the model-provided auto-compaction limit when available. |
 | `cocopi.compactionFallbackStrategy` | `ninety-percent` | Fallback compaction threshold when no model-provided limit is available. |
 
@@ -145,11 +146,13 @@ Diagnostics are intended for troubleshooting extension behavior. They are stored
 - `cocopi.debugLevel: payloads` can log prompt and output payload text. Keep it off unless debugging locally.
 - Inline completions are opt-in because they send limited surrounding editor text to the selected Codex model as you type.
 - `.env` is only for local development and live smoke tests; it is not used as runtime extension storage.
+- When worker transport is enabled, response backlog can spill into encrypted, request-scoped temporary files. Keys stay in worker memory; files are removed after delivery/cancellation/disposal. No request credentials are written to this spool. See [worker transport limits and verification](docs/worker-transport-plan.md).
 
 ## Troubleshooting
 
 - If requests fail after a successful sign-in, run **Cocopi: Show Status** to check usage-limit and fallback-model state.
-- If chat hangs, adjust `cocopi.streamIdleTimeoutMs` or switch `cocopi.transport` between `websocket` and `sse`.
+- `cocopi.workerTransport` is enabled by default and preserves reception of the original generation while the host is blocked; increasing the timeout or switching between in-host WebSocket/SSE does not isolate reception. If direct worker networking is incompatible with your proxy/certificate setup, set it to `false` for subsequent requests. Installed-extension and proxy/certificate testing remain pending.
+- Genuine server silence still triggers `cocopi.streamIdleTimeoutMs`. Worker/storage failures remain explicit and never silently switch to in-host transport or replay the request. Oversized requests/events and exhausted storage budgets are rejected rather than buffered without limit.
 - If a selected model is not used by `@cocopi`, check `cocopi.chatParticipantModelSource`.
 - If inline completions do not appear, run **Cocopi: Toggle Inline Completions**, ensure VS Code's `editor.inlineSuggest.enabled` is enabled, then run **Cocopi: Set Inline Completion Model**. Set `cocopi.debugLevel` to `events` to confirm requests appear in the **Cocopi** output channel.
 - If you need detailed request diagnostics, temporarily set `cocopi.debugLevel` to `metadata` or `events`. Use `payloads` only for local debugging because it can include prompt and output text.

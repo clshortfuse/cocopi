@@ -8,6 +8,9 @@ import { DEFAULT_CODEX_API_BASE_URL, DEFAULT_CODEX_MODEL } from "../lib/codex-ap
 
 const PACKAGE_PATH = new URL("../package.json", import.meta.url);
 const REQUIRED_FILES = [
+  "lib/codex-api/transport-worker.js",
+  "lib/codex-api/worker-transport.js",
+  "node_modules/ws/lib/websocket.js",
   "README.md",
   "extension.js",
   "media/cocopi.woff",
@@ -34,6 +37,7 @@ const PACKAGE_FILES = [
   "extension.js",
   "lib",
   "media",
+  "node_modules/ws",
   "types"
 ];
 const PACKAGE_KEYWORDS = [
@@ -81,6 +85,7 @@ function checkManifest(manifest) {
   assertConfigurationProperty(properties, "cocopi.reasoningSummary", "string", COCOPI_REASONING_SUMMARIES.auto);
   assertConfigurationProperty(properties, "cocopi.chatParticipantModelSource", "string", COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES.selected);
   assertConfigurationProperty(properties, "cocopi.transport", "string", COCOPI_TRANSPORTS.websocket);
+  assertConfigurationProperty(properties, "cocopi.workerTransport", "boolean", true);
   assertConfigurationProperty(properties, "cocopi.editProgressIntervalMs", "number", DEFAULT_EDIT_PROGRESS_INTERVAL_MS);
   assertConfigurationProperty(properties, "cocopi.streamIdleTimeoutMs", "number", DEFAULT_STREAM_IDLE_TIMEOUT_MS);
   assertConfigurationProperty(properties, "cocopi.inlineCompletions.enabled", "boolean", false);

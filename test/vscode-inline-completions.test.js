@@ -535,6 +535,10 @@ function fakeVscode(configuration = new Map()) {
            * @returns {T}
            */
           get(key, defaultValue) {
+            // Host-global network mocks are not inherited by transport workers.
+            if (key === "workerTransport" && !configuration.has(key)) {
+              return /** @type {T} */ (false);
+            }
             return /** @type {T} */ (configuration.get(key) ?? defaultValue);
           }
         };
