@@ -166,8 +166,8 @@
             "type": "string"
           },
           "default": {
-            "When you ARE done, first provide a brief text summary of what was accomplished, then call task_complete\\. Both the summary message and the tool call are required\\.": "When you are done, call task_complete with one concise completion summary in its summary field. That summary is shown to the user as the final response; do not emit a duplicate completion summary before calling the tool.",
-            "IMPORTANT: Before calling task_complete, you MUST provide a brief text summary of what was accomplished in your message\\. The task is not complete until both the summary and the task_complete call are present\\.": "IMPORTANT: When the task is done, call task_complete with a concise summary in its summary field. That summary is shown to the user as normal assistant text; do not emit the same completion summary separately before calling the tool."
+            "When you ARE done, first provide a brief text summary of what was accomplished, then call task_complete\\. Both the summary message and the tool call are required\\.": "When you are done, call task_complete with the complete user-facing answer in its summary field. That answer is shown to the user as the final response after the tool succeeds. Include the requested explanation, code, links, and caveats, or the work outcome and validation as appropriate. Keep useful progress updates during work, but do not emit the completed answer or a duplicate completion summary before calling the tool.",
+            "IMPORTANT: Before calling task_complete, you MUST provide a brief text summary of what was accomplished in your message\\. The task is not complete until both the summary and the task_complete call are present\\.": "IMPORTANT: When the task is done, put the complete user-facing answer in task_complete.summary, not a recap of having answered. It is shown as normal assistant text after the tool succeeds; do not emit the same completion summary separately before calling the tool."
           },
           "description": "Regex pattern-to-replacement entries applied to chat instruction text. User entries add new patterns or override default patterns by using the same key. An empty replacement removes matches for a custom pattern; set a default pattern to an empty string to disable that built-in replacement.",
           "type": "object"
@@ -177,7 +177,10 @@
             "type": "string"
           },
           "default": {
-            "Do not restate the summary in your message text — it is shown to the user directly\\.": "Put the concise user-visible completion summary in this tool's summary field. It is shown as normal assistant text, so do not emit the same summary separately before calling the tool."
+            "Do not restate the summary in your message text — it is shown to the user directly\\.": "Put the complete user-facing answer in this tool's summary field, not a recap of having answered. Include the requested explanation, code, links, and caveats, or the work outcome and validation as appropriate. It is shown as normal assistant text after the tool succeeds. Keep useful progress updates during work, but do not emit the completed answer separately before calling the tool.",
+            "Provide a brief summary of what was accomplished\\.": "Provide the complete user-facing answer in summary.",
+            "IMPORTANT: Before calling this tool, you MUST output a brief text message summarizing what was done\\. The task is not complete until both your summary message AND this tool call are present\\.": "IMPORTANT: Supply the complete user-facing answer in summary when calling this tool. Do not separately emit the completed answer before the call.",
+            "^Brief summary of what was accomplished\\. Omit for trivial interactions\\.$": "The complete user-facing answer, including requested details, code, links, and caveats, or the work outcome and validation. Not a recap of having answered."
           },
           "description": "Regex pattern-to-replacement entries applied to VS Code tool descriptions. User entries add new patterns or override default patterns by using the same key. An empty replacement removes matches for a custom pattern; set a default pattern to an empty string to disable that built-in replacement.",
           "type": "object"

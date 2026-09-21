@@ -4789,7 +4789,7 @@ test("provideLanguageModelChatResponse rewrites VS Code tool completion summarie
   );
 
   const body = JSON.parse(String(requestOptions?.body));
-  assert.equal(body.tools[0].description, "Put the concise user-visible completion summary in this tool's summary field. It is shown as normal assistant text, so do not emit the same summary separately before calling the tool.");
+  assert.match(body.tools[0].description, /Put the complete user-facing answer/u);
 });
 
 test("provideLanguageModelChatResponse renders task completion without a model follow-up", async (testContext) => {
@@ -4823,7 +4823,7 @@ test("provideLanguageModelChatResponse renders task completion without a model f
   assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["Completed successfully."]);
 });
 
-test("provideLanguageModelChatResponse acknowledges a completion summary already visible", async (testContext) => {
+test("provideLanguageModelChatResponse delivers an identical pre-tool answer on the terminal surface", async (testContext) => {
   const fetchMock = testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => {
     throw new Error("terminal task completion must not reach Codex");
   }));
@@ -4852,11 +4852,10 @@ test("provideLanguageModelChatResponse acknowledges a completion summary already
   );
 
   assert.equal(fetchMock.mock.callCount(), 0);
-  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["Task completed."]);
-  assert.ok(!progress.parts.some((part) => part instanceof LanguageModelTextPart && part.value === "Completed successfully."));
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["Completed successfully."]);
 });
 
-test("provideLanguageModelChatResponse acknowledges summaryless task completion after a visible answer", async (testContext) => {
+test("provideLanguageModelChatResponse rejects summaryless completion after work text without another request", async (testContext) => {
   const fetchMock = testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => {
     throw new Error("terminal task completion must not reach Codex");
   }));
@@ -4867,7 +4866,7 @@ test("provideLanguageModelChatResponse acknowledges summaryless task completion 
     [CODEX_SECRET_KEYS.idToken, "id-token"]
   ])), fakeVscode());
 
-  await provider.provideLanguageModelChatResponse(
+  await assert.rejects(Promise.resolve(provider.provideLanguageModelChatResponse(
     fakeModel("gpt-test"),
     [
       fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "finish"),
@@ -4882,10 +4881,10 @@ test("provideLanguageModelChatResponse acknowledges summaryless task completion 
     fakeResponseOptions({ toolMode: 1 }),
     progress,
     fakeCancellationToken()
-  );
+  )), /did not supply a complete final answer/u);
 
   assert.equal(fetchMock.mock.callCount(), 0);
-  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["Task completed."]);
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart), []);
   assert.ok(!progress.parts.some((part) => part instanceof LanguageModelTextPart && part.value === "The requested changes are implemented and validated."));
 });
 
@@ -4920,6 +4919,48 @@ test("provideLanguageModelChatResponse requests a follow-up when task completion
   assert.equal(fetchMock.mock.callCount(), 1);
   assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["Generated final response."]);
 });
+
+for (const scenario of ["success", "failed result", "cancelled", "empty", "malformed", "already terminal", "unmatched", "other tool"]) {
+  test(`terminal answer boundary: ${scenario}`, async (testContext) => {
+    const answer = "The queue defers destruction until the lock is released.\n\n```js\nqueue.push(resource);\n```\n\nSee [details](https://example.test/details). Do not destroy resources while holding the lock.";
+    const fetchMock = testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "Normal continuation." }),
+      sseData({ type: "response.completed", response: { id: "resp-normal" } })
+    ])));
+    const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+      [CODEX_SECRET_KEYS.accessToken, "access-token"],
+      [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+      [CODEX_SECRET_KEYS.idToken, "id-token"]
+    ])), fakeVscode());
+    const messages = [
+      fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "Explain the queue"),
+      fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
+        new LanguageModelTextPart("Inspecting queue ownership."),
+        new LanguageModelToolCallPart("call-complete", scenario === "other tool" ? "read_file" : "task_complete", { summary: scenario === "empty" ? "" : (scenario === "malformed" ? 42 : answer) })
+      ]),
+      fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
+        new LanguageModelToolResultPart(scenario === "unmatched" ? "different-call" : "call-complete", [new LanguageModelTextPart(scenario === "failed result" ? "Tool execution failed." : answer)])
+      ])
+    ];
+    if (scenario === "already terminal") {
+      messages.push(fakeLanguageModelMessage(LanguageModelChatMessageRole.Assistant, answer), fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "Continue with a different question."));
+    }
+    const progress = fakeProgress();
+    const token = fakeCancellationToken();
+    token.isCancellationRequested = scenario === "cancelled";
+    const result = Promise.resolve(provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), messages, fakeResponseOptions({ toolMode: 1 }), progress, token));
+    if (["failed result", "cancelled", "empty", "malformed"].includes(scenario)) {
+      await (scenario === "cancelled" ? result : assert.rejects(result, /did not confirm|did not supply/u));
+      assert.equal(fetchMock.mock.callCount(), 0);
+      assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart), []);
+    } else {
+      await result;
+      const shortcut = scenario === "success";
+      assert.equal(fetchMock.mock.callCount(), shortcut ? 0 : 1);
+      assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), [shortcut ? answer : "Normal continuation."]);
+    }
+  });
+}
 
 test("provideLanguageModelChatResponse streams auto tool-capable requests on custom endpoints", async (testContext) => {
   /** @type {RequestInit | undefined} */

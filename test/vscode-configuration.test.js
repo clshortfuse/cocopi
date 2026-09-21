@@ -544,6 +544,28 @@ test("empty custom instruction replacements remove matches while empty built-ins
   assert.equal(snapshot?.rewritten, builtInSource);
 });
 
+test("complete host completion guidance agrees with the answer carrier", () => {
+  const tools = [{
+    name: "task_complete",
+    description: "Provide a brief summary of what was accomplished. Do not restate the summary in your message text — it is shown to the user directly.\n\nIMPORTANT: Before calling this tool, you MUST output a brief text message summarizing what was done. The task is not complete until both your summary message AND this tool call are present.\n\nWhen NOT to call: If a terminal command failed.",
+    inputSchema: { type: "object", properties: { summary: { type: "string", description: "Brief summary of what was accomplished. Omit for trivial interactions." } } }
+  }];
+  const original = structuredClone(tools);
+  const configuration = readCocopiConfiguration(fakeVscodeConfiguration());
+  const [rewritten] = resolveVscodeLanguageModelTools(tools, configuration);
+  assert.match(rewritten.description, /complete user-facing answer/u);
+  assert.doesNotMatch(rewritten.description, /Provide a brief summary|MUST output a brief text message/u);
+  assert.match(rewritten.description, /If a terminal command failed/u);
+  assert.match(rewritten.inputSchema.properties.summary.description, /complete user-facing answer/u);
+  assert.deepEqual(tools, original);
+  const pattern = String.raw`^Brief summary of what was accomplished\. Omit for trivial interactions\.$`;
+  for (const replacement of ["", "Custom answer policy."]) {
+    const custom = readCocopiConfiguration(fakeVscodeConfiguration(configurationValues({ chatToolDescriptionRegexReplacements: { [pattern]: replacement } })));
+    assert.equal(resolveVscodeLanguageModelTools(tools, custom)[0].inputSchema.properties.summary.description,
+      replacement || original[0].inputSchema.properties.summary.description);
+  }
+});
+
 test("enabled built-in instruction replacements rewrite catalog wording", () => {
   const source = "When you ARE done, first provide a brief text summary of what was accomplished, then call task_complete. Both the summary message and the tool call are required.";
   const configuration = readCocopiConfiguration(fakeVscodeConfiguration(configurationValues({
@@ -552,7 +574,7 @@ test("enabled built-in instruction replacements rewrite catalog wording", () => 
 
   const rewritten = resolveChatParticipantInstructions(source, configuration);
 
-  assert.match(rewritten ?? "", /call task_complete with one concise completion summary/u);
+  assert.match(rewritten ?? "", /call task_complete with the complete user-facing answer/u);
   assert.doesNotMatch(rewritten ?? "", /Both the summary message and the tool call are required/u);
 });
 
@@ -606,11 +628,11 @@ test("enabled built-in tool replacement matches when task_complete is not the la
     { name: "other", description: "Another tool." }
   ], configuration);
 
-  assert.match(tools[0].description, /Put the concise user-visible completion summary/u);
+  assert.match(tools[0].description, /Put the complete user-facing answer/u);
   assert.equal(tools[1].description, "Another tool.");
   const snapshot = readCocopiInstructionReplacementSnapshots().toolDescriptions;
   assert.match(snapshot?.original ?? "", /Do not restate the summary/u);
-  assert.match(snapshot?.rewritten ?? "", /Put the concise user-visible completion summary/u);
+  assert.match(snapshot?.rewritten ?? "", /Put the complete user-facing answer/u);
 });
 
 test("default instruction rewrites route completion summaries without suppressing work notes", () => {

@@ -136,11 +136,26 @@ Primary code/tests:
 
 Cocopi applies built-in regex replacements to known VS Code/Copilot instruction and tool-description text around `task_complete`, then overlays user-configured regex replacements on top.
 
-The built-in replacements route the final completion summary through the `task_complete.summary` field and tell the model not to emit a duplicate pre-tool summary. Cocopi then renders that summary itself as normal user-visible assistant text after the tool succeeds, without another Codex request.
+The built-in replacements route the **complete user-facing answer** through `task_complete.summary`, not a recap of having answered. They cover known instruction text, the tool's pre-call paragraph, and the summary field description. The field guidance is rewritten on a copied model-visible schema; host validation and requiredness are unchanged. User replacement overrides and empty built-in disabling also apply to field descriptions. Cocopi renders the answer as normal assistant text after the tool succeeds, without another Codex request.
 
 Why it exists: VS Code's terminal tool result is not a reliable user-facing communication surface, while asking the model to emit the summary both as assistant text and as tool metadata duplicates output. Cocopi makes the metadata useful by promoting the summary to visible assistant text at the terminal tool boundary.
 
-The replacements only suppress a duplicate final completion summary. They must not tell the model to hide or avoid commentary, progress, or work-note output before completion.
+The replacements discourage separately emitting the completed answer before the tool. They must not hide commentary, progress, or work-note output. If the model nevertheless emits the answer before calling the tool, Cocopi still delivers the summary after it: pre-tool substring equality is not terminal delivery. No transcript buffer is needed for deduplication; the participant retains only a text-presence bit for missing-answer handling.
+
+VS Code 1.137.0 / bundled Copilot 0.65.0 identifies the final surface as the last contiguous Markdown block. A hidden completion tool separates it from earlier Markdown, which may be placed in the outer completed-response disclosure. This is why returning `Task completed.` or suppressing the terminal answer is incorrect. Ordinary commentary/reasoning and authoritative replay phases are unchanged.
+
+The provider shortcut accepts only an isolated trailing completion call/result pair. The known host tool returns its summary verbatim; a nonempty summary with a different result is an explicit error, not a successful completion or an automatic retry. This equality checks the **tool execution result**, not previously displayed answer text. Cancellation is checked before promotion. The participant uses its directly awaited invocation and cancellation checks; thrown tool failures are not promoted.
+
+Missing, empty, or malformed summaries after earlier text now produce an explicit error instead of claiming success or adding a paid request. With neither a usable summary nor earlier text, the existing model-follow-up fallback remains. Custom host tools that transform completion results are outside the verified provider shortcut contract. Public tool-result parts do not expose a general success flag; no error classification is inferred from prose.
+
+Host smoke procedure (still required after installing the changed extension):
+
+1. In normal and Autopilot modes, request a multi-paragraph explanation with a code example and link, then a small coding change with tool use and validation.
+2. Check both the Cocopi language-model provider and `@cocopi` participant where the completion tool is available. A mode without the tool should retain ordinary final-answer behavior.
+3. Capture the response while streaming, after completion, with every work group collapsed, and after reopening the conversation. The full requested answer must remain outside the collapsed work with no extra recap.
+4. Confirm useful progress and native reasoning remain available, and diagnostics show no model request solely to restate valid completion. Do not enable payload logging or live credential tests merely for unit validation.
+
+Source evidence and the boundary-function reproduction are recorded in `docs/terminal-answer-grouping-plan.md`. Unit tests verify emitted parts and request counts, not the live host's DOM or streaming/reopen presentation.
 
 Risk: this is version-sensitive text rewriting against upstream host wording, not a first-class API contract. It should stay evidence-backed, narrow, and easy for users to override or disable. Replacements must only target known host instruction/tool text, never arbitrary user prompt content.
 
