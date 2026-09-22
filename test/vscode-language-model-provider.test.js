@@ -434,6 +434,7 @@ test("specialized workload metadata follows its target but suppresses target rea
 
   assert.ok(target);
   assert.ok(utility);
+  assert.match(utility.name, /^Cocopi Utility \(gpt-route-target · [^)]+\)$/u);
   assert.equal(utility.version, "gpt-route-target");
   assert.equal(utility.maxInputTokens, target.maxInputTokens);
   assert.equal(utility.maxOutputTokens, target.maxOutputTokens);
@@ -2881,7 +2882,7 @@ test("matrix alias publishes a host-selectable model and overrides parent Ultra"
   const information = await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
   const alias = information?.find((model) => model.id === "subagent-lookup");
   assert.ok(alias);
-  assert.equal(alias.name, "Cocopi Subagent lookup");
+  assert.equal(alias.name, "Cocopi Subagent lookup (gpt-matrix-target · low)");
   assert.equal(alias.isBYOK, true);
   assert.equal(alias.isUserSelectable, true);
   assert.equal(alias.configurationSchema?.properties?.reasoningEffort, undefined);

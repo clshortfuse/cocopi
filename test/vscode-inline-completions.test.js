@@ -54,7 +54,7 @@ test("inline completion provider stays quiet when disabled", async (testContext)
   assert.equal(items, undefined);
 });
 
-test("inline completion provider builds a Codex request with the auto Spark model", async (testContext) => {
+test("inline completion provider builds a Codex request with the auto GPT-6 Luna model", async (testContext) => {
   /** @type {Array<{ url: string, options: RequestInit }>} */
   const calls = [];
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
@@ -63,7 +63,8 @@ test("inline completion provider builds a Codex request with the auto Spark mode
       return Response.json({
         models: [
           { slug: "gpt-main", display_name: "Main" },
-          { slug: "gpt-5-spark-test", display_name: "Spark Test" }
+          { slug: "gpt-5-spark-test", display_name: "Spark Test" },
+          { slug: "gpt-6-luna", display_name: "GPT-6 Luna", supported_reasoning_levels: [{ effort: "low" }, { effort: "max" }] }
         ]
       });
     }
@@ -93,18 +94,18 @@ test("inline completion provider builds a Codex request with the auto Spark mode
   assert.equal(items?.[0]?.range?.start.character, 13);
   assert.equal(calls.length, 2);
   const body = JSON.parse(String(calls[1].options.body));
-  assert.equal(body.model, "gpt-5-spark-test");
+  assert.equal(body.model, "gpt-6-luna");
   assert.equal(body.stream, true);
   assert.equal(body.tool_choice, "none");
   assert.equal(body.store, false);
   assert.equal("prompt_cache_key" in body, false);
   assert.equal(body.client_metadata["x-cocopi-request-kind"], "inline-completion");
   assert.equal(body.client_metadata["x-cocopi-requested-model"], "cocopi/autocomplete");
-  assert.equal(body.client_metadata["x-cocopi-resolved-model"], "gpt-5-spark-test");
+  assert.equal(body.client_metadata["x-cocopi-resolved-model"], "gpt-6-luna");
   assert.equal(parseInlineCompletionPromptRequest(body.input[0].content[0].text).prefix, "const value =");
 });
 
-test("inline completion provider uses API-key-disabled Spark in ChatGPT mode", async (testContext) => {
+test("inline completion provider preserves an explicitly pinned Spark model", async (testContext) => {
   /** @type {Array<{ url: string, options: RequestInit }>} */
   const calls = [];
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
@@ -148,7 +149,7 @@ test("inline completion provider uses API-key-disabled Spark in ChatGPT mode", a
   assert.deepEqual(body.reasoning, { effort: "low" });
 });
 
-test("inline completion provider falls back to Luna when Spark is unavailable", async (testContext) => {
+test("inline completion provider prefers GPT-6 Luna to available GPT-5.6 models", async (testContext) => {
   /** @type {Array<{ url: string, options: RequestInit }>} */
   const calls = [];
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (url, options = {}) => {
@@ -157,7 +158,8 @@ test("inline completion provider falls back to Luna when Spark is unavailable", 
       return Response.json({
         models: [
           { slug: "gpt-5.6-sol", display_name: "Sol" },
-          { slug: "gpt-5.6-luna", display_name: "Luna", supported_reasoning_levels: [{ effort: "minimal" }] }
+          { slug: "gpt-5.6-luna", display_name: "Luna", supported_reasoning_levels: [{ effort: "minimal" }] },
+          { slug: "gpt-6-luna", display_name: "GPT-6 Luna", supported_reasoning_levels: [{ effort: "low" }] }
         ]
       });
     }
@@ -186,8 +188,8 @@ test("inline completion provider falls back to Luna when Spark is unavailable", 
 
   assert.equal(calls.length, 2);
   const body = JSON.parse(String(calls[1].options.body));
-  assert.equal(body.model, "gpt-5.6-luna");
-  assert.deepEqual(body.reasoning, { effort: "minimal" });
+  assert.equal(body.model, "gpt-6-luna");
+  assert.deepEqual(body.reasoning, { effort: "low" });
 });
 
 test("inline completion request treats prompt-injection-like XML source text as inert data", () => {
@@ -386,16 +388,17 @@ test("inline completion helpers normalize context, model preference, and fenced 
   assert.equal(chooseInlineCompletionModel([
     { id: "gpt-main", displayName: "Main" },
     { id: "gpt-5-spark-test", displayName: "Spark Test" }
-  ], "gpt-main"), "gpt-5-spark-test");
+  ], "gpt-main"), "gpt-main");
   assert.equal(chooseInlineCompletionModel([
     { id: "gpt-main", displayName: "Main" },
     { id: "gpt-5.6-luna", displayName: "Luna" },
     { id: "gpt-5-spark-test", displayName: "Spark Test", supportedInApi: false }
-  ], "gpt-main"), "gpt-5-spark-test");
+  ], "gpt-main"), "gpt-main");
   assert.equal(chooseInlineCompletionModel([
     { id: "gpt-main", displayName: "Main" },
-    { id: "gpt-5.6-luna", displayName: "Luna" }
-  ], "gpt-main"), "gpt-5.6-luna");
+    { id: "gpt-5.6-luna", displayName: "GPT-5.6 Luna" },
+    { id: "gpt-6-luna", displayName: "GPT-6 Luna" }
+  ], "gpt-main"), "gpt-6-luna");
   assert.equal(sanitizeInlineCompletionText("```js\nreturn value;\n```"), "return value;");
   assert.equal(sanitizeInlineCompletionText("   \n"), "");
 });

@@ -8,8 +8,8 @@ import { chooseCodexModel, fetchCodexModelsResponse, listCodexModels, parseModel
 
 const chatgptProCatalogFixture = JSON.parse(await readFile(new URL("fixtures/codex-models/chatgpt-pro-catalog.json", import.meta.url), "utf8"));
 
-test("default client version satisfies the GPT-6 Astra catalog gate", () => {
-  assert.equal(CODEX_CLIENT_VERSION, "0.153.3");
+test("default client version satisfies the GPT-6 Sol and Luna catalog gate", () => {
+  assert.equal(CODEX_CLIENT_VERSION, "0.155.1");
 });
 
 test("chatgpt pro catalog fixture uses captured server model ids", () => {
@@ -302,4 +302,21 @@ test("listCodexModels can include ChatGPT account header", async () => {
   });
 
   assert.equal(calls[0].options.headers["ChatGPT-Account-ID"], "account-id");
+});
+
+test("fetchCodexModelsResponse reports an overridden client version in query and headers", async () => {
+  /** @type {Array<{ url: string, options: RequestInit & { headers: Record<string, string> } }>} */
+  const calls = [];
+  await fetchCodexModelsResponse({
+    apiBaseUrl: "https://chatgpt.example.test/backend-api/codex",
+    accessToken: "access-token",
+    clientVersion: "9.8.7",
+    fetch: /** @type {typeof fetch} */ (async (url, options = {}) => {
+      calls.push({ url: String(url), options: /** @type {RequestInit & { headers: Record<string, string> }} */ (options) });
+      return Response.json({ models: [] });
+    })
+  });
+
+  assert.equal(calls[0].url, "https://chatgpt.example.test/backend-api/codex/models?client_version=9.8.7");
+  assert.equal(calls[0].options.headers.version, "9.8.7");
 });

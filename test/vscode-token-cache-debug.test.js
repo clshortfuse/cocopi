@@ -687,6 +687,32 @@ test("usage analytics filters workloads and combines utility subtypes", () => {
   clearCocopiTokenCacheDebugSummaries();
 });
 
+test("token tracker separates utility, subagent, and direct requests on the same Codex model", () => {
+  clearCocopiTokenCacheDebugSummaries();
+  for (const [index, requestedModel] of ["cocopi/utility", "cocopi/utility-small", "subagent-lookup", "gpt-6-luna"].entries()) {
+    recordCocopiTokenCacheSummary({
+      ...tokenCacheSummary({ hostRequestIndex: index + 1, cachedTokens: 0, reasoningEffort: "low" }),
+      model: "gpt-6-luna",
+      selectedModel: requestedModel,
+      requestedModel,
+      resolvedModel: "gpt-6-luna",
+      workload: requestedModel === "subagent-lookup" ? "chat" : "utility",
+      workloadSubtype: /** @type {const} */ (["general", "small", "main"])[index]
+    });
+  }
+
+  const analytics = readCocopiUsageAnalytics({ timelineDays: 1 });
+  assert.deepEqual(analytics.timeline.series.map((series) => series.label).toSorted(), [
+    "Subagent lookup (gpt-6-luna · low)",
+    "Utility small (gpt-6-luna · low)",
+    "Utility (gpt-6-luna · low)",
+    "gpt-6-luna · low"
+  ].toSorted());
+  assert.equal(analytics.timeline.series.reduce((total, series) => total + series.requestCount, 0), 4);
+  assert.deepEqual(analytics.weeklyCycle.models.map((model) => model.label).toSorted(), analytics.timeline.series.map((series) => series.label).toSorted());
+  clearCocopiTokenCacheDebugSummaries();
+});
+
 /** @param {{ hostRequestIndex: number, sessionId?: string, totalTokens?: number, inputTokens?: number, outputTokens?: number, cachedTokens: number, cacheStatus?: 'hit' | 'miss' | 'unknown', cacheHitRatio?: number, selectedModel?: string, serviceTier?: string, serviceTierSource?: string, reasoningEffort?: string, reasoningSummary?: string, fastRequested?: boolean, automaticContinuation?: boolean, requestKind?: string, wireMode?: string, webSocketContinuationAction?: import("../data/Codex.js").CodexPreviousResponseDecisionAction, webSocketContinuationReason?: import("../data/Codex.js").CodexPreviousResponseDecisionReason, requestDurationMs?: number, firstOutputLatencyMs?: number }} options */
 function tokenCacheSummary(options) {
   return {

@@ -6,8 +6,8 @@ import { cocopiWorkloadRouteNameFromModelId, isCocopiWorkloadAlias, ordinaryCoco
 
 const models = [
   { id: "gpt-main", displayName: "Main", supportedReasoningLevels: [{ effort: "medium" }, { effort: "high" }] },
-  { id: "gpt-5.6-terra", displayName: "Terra", supportedReasoningLevels: [{ effort: "low" }, { effort: "medium" }] },
-  { id: "gpt-5.6-luna", displayName: "Luna", supportedReasoningLevels: [{ effort: "minimal" }, { effort: "low" }] },
+  { id: "gpt-6-sol", displayName: "Sol", supportedReasoningLevels: [{ effort: "low" }, { effort: "medium" }] },
+  { id: "gpt-6-luna", displayName: "Luna", supportedReasoningLevels: [{ effort: "low" }, { effort: "high" }, { effort: "max" }] },
   { id: "gpt-spark", displayName: "Spark", supportedReasoningLevels: [] }
 ];
 
@@ -16,24 +16,24 @@ test("resolveCocopiWorkloadRoute selects recommended workload targets", () => {
 
   assert.deepEqual(resolveCocopiWorkloadRoute("utility", configuration, models), {
     alias: "cocopi/utility",
-    targetModel: "gpt-5.6-terra",
-    reasoningEffort: "low",
+    targetModel: "gpt-6-luna",
+    reasoningEffort: "max",
     serviceTier: "auto",
     workload: "utility",
     workloadSubtype: "general"
   });
   assert.deepEqual(resolveCocopiWorkloadRoute("utility-small", configuration, models), {
     alias: "cocopi/utility-small",
-    targetModel: "gpt-5.6-luna",
-    reasoningEffort: "minimal",
+    targetModel: "gpt-6-luna",
+    reasoningEffort: "low",
     serviceTier: "auto",
     workload: "utility",
     workloadSubtype: "small"
   });
   assert.deepEqual(resolveCocopiWorkloadRoute("autocomplete", configuration, models), {
     alias: "cocopi/autocomplete",
-    targetModel: "gpt-spark",
-    reasoningEffort: undefined,
+    targetModel: "gpt-6-luna",
+    reasoningEffort: "low",
     serviceTier: "auto",
     workload: "autocomplete",
     workloadSubtype: "inline"
@@ -93,8 +93,8 @@ test("resolveCocopiWorkloadRoute rejects recursive and fast targets", () => {
     "inlineCompletions.model": "gpt-main:fast"
   }), models);
 
-  assert.equal(recursive.targetModel, "gpt-5.6-terra");
-  assert.equal(fast.targetModel, "gpt-spark");
+  assert.equal(recursive.targetModel, "gpt-6-luna");
+  assert.equal(fast.targetModel, "gpt-6-luna");
 });
 
 test("resolveCocopiWorkloadRoute retains API-key-disabled targets for ChatGPT auth", () => {
@@ -109,7 +109,7 @@ test("resolveCocopiWorkloadRoute retains API-key-disabled targets for ChatGPT au
   assert.equal(route.targetModel, "gpt-route-unsupported");
 });
 
-test("resolveCocopiWorkloadRoute keeps API-key-disabled Spark available for ChatGPT autocomplete", () => {
+test("resolveCocopiWorkloadRoute does not recommend Spark or GPT-5.6 when GPT-6 is available", () => {
   const catalog = [
     { id: "gpt-5.6-sol", displayName: "Sol", supportedReasoningLevels: [{ effort: "low" }] },
     { id: "gpt-5.6-luna", displayName: "Luna", supportedReasoningLevels: [{ effort: "minimal" }, { effort: "low" }] },
@@ -118,7 +118,8 @@ test("resolveCocopiWorkloadRoute keeps API-key-disabled Spark available for Chat
       displayName: "GPT-5.3-Codex-Spark",
       supportedInApi: false,
       supportedReasoningLevels: [{ effort: "low" }, { effort: "high" }]
-    }
+    },
+    { id: "gpt-6-luna", displayName: "GPT-6 Luna", supportedReasoningLevels: [{ effort: "low" }, { effort: "max" }] }
   ];
   const automatic = resolveCocopiWorkloadRoute("autocomplete", cocopiConfiguration({
     model: "gpt-5.6-sol",
@@ -129,32 +130,44 @@ test("resolveCocopiWorkloadRoute keeps API-key-disabled Spark available for Chat
     "routes.autocomplete.model": "gpt-5.3-codex-spark"
   }), catalog);
 
-  assert.equal(automatic.targetModel, "gpt-5.3-codex-spark");
+  assert.equal(automatic.targetModel, "gpt-6-luna");
   assert.equal(automatic.reasoningEffort, "low");
   assert.equal(explicit.targetModel, "gpt-5.3-codex-spark");
   assert.equal(explicit.reasoningEffort, "low");
 });
 
-test("resolveCocopiWorkloadRoute falls back to Luna when Spark is unavailable", () => {
-  const route = resolveCocopiWorkloadRoute("autocomplete", cocopiConfiguration({
-    model: "gpt-5.6-sol",
-    "routes.autocomplete.model": "auto"
-  }), [
-    { id: "gpt-5.6-sol", displayName: "Sol", supportedReasoningLevels: [{ effort: "low" }] },
-    { id: "gpt-5.6-luna", displayName: "Luna", supportedReasoningLevels: [{ effort: "minimal" }, { effort: "low" }] }
-  ]);
+test("utility Auto tracks GPT-6 Luna without changing explicit legacy pins", () => {
+  const catalog = [
+    { id: "gpt-5.6-terra", displayName: "Terra", supportedReasoningLevels: [{ effort: "low" }, { effort: "max" }] },
+    { id: "gpt-6-luna", displayName: "Luna", supportedReasoningLevels: [{ effort: "low" }, { effort: "max" }] }
+  ];
+  const automatic = cocopiConfiguration({ model: "gpt-5.6-sol", "routes.utility.model": "auto", "routes.utilitySmall.model": "auto" });
+  const pinned = cocopiConfiguration({ model: "gpt-5.6-sol", "routes.utility.model": "gpt-5.6-terra" });
 
-  assert.equal(route.targetModel, "gpt-5.6-luna");
-  assert.equal(route.reasoningEffort, "minimal");
+  assert.equal(resolveCocopiWorkloadRoute("utility", automatic, catalog).targetModel, "gpt-6-luna");
+  assert.equal(resolveCocopiWorkloadRoute("utility-small", automatic, catalog).targetModel, "gpt-6-luna");
+  assert.equal(resolveCocopiWorkloadRoute("utility", pinned, catalog).targetModel, "gpt-5.6-terra");
 });
 
-test("resolveCocopiWorkloadRoute uses Luna for Auto while the catalog is unavailable", () => {
+test("resolveCocopiWorkloadRoute uses GPT-6 Luna for both utility profiles", () => {
+  const catalog = [
+    { id: "gpt-6-sol", displayName: "Sol", supportedReasoningLevels: [{ effort: "low" }, { effort: "medium" }] },
+    { id: "gpt-6-luna", displayName: "Luna", supportedReasoningLevels: [{ effort: "low" }, { effort: "high" }, { effort: "max" }] }
+  ];
+
+  const utility = resolveCocopiWorkloadRoute("utility", cocopiConfiguration({ model: "gpt-main" }), catalog);
+  const utilitySmall = resolveCocopiWorkloadRoute("utility-small", cocopiConfiguration({ model: "gpt-main" }), catalog);
+  assert.deepEqual({ model: utility.targetModel, effort: utility.reasoningEffort }, { model: "gpt-6-luna", effort: "max" });
+  assert.deepEqual({ model: utilitySmall.targetModel, effort: utilitySmall.reasoningEffort }, { model: "gpt-6-luna", effort: "low" });
+});
+
+test("resolveCocopiWorkloadRoute uses GPT-6 Luna for Auto while the catalog is unavailable", () => {
   const route = resolveCocopiWorkloadRoute("autocomplete", cocopiConfiguration({
     model: "gpt-5.6-sol",
     "routes.autocomplete.model": "auto"
   }));
 
-  assert.equal(route.targetModel, "gpt-5.6-luna");
+  assert.equal(route.targetModel, "gpt-6-luna");
   assert.equal(route.reasoningEffort, undefined);
 });
 

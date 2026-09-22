@@ -175,7 +175,7 @@ To keep the provider path usable, Cocopi emits the completed Responses `response
 - `[x]` Send bounded prefix/suffix context around the cursor to Codex Responses and return ghost-text insertions.
 - `[x]` Add `cocopi.inlineCompletions.model` and **Cocopi: Set Inline Completion Model** so autocomplete can use a dedicated model.
 - `[x]` Add **Cocopi: Toggle Inline Completions**, confirmation popups, compact status-bar hover links, a richer card-style click dashboard, native Chat status item details that mirror the same summary when the proposed API is available, and expanded **Inline Options** so users can configure autocomplete without editing JSON.
-- `[x]` Auto inline model selection prefers a Spark-like low-latency model available to the signed-in account, then GPT-5.6 Luna, then `cocopi.model`.
+- `[x]` Auto inline model selection prefers GPT-6 Luna available to the signed-in account, then GPT-6 Sol, then `cocopi.model`.
 - `[x]` Use VS Code cancellation tokens and inline-specific idle timeout for interactive autocomplete requests.
 - `[x]` Log inline completion request metadata and stream events when `cocopi.debugLevel` is enabled for manual testing.
 - `[~]` Inline completion usage is not yet represented in Token Tracker summaries.
@@ -217,5 +217,5 @@ The next slice should verify provider continuity and cache behavior in the real 
 
 1. Verify VS Code preserves Cocopi's custom `LanguageModelDataPart` across normal provider turns and provider tool follow-up turns.
 2. Investigate prompt-cache key and retention behavior now that participant request prefixes are more stable across turns.
-3. Smoke-test inline completion latency and cancellation behavior against live Spark-like models.
+3. Smoke-test inline completion latency and cancellation behavior against the current GPT-6 Luna catalog model.
 4. Add VS Code extension integration tests for participant metadata persistence and inline ghost-text rendering in the real UI.

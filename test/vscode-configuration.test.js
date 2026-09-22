@@ -1,13 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { DEFAULT_CODEX_API_BASE_URL, DEFAULT_CODEX_MODEL } from "../lib/codex-api/config.js";
+import { CODEX_CLIENT_VERSION, DEFAULT_CODEX_API_BASE_URL, DEFAULT_CODEX_MODEL } from "../lib/codex-api/config.js";
 import { COCOPI_AUTH_MODES, COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_DEBUG_LEVELS, COCOPI_INLINE_COMPLETION_MODEL_AUTO, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_SERVICE_TIERS, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, COCOPI_ULTRA_MULTI_AGENT_MODE_INSTRUCTIONS, DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS, DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS, DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS, DEFAULT_EDIT_PROGRESS_INTERVAL_MS, DEFAULT_INLINE_COMPLETION_MAX_PREFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_MAX_SUFFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS, codexReasoningFromCocopiOptions, codexServiceTierFromCocopiOptions, codexToolOptionsFromCocopiOptions, cocopiUltraMultiAgentModeFromOptions, readCocopiConfiguration, resolveChatParticipantInstructions, resolveCocopiUltraMultiAgentInstructions, resolveVscodeLanguageModelTools } from "../lib/vscode/configuration.js";
 import { clearCocopiInstructionReplacementSnapshots, readCocopiInstructionReplacementSnapshots } from "../lib/vscode/instruction-replacements.js";
 
 test("readCocopiConfiguration reads defaults", () => {
   assert.deepEqual(readCocopiConfiguration(fakeVscodeConfiguration()), {
     apiBaseUrl: DEFAULT_CODEX_API_BASE_URL,
+    clientVersion: CODEX_CLIENT_VERSION,
     model: DEFAULT_CODEX_MODEL,
     authMode: COCOPI_AUTH_MODES.secretStorage,
     serviceTier: COCOPI_SERVICE_TIERS.auto,
@@ -32,8 +33,8 @@ test("readCocopiConfiguration reads defaults", () => {
     chatToolDescriptionRegexReplacements: DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
     subagents: { enabled: true, defaultChoice: "", choices: [], preset: "gpt6-ultra" },
     routes: {
-      utility: { model: "auto", reasoningEffort: "low", serviceTier: "auto" },
-      utilitySmall: { model: "auto", reasoningEffort: "lowest", serviceTier: "auto" },
+      utility: { model: "auto", reasoningEffort: "max", serviceTier: "auto" },
+      utilitySmall: { model: "auto", reasoningEffort: "low", serviceTier: "auto" },
       autocomplete: { model: "", reasoningEffort: "lowest", serviceTier: "auto" }
     },
     inlineCompletions: {
@@ -51,6 +52,7 @@ test("readCocopiConfiguration reads defaults", () => {
 test("readCocopiConfiguration normalizes configured values", () => {
   const values = configurationValues({
     apiBaseUrl: "https://example.test/codex///",
+    clientVersion: " 9.8.7 ",
     model: "model-test",
     serviceTier: "priority",
     reasoningEffort: "xhigh",
@@ -99,6 +101,7 @@ test("readCocopiConfiguration normalizes configured values", () => {
 
   assert.deepEqual(readCocopiConfiguration(fakeVscodeConfiguration(values)), {
     apiBaseUrl: "https://example.test/codex",
+    clientVersion: "9.8.7",
     model: "model-test",
     authMode: COCOPI_AUTH_MODES.secretStorage,
     serviceTier: COCOPI_SERVICE_TIERS.priority,
@@ -150,6 +153,7 @@ test("readCocopiConfiguration normalizes configured values", () => {
 test("readCocopiConfiguration falls back from blank and disabled values", () => {
   const values = configurationValues({
     apiBaseUrl: "",
+    clientVersion: "  ",
     model: "",
     authMode: "unsupported",
     serviceTier: "unsupported",
@@ -184,6 +188,7 @@ test("readCocopiConfiguration falls back from blank and disabled values", () => 
 
   assert.deepEqual(readCocopiConfiguration(fakeVscodeConfiguration(values)), {
     apiBaseUrl: DEFAULT_CODEX_API_BASE_URL,
+    clientVersion: CODEX_CLIENT_VERSION,
     model: DEFAULT_CODEX_MODEL,
     authMode: COCOPI_AUTH_MODES.secretStorage,
     serviceTier: COCOPI_SERVICE_TIERS.auto,
@@ -208,7 +213,7 @@ test("readCocopiConfiguration falls back from blank and disabled values", () => 
     chatToolDescriptionRegexReplacements: DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
     subagents: { enabled: true, defaultChoice: "", choices: [], preset: "gpt6-ultra" },
     routes: {
-      utility: { model: "", reasoningEffort: "low", serviceTier: "auto" },
+      utility: { model: "", reasoningEffort: "max", serviceTier: "auto" },
       utilitySmall: { model: "cocopi/utility", reasoningEffort: "default", serviceTier: "auto" },
       autocomplete: { model: "", reasoningEffort: "lowest", serviceTier: "priority" }
     },

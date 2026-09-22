@@ -1369,6 +1369,7 @@ function fakeRuntime(options) {
   return {
     configuration: {
       apiBaseUrl: "https://chatgpt.example.test/backend-api/codex",
+      clientVersion: "test",
       model: "gpt-5-codex",
       authMode: "secretStorage",
       serviceTier: "auto",
@@ -1389,8 +1390,8 @@ function fakeRuntime(options) {
       chatInstructionsRegexReplacements: DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS,
       chatToolDescriptionRegexReplacements: DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
       routes: {
-        utility: { model: "auto", reasoningEffort: "low", serviceTier: "auto" },
-        utilitySmall: { model: "auto", reasoningEffort: "lowest", serviceTier: "auto" },
+        utility: { model: "auto", reasoningEffort: "max", serviceTier: "auto" },
+        utilitySmall: { model: "auto", reasoningEffort: "low", serviceTier: "auto" },
         autocomplete: { model: "", reasoningEffort: "lowest", serviceTier: "auto" }
       },
       inlineCompletions: {

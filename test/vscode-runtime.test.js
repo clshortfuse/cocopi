@@ -9,6 +9,7 @@ import { readCocopiRuntime } from "../lib/vscode/runtime.js";
 test("readCocopiRuntime combines configuration with SecretStorage auth", async () => {
   const configuration = configurationValues({
     apiBaseUrl: "https://example.test/codex/",
+    clientVersion: "1.2.3",
     model: "model-test",
     streamIdleTimeoutMs: 5000
   });
@@ -24,6 +25,7 @@ test("readCocopiRuntime combines configuration with SecretStorage auth", async (
   assert.deepEqual(runtime, {
     configuration: {
       apiBaseUrl: "https://example.test/codex",
+      clientVersion: "1.2.3",
       model: "model-test",
       authMode: "secretStorage",
       serviceTier: "auto",
@@ -46,8 +48,8 @@ test("readCocopiRuntime combines configuration with SecretStorage auth", async (
       chatToolDescriptionRegexReplacements: DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
       subagents: { enabled: true, defaultChoice: "", choices: [], preset: "gpt6-ultra" },
       routes: {
-        utility: { model: "auto", reasoningEffort: "low", serviceTier: "auto" },
-        utilitySmall: { model: "auto", reasoningEffort: "lowest", serviceTier: "auto" },
+        utility: { model: "auto", reasoningEffort: "max", serviceTier: "auto" },
+        utilitySmall: { model: "auto", reasoningEffort: "low", serviceTier: "auto" },
         autocomplete: { model: "", reasoningEffort: "lowest", serviceTier: "auto" }
       },
       inlineCompletions: {
@@ -67,7 +69,7 @@ test("readCocopiRuntime combines configuration with SecretStorage auth", async (
       chatgptAccountId: "account-id",
       chatgptPlanType: "plus"
     },
-    clientVersion: CODEX_CLIENT_VERSION
+    clientVersion: "1.2.3"
   });
 });
 
@@ -75,6 +77,7 @@ test("readCocopiRuntime returns signed-out runtime state", async () => {
   assert.deepEqual(await readCocopiRuntime(fakeContext(), fakeVscodeConfiguration()), {
     configuration: {
       apiBaseUrl: DEFAULT_CODEX_API_BASE_URL,
+      clientVersion: CODEX_CLIENT_VERSION,
       model: DEFAULT_CODEX_MODEL,
       authMode: "secretStorage",
       serviceTier: "auto",
@@ -97,8 +100,8 @@ test("readCocopiRuntime returns signed-out runtime state", async () => {
       chatToolDescriptionRegexReplacements: DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS,
       subagents: { enabled: true, defaultChoice: "", choices: [], preset: "gpt6-ultra" },
       routes: {
-        utility: { model: "auto", reasoningEffort: "low", serviceTier: "auto" },
-        utilitySmall: { model: "auto", reasoningEffort: "lowest", serviceTier: "auto" },
+        utility: { model: "auto", reasoningEffort: "max", serviceTier: "auto" },
+        utilitySmall: { model: "auto", reasoningEffort: "low", serviceTier: "auto" },
         autocomplete: { model: "", reasoningEffort: "lowest", serviceTier: "auto" }
       },
       inlineCompletions: {

@@ -340,7 +340,8 @@ test("Cocopi status action opens the dashboard webview", async (testContext) => 
   assert.match(vscode.panels[0].webview.html, /<option value="gpt-5\.3-codex-spark">GPT-5\.3 Codex Spark/u);
   assert.match(vscode.panels[0].webview.html, /<select name="inlineCompletionChoice">/u);
   assert.match(vscode.panels[0].webview.html, /<option value="off" selected>Off/u);
-  assert.match(vscode.panels[0].webview.html, /<option value="auto">Auto \(Spark, then Luna\)/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="auto">Auto \(GPT-6 Luna\)/u);
+  assert.doesNotMatch(vscode.panels[0].webview.html, /<option value="default">default<\/option>/u);
   assert.match(vscode.panels[0].webview.html, /Background tasks/u);
   assert.match(vscode.panels[0].webview.html, /<span class="utility-state off">Off<\/span>/u);
   assert.match(vscode.panels[0].webview.html, /Choose how VS Code handles chat titles, summaries, and quick helpers/u);
@@ -352,9 +353,9 @@ test("Cocopi status action opens the dashboard webview", async (testContext) => 
   assert.match(vscode.panels[0].webview.html, /<option value="specific">Advanced custom models/u);
   assert.match(vscode.panels[0].webview.html, /id="utilitySetupDescription"[^>]*>Reserve model use for the main conversation/u);
   assert.match(vscode.panels[0].webview.html, /id="utilityAdvancedModels" class="advanced-models" hidden>/u);
-  assert.match(vscode.panels[0].webview.html, /<option value="cocopi\/gpt-5\.6-terra" selected>GPT-5\.6 Terra/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="cocopi\/gpt-current" selected>gpt-current/u);
   assert.match(vscode.panels[0].webview.html, /<select name="utilitySmallModel">/u);
-  assert.match(vscode.panels[0].webview.html, /<option value="cocopi\/gpt-5\.6-luna" selected>GPT-5\.6 Luna/u);
+  assert.match(vscode.panels[0].webview.html, /<option value="cocopi\/gpt-current" selected>gpt-current/u);
   assert.match(vscode.panels[0].webview.html, /VS Code user settings to write[\s\S]*<pre id="utilitySettingsPreview" class="utility-preview">\{[\s\S]*&quot;chat\.utilityModel&quot;: &quot;&quot;,[\s\S]*&quot;chat\.utilitySmallModel&quot;: &quot;&quot;,[\s\S]*&quot;chat\.byokUtilityModelDefault&quot;: &quot;none&quot;/u);
   assert.doesNotMatch(vscode.panels[0].webview.html, /selects the fallback when the two model fields are empty/u);
   assert.match(vscode.panels[0].webview.html, /id="applyUtilitySetup" class="primary" type="button">Apply setup/u);
@@ -418,7 +419,7 @@ test("Cocopi status action opens the dashboard webview", async (testContext) => 
     { key: "inlineCompletions.model", value: "auto", target: true },
     { key: "routes.autocomplete.model", value: "auto", target: true }
   ]);
-  assert.match(vscode.panels[0].webview.html, /Codex target<\/span><strong>gpt-5\.3-codex-spark<\/strong>/u);
+  assert.match(vscode.panels[0].webview.html, /Codex target<\/span><strong>gpt-5\.6-sol<\/strong>/u);
 
   await vscode.panels[0].receiveMessage({
     type: "updateSettings",
@@ -430,6 +431,46 @@ test("Cocopi status action opens the dashboard webview", async (testContext) => 
     { key: "routes.autocomplete.model", value: "gpt-5.3-codex-spark", target: true }
   ]);
   assert.match(vscode.panels[0].webview.html, /Codex target<\/span><strong>gpt-5\.3-codex-spark<\/strong>/u);
+});
+
+test("utility route controls use the catalog model default and disable tuning for Auto", async (testContext) => {
+  testContext.mock.method(globalThis, "fetch", async (url) => {
+    if (/\/models\?/u.test(String(url))) {
+      return Response.json({ models: [
+        { slug: "gpt-6-luna", display_name: "GPT-6 Luna", default_reasoning_level: "medium", supported_reasoning_levels: [{ effort: "low" }, { effort: "medium" }, { effort: "max" }] },
+        { slug: "gpt-6-sol", display_name: "GPT-6 Sol", default_reasoning_level: "high", supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }, { effort: "max" }] }
+      ] });
+    }
+    return Response.json({ plan_type: "pro", rate_limit: {} });
+  });
+  const vscode = fakeVscode();
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"],
+    [CODEX_SECRET_KEYS.chatgptAccountId, "account-id"]
+  ]));
+  registerCocopiCommands(context, vscode);
+  await vscode.commands.callbacks.get(COCOPI_COMMANDS.status)?.();
+
+  const autoHtml = vscode.panels[0].webview.html;
+  const autoUtility = autoHtml.match(/<div class="workload-route" data-workload-route="utility">([\s\S]*?)<\/div>/u)?.[1] ?? "";
+  const autoSmall = autoHtml.match(/<div class="workload-route" data-workload-route="utility-small">([\s\S]*?)<\/div>/u)?.[1] ?? "";
+  for (const route of [autoUtility, autoSmall]) {
+    assert.match(route, /<option value="medium">medium \(default\)<\/option>/u);
+    assert.match(route, /name="routes\.utility(?:Small)?\.reasoningEffort" disabled/u);
+    assert.match(route, /name="routes\.utility(?:Small)?\.serviceTier" disabled/u);
+    assert.doesNotMatch(route, /(?:low|max) \(default\)/u);
+  }
+  assert.match(autoHtml, /field\.name === 'routes\.utility\.model' \|\| field\.name === 'routes\.utilitySmall\.model'/u);
+
+  await vscode.panels[0].receiveMessage({ type: "updateSettings", settings: { "routes.utility.model": "gpt-6-sol" } });
+  const namedUtility = vscode.panels[0].webview.html.match(/<div class="workload-route" data-workload-route="utility">([\s\S]*?)<\/div>/u)?.[1] ?? "";
+  assert.match(namedUtility, /<option value="high">high \(default\)<\/option>/u);
+  assert.match(namedUtility, /name="routes\.utility\.reasoningEffort">/u);
+  assert.match(namedUtility, /name="routes\.utility\.serviceTier">/u);
+  assert.doesNotMatch(namedUtility, /name="routes\.utility\.(?:reasoningEffort|serviceTier)" disabled/u);
+  vscode.panels[0].dispose();
 });
 
 test("Cocopi native chat status item is registered when available", async () => {
@@ -894,6 +935,35 @@ test("Token Tracker warns when token tracking is disabled", async () => {
   assert.doesNotMatch(vscode.panels[0].webview.html, /when token tracking is enabled/u);
 });
 
+test("Token Tracker distinguishes utility and subagent rows sharing a Codex model", async () => {
+  clearCocopiTokenCacheDebugSummaries();
+  for (const [index, selectedModel] of ["cocopi/utility", "cocopi/utility-small", "subagent-lookup"].entries()) {
+    recordCocopiTokenCacheSummary({
+      ...tokenCacheSummary({ id: index + 1, hostRequestIndex: index + 1 }),
+      model: "gpt-6-luna",
+      selectedModel,
+      requestedModel: selectedModel,
+      resolvedModel: "gpt-6-luna",
+      workload: selectedModel === "subagent-lookup" ? "chat" : "utility",
+      workloadSubtype: /** @type {const} */ (["general", "small", "main"])[index]
+    });
+  }
+  const vscode = fakeVscode();
+  registerCocopiCommands(fakeContext(), vscode);
+
+  await vscode.commands.callbacks.get(COCOPI_COMMANDS.showTokenTracker)?.();
+  const html = vscode.panels[0].webview.html;
+  assert.match(html, /Utility \(gpt-6-luna\)/u);
+  assert.match(html, /Utility small \(gpt-6-luna\)/u);
+  assert.match(html, /Subagent lookup \(gpt-6-luna\)/u);
+  assert.match(html, /Requested model<\/span><span>cocopi\/utility-small/u);
+  assert.match(html, /Selected model<\/span><span>subagent-lookup/u);
+  assert.match(html, /Resolved model<\/span><span>gpt-6-luna/u);
+
+  vscode.panels[0].dispose();
+  clearCocopiTokenCacheDebugSummaries();
+});
+
 test("Token Tracker workload filters refresh host analytics", async () => {
   clearCocopiTokenCacheDebugSummaries();
   recordCocopiTokenCacheSummary(tokenCacheSummary({ id: 1, hostRequestIndex: 1 }));
@@ -1146,6 +1216,7 @@ test("selectInlineCompletionModel updates the configured inline completion model
     models: [
       { slug: "gpt-current", display_name: "Current" },
       { slug: "gpt-5-spark-test", display_name: "Spark Test", context_window: 64_000 },
+      { slug: "gpt-6-luna", display_name: "GPT-6 Luna" },
       { slug: "gpt-next", display_name: "Next" }
     ]
   })));
@@ -1153,9 +1224,9 @@ test("selectInlineCompletionModel updates the configured inline completion model
   await selectInlineCompletionModel(context, vscode);
 
   assert.equal(vscode.quickPickItems[0][0].modelId, "auto");
-  assert.equal(vscode.quickPickItems[0][1].modelId, "gpt-5-spark-test");
-  assert.deepEqual(vscode.configurationUpdates, [{ key: "inlineCompletions.model", value: "gpt-5-spark-test", target: true }]);
-  assert.match(vscode.informationMessages.at(-1) ?? "", /inline completion model set to gpt-5-spark-test/u);
+  assert.equal(vscode.quickPickItems[0][1].modelId, "gpt-6-luna");
+  assert.deepEqual(vscode.configurationUpdates, [{ key: "inlineCompletions.model", value: "gpt-6-luna", target: true }]);
+  assert.match(vscode.informationMessages.at(-1) ?? "", /inline completion model set to gpt-6-luna/u);
 });
 
 test("selectInlineCompletionModel can enable inline completions from the confirmation popup", async (testContext) => {

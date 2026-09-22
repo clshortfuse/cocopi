@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { COCOPI_RESPONSE_ITEMS_METADATA_KEY, COCOPI_SESSION_ID_METADATA_KEY } from "../lib/vscode/chat-history.js";
 import { COCOPI_CHAT_PARTICIPANT_ID, chatParticipantModelForRequest, createCocopiChatRequestHandler, registerCocopiChatParticipant } from "../lib/vscode/chat-participant.js";
+import { CODEX_CLIENT_VERSION } from "../lib/codex-api/config.js";
 import { clearCocopiIssues, readCocopiIssues } from "../lib/vscode/issues.js";
 import { CODEX_SECRET_KEYS } from "../lib/vscode/secret-storage.js";
 import { clearCocopiTokenCacheDebugSummaries, readCocopiTokenCacheDebugSummaries } from "../lib/vscode/token-cache-debug.js";
@@ -1625,6 +1626,7 @@ function fakeChatRequest(prompt, options = {}) {
 function fakeConfiguration(options = {}) {
   return {
     apiBaseUrl: "https://chatgpt.example.test/backend-api/codex",
+    clientVersion: CODEX_CLIENT_VERSION,
     model: "gpt-configured",
     authMode: "secretStorage",
     serviceTier: "auto",
@@ -1645,8 +1647,8 @@ function fakeConfiguration(options = {}) {
     chatInstructionsRegexReplacements: {},
     chatToolDescriptionRegexReplacements: {},
     routes: {
-      utility: { model: "auto", reasoningEffort: "low", serviceTier: "auto" },
-      utilitySmall: { model: "auto", reasoningEffort: "lowest", serviceTier: "auto" },
+      utility: { model: "auto", reasoningEffort: "max", serviceTier: "auto" },
+      utilitySmall: { model: "auto", reasoningEffort: "low", serviceTier: "auto" },
       autocomplete: { model: "", reasoningEffort: "lowest", serviceTier: "auto" }
     },
     inlineCompletions: {

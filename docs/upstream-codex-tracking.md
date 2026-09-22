@@ -2,6 +2,29 @@
 
 This file tracks Cocopi-visible drift from the OpenAI Codex CLI baseline that Cocopi uses as a behavior reference. It is intentionally focused on remote API, model-catalog, auth, transport, tool, and VS Code bridge implications. It is not an exhaustive copy of every upstream CLI/TUI/app-server change.
 
+## GPT-6 Sol And Luna Rollout
+
+- Current Cocopi baseline: [`rust-v0.155.1`](https://github.com/openai/codex/releases/tag/rust-v0.155.1)
+- Previous Cocopi baseline: [`rust-v0.153.3`](https://github.com/openai/codex/releases/tag/rust-v0.153.3)
+
+The live ChatGPT Codex catalog returns `gpt-6-sol` and `gpt-6-luna` when queried with client version `0.155.1`; the same account does not receive them with `0.153.3`. OpenAI's model documentation identifies Sol as the replacement for the retiring GPT-5.5 default and Luna as the efficient focused-task model. Cocopi defaults its main model to Sol. Automatic general utility uses Luna Max, small utility uses Luna Low, and autocomplete uses Luna at its lowest supported effort; Sol is the next catalog fallback. Explicit route targets remain pinned, including older user-selected models, until the user changes them to Auto. Neither Spark nor GPT-5.6 is recommended for automatic selection. No GPT-6 Terra model is assumed.
+
+`cocopi.clientVersion` lets users override the reported version for compatibility testing. The resolved value is used by the catalog `client_version` query, the `version` request header, model-catalog cache identity, and HTTP/WebSocket response transports. Changing it therefore starts a distinct catalog and WebSocket compatibility context.
+
+### `0.153.3...0.155.1` Cocopi Impact Audit
+
+| Upstream change | Cocopi disposition |
+| --- | --- |
+| `0.153.4` made Astra visible and the bundled default. | Superseded by the current Sol default and live catalog discovery. Cocopi does not import bundled picker visibility. |
+| `0.154.0` added async user questions, managed worktrees, Windows app-server daemons, voice preparation, and richer TUI/session UI. | Host/runtime features outside Cocopi's backend bridge. VS Code owns user interaction, worktrees, and application lifecycle. |
+| Model catalogs and WebSocket state became scoped to provider and auth identity. | Cocopi already keys catalog storage by API URL, reported client version, and account ID. Response WebSocket sessions are keyed by API URL, access-token digest, account ID, reported version, and conversation ID. |
+| ChatGPT HTTP clients preserve the `__oailb` routing cookie. | No action: Cocopi uses stateless platform `fetch` and does not receive or maintain a first-party cookie jar. Track only if the backend begins requiring sticky-cookie behavior. |
+| Remote compaction now consistently uses the streamed implementation and retired model entries were removed while migrations remain. | No immediate request change. Cocopi's VS Code bridge uses its existing compaction/replay strategy and live catalog rather than importing bundled retired entries. |
+| Quota failures are distinguished from ordinary rate limits. | Cocopi currently surfaces backend terminal messages and keeps its existing retry policy. Dedicated quota presentation remains optional follow-up. |
+| Reasoning effort is captured more consistently across compaction, replay, model switching, and tool execution. | Cocopi already records resolved model options in continuation state and applies each request's selected/catalog-compatible effort. No new wire field was identified. |
+| `0.155.1` restored `none` as the local TUI reasoning-summary default to avoid providers that reject summaries. | Cocopi remains catalog-aware: it omits summaries when unsupported and uses its explicit/model-derived setting otherwise. The TUI default itself is not a backend protocol requirement. |
+| Voice, Touch ID MCP verification, daemon update scheduling, task archive/delete, AWS credential commands, Python SDK publishing, and sandbox hardening landed. | These belong to Codex clients, app-server, providers, or sandbox runtimes and do not map to Cocopi's VS Code language-model provider. |
+
 ## GPT-6 Baseline Review
 
 - Previous Cocopi baseline: [`rust-v0.144.0`](https://github.com/openai/codex/releases/tag/rust-v0.144.0)
@@ -149,7 +172,7 @@ Checked with active local credentials on 2026-07-09 using `client_version=0.144.
 | `gpt-5.3-codex-spark` | `high` | `low`, `medium`, `high`, `xhigh` | `xhigh` | `xhigh` |
 | `codex-auto-review` | `medium` | `low`, `medium`, `high`, `xhigh` | `xhigh` | `xhigh` |
 
-Conclusion: the new global settings/schema values do not force unsupported wire efforts onto older models. Cocopi resolves per live catalog metadata, then applies the upstream Ultra translation: selected Ultra becomes `max` (or the nearest older wire effort) and separately enables proactive `runSubagent` guidance when that VS Code tool is present and the catalog does not explicitly select `v1` or `disabled`. Missing selector metadata remains compatible. Upstream `ModelPreset::filter_by_auth` keeps every model in ChatGPT mode and applies `supported_in_api` only in API-key mode. Cocopi currently uses ChatGPT authentication, so a `supported_in_api: false` Spark remains a valid workload target with its advertised reasoning levels. For `cocopi/autocomplete`, Spark is preferred and an actually unavailable Spark falls back to GPT-5.6 Luna before the main chat fallback model.
+Conclusion: the new global settings/schema values do not force unsupported wire efforts onto older models. Cocopi resolves per live catalog metadata, then applies the upstream Ultra translation: selected Ultra becomes `max` (or the nearest older wire effort) and separately enables proactive `runSubagent` guidance when that VS Code tool is present and the catalog does not explicitly select `v1` or `disabled`. Missing selector metadata remains compatible. Upstream `ModelPreset::filter_by_auth` keeps every model in ChatGPT mode and applies `supported_in_api` only in API-key mode. Cocopi currently uses ChatGPT authentication, so a `supported_in_api: false` model remains a valid explicit workload target with its advertised reasoning levels. Automatic workloads now prefer GPT-6 Luna, then GPT-6 Sol; older models are used only when no preferred catalog model is available or explicitly pinned.
 
 ## Release-Driven Impact Matrix
 

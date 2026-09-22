@@ -246,7 +246,7 @@
         },
         "cocopi.inlineCompletions.model": {
           "default": "auto",
-          "description": "Codex model id for Cocopi AI inline completions. Use 'auto' to prefer a Spark-like low-latency model available to the signed-in account, falling back to GPT-5.6 Luna before cocopi.model.",
+          "description": "Codex model id for Cocopi AI inline completions. Auto prefers GPT-6 Luna from the signed-in catalog, then GPT-6 Sol, then cocopi.model. A specific id remains pinned.",
           "type": "string"
         },
         "cocopi.inlineCompletions.maxPrefixCharacters": {
@@ -269,8 +269,15 @@
           "minimum": 0,
           "type": "number"
         },
+        "cocopi.clientVersion": {
+          "default": "0.155.1",
+          "description": "Codex client version reported to the backend in model-catalog queries and request headers. Leave unchanged unless testing a backend compatibility gate.",
+          "scope": "application",
+          "restricted": true,
+          "type": "string"
+        },
         "cocopi.model": {
-          "default": "gpt-5.5",
+          "default": "gpt-6-sol",
           "description": "Codex model id to request by default.",
           "type": "string"
         },
@@ -282,7 +289,7 @@
         "cocopi.routes.autocomplete.reasoningEffort": {
           "default": "lowest",
           "description": "Reasoning effort for the specialized autocomplete workload model. Lowest selects the least effort supported by its resolved model.",
-          "enum": ["lowest", "default", "none", "minimal", "low", "medium", "high", "xhigh", "max"],
+          "enum": ["lowest", "none", "minimal", "low", "medium", "high", "xhigh", "max"],
           "type": "string"
         },
         "cocopi.routes.autocomplete.serviceTier": {
@@ -293,13 +300,13 @@
         },
         "cocopi.routes.utility.model": {
           "default": "auto",
-          "description": "Concrete Codex target for the specialized cocopi/utility workload model. Auto chooses a catalog model. Workload aliases and :fast variants are not valid targets.",
+          "description": "Concrete Codex target for cocopi/utility. Auto follows the catalog, preferring GPT-6 Luna; a specific id stays pinned. Workload aliases and :fast variants are not valid targets.",
           "type": "string"
         },
         "cocopi.routes.utility.reasoningEffort": {
-          "default": "low",
+          "default": "max",
           "description": "Reasoning effort for the specialized general utility workload model. Lowest selects the least effort supported by its resolved model.",
-          "enum": ["lowest", "default", "none", "minimal", "low", "medium", "high", "xhigh", "max"],
+          "enum": ["lowest", "none", "minimal", "low", "medium", "high", "xhigh", "max"],
           "type": "string"
         },
         "cocopi.routes.utility.serviceTier": {
@@ -310,13 +317,13 @@
         },
         "cocopi.routes.utilitySmall.model": {
           "default": "auto",
-          "description": "Concrete Codex target for the specialized cocopi/utility-small workload model. Auto chooses a catalog model. Workload aliases and :fast variants are not valid targets.",
+          "description": "Concrete Codex target for cocopi/utility-small. Auto follows the catalog, preferring GPT-6 Luna; a specific id stays pinned. Workload aliases and :fast variants are not valid targets.",
           "type": "string"
         },
         "cocopi.routes.utilitySmall.reasoningEffort": {
-          "default": "lowest",
+          "default": "low",
           "description": "Reasoning effort for the specialized small utility workload model. Lowest selects the least effort supported by its resolved model.",
-          "enum": ["lowest", "default", "none", "minimal", "low", "medium", "high", "xhigh", "max"],
+          "enum": ["lowest", "none", "minimal", "low", "medium", "high", "xhigh", "max"],
           "type": "string"
         },
         "cocopi.routes.utilitySmall.serviceTier": {

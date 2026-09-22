@@ -447,6 +447,7 @@
  * @property {string} [chatgptAccountId]
  * @property {boolean} [fedramp]
  * @property {string} [originator]
+ * @property {string} [clientVersion]
  */
 
 export {};
