@@ -128,3 +128,55 @@ test("fetchWithRetries uses exponential backoff for rate limits", async () => {
   assert.equal(calls, 3);
   assert.deepEqual(delays, [250, 500]);
 });
+
+test("fetchWithRetries honors bounded Retry-After seconds and dates", async () => {
+  /** @type {number[]} */
+  const delays = [];
+  let calls = 0;
+  const response = await fetchWithRetries("https://chatgpt.example.test/backend-api/codex/models", { method: "GET" }, {
+    retryDelay: async (milliseconds) => { delays.push(milliseconds); },
+    fetch: /** @type {typeof fetch} */ (async () => {
+      calls += 1;
+      return Response.json({}, {
+        status: calls < 3 ? 429 : 200,
+        headers: calls === 1
+          ? { "Retry-After": "3" }
+          : { "Retry-After": new Date(Date.now() + 60_000).toUTCString() }
+      });
+    })
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(delays, [3000, 30_000]);
+});
+
+test("fetchWithRetries ignores malformed Retry-After advice", async () => {
+  /** @type {number[]} */
+  const delays = [];
+  let calls = 0;
+  await fetchWithRetries("https://chatgpt.example.test/backend-api/codex/models", { method: "GET" }, {
+    retryDelay: async (milliseconds) => { delays.push(milliseconds); },
+    fetch: /** @type {typeof fetch} */ (async () => Response.json({}, {
+      status: ++calls < 3 ? 503 : 200,
+      headers: { "Retry-After": calls === 1 ? "not a date" : "1.5" }
+    }))
+  });
+
+  assert.deepEqual(delays, [250, 500]);
+});
+
+test("fetchWithRetries caps Retry-After seconds and never waits after its final attempt", async () => {
+  /** @type {number[]} */
+  const delays = [];
+  const response = await fetchWithRetries("https://chatgpt.example.test/backend-api/codex/models", { method: "GET" }, {
+    retries: 1,
+    retryDelay: async (milliseconds) => { delays.push(milliseconds); },
+    fetch: /** @type {typeof fetch} */ (async () => Response.json({}, {
+      status: 429,
+      headers: { "Retry-After": "999999999999999999999" }
+    }))
+  });
+
+  assert.equal(response.status, 429);
+  assert.deepEqual(delays, [30_000]);
+});

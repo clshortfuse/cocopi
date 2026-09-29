@@ -66,6 +66,18 @@ test("buildTextResponseBody omits reasoning unless explicitly configured", () =>
   assert.equal("reasoning" in buildTextResponseBody({ model: "gpt-5-codex", input: "say hi" }), false);
 });
 
+test("buildTextResponseBody serializes safe decimal custom efforts as JSON numbers", () => {
+  const reasoning = { effort: "42", summary: /** @type {const} */ ("concise") };
+  const body = buildTextResponseBody({ model: "custom", input: "say hi", reasoning });
+  assert.deepEqual(body.reasoning, { effort: 42, summary: "concise" });
+  assert.match(JSON.stringify(body), /"effort":42/u);
+  assert.equal(reasoning.effort, "42");
+
+  for (const effort of ["ultra", "max", "1.5", "-1", "18446744073709551615"]) {
+    assert.equal(buildTextResponseBody({ model: "custom", input: "say hi", reasoning: { effort } }).reasoning?.effort, effort);
+  }
+});
+
 test("buildTextResponseBody omits instructions unless explicitly configured", () => {
   assert.equal("instructions" in buildTextResponseBody({ model: "gpt-5-codex", input: "say hi" }), false);
 });

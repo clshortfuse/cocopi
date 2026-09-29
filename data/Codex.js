@@ -18,7 +18,7 @@
  * @property {CodexTool[]} [tools]
  * @property {CodexToolChoice} [tool_choice]
  * @property {boolean} [parallel_tool_calls]
- * @property {CodexReasoning | null} [reasoning]
+ * @property {CodexRequestReasoning | null} [reasoning]
  * @property {CodexResponseTextConfig} [text]
  * @property {CodexServiceTier} [service_tier]
  * @property {string} [previous_response_id]
@@ -144,6 +144,8 @@
  * @property {CodexReasoningSummary | null} [summary]
  * @property {CodexReasoningSummary | null} [generate_summary]
  */
+
+/** @typedef {Omit<CodexReasoning, 'effort'> & { effort?: string | number }} CodexRequestReasoning */
 
 /**
  * @typedef {object} CodexResponseTextConfig

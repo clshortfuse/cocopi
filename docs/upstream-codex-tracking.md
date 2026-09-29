@@ -2,9 +2,28 @@
 
 This file tracks Cocopi-visible drift from the OpenAI Codex CLI baseline that Cocopi uses as a behavior reference. It is intentionally focused on remote API, model-catalog, auth, transport, tool, and VS Code bridge implications. It is not an exhaustive copy of every upstream CLI/TUI/app-server change.
 
+## Codex `0.159.0` Baseline Review
+
+- Current Cocopi baseline: [`rust-v0.159.0`](https://github.com/openai/codex/releases/tag/rust-v0.159.0)
+- Previous Cocopi baseline: [`rust-v0.155.1`](https://github.com/openai/codex/releases/tag/rust-v0.155.1)
+- Upstream compare: [`rust-v0.155.1...rust-v0.159.0`](https://github.com/openai/codex/compare/rust-v0.155.1...rust-v0.159.0)
+
+The `0.159.0` bundled catalog still contains `gpt-6-sol` and `gpt-6-luna` with `minimal_client_version: "0.155.0"`; it does not include a GPT-6.1 Sol entry. The new catalog fields `supports_reasoning_effort_updates` and `guardian` do not change Cocopi's current model picker or Responses request contract. Cocopi continues to discover account-specific models through the live catalog rather than assuming bundled visibility.
+
+| Upstream changes in `0.156.0...0.159.0` | Cocopi disposition |
+| --- | --- |
+| Sol and Luna entered the bundled catalog; model descriptions, priorities, and migration prompts changed. | Keep Cocopi's existing live-catalog discovery, Sol default, and Luna utility routing. Do not import bundled migration prompts. |
+| Responses turn metadata, analytics, retry classification, and remote compaction/replay evolved. | No required new request field. HTTP retries honor valid `Retry-After` seconds/dates with a 30-second cap, retaining existing retry counts and exponential fallback. Stream `slow_down`/quota presentation remains a separate optional UX change. |
+| Numeric custom reasoning efforts now serialize as JSON numbers upstream. | Convert catalog-defined unsigned decimal effort strings to numbers at the Responses request boundary when safely representable in JavaScript; keep catalog/UI effort strings and Ultra's existing wire translation unchanged. Larger integers remain strings rather than risking precision loss. |
+| WebSocket connection prewarming, steering continuations, and opt-in `instant_interrupt` changed upstream client behavior. | Cocopi's response transport and VS Code cancellation remain separate; do not turn on an opt-in feature by advertising a newer version. |
+| Authentication-driven catalog refresh and allowlisted infrastructure-cookie sharing changed upstream. | Defer cookie storage and broad auth-cache invalidation until a Cocopi-specific need is demonstrated. |
+| Gateway/MCP/exec-server authentication, network policy, sandbox, TUI, and app-server features changed. | These are upstream host features rather than ChatGPT Codex Responses or model-catalog requirements for Cocopi. |
+
+`cocopi.clientVersion` now defaults to `0.159.0`. As before, it scopes the catalog query and cache, request `version` header, and WebSocket transport identity; explicit user overrides remain supported.
+
 ## GPT-6 Sol And Luna Rollout
 
-- Current Cocopi baseline: [`rust-v0.155.1`](https://github.com/openai/codex/releases/tag/rust-v0.155.1)
+- Baseline for this rollout: [`rust-v0.155.1`](https://github.com/openai/codex/releases/tag/rust-v0.155.1)
 - Previous Cocopi baseline: [`rust-v0.153.3`](https://github.com/openai/codex/releases/tag/rust-v0.153.3)
 
 The live ChatGPT Codex catalog returns `gpt-6-sol` and `gpt-6-luna` when queried with client version `0.155.1`; the same account does not receive them with `0.153.3`. OpenAI's model documentation identifies Sol as the replacement for the retiring GPT-5.5 default and Luna as the efficient focused-task model. Cocopi defaults its main model to Sol. Automatic general utility uses Luna Max, small utility uses Luna Low, and autocomplete uses Luna at its lowest supported effort; Sol is the next catalog fallback. Explicit route targets remain pinned, including older user-selected models, until the user changes them to Auto. Neither Spark nor GPT-5.6 is recommended for automatic selection. No GPT-6 Terra model is assumed.
