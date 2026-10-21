@@ -1099,6 +1099,14 @@ test("usage refresh is shared and throttled across status surfaces", async (test
   const calls = [];
   testContext.mock.method(globalThis, "fetch", async (url, options = {}) => {
     calls.push({ url: String(url), options });
+    if (String(url).endsWith("/rate-limit-reset-credits")) {
+      const credit = { reset_type: "codex_rate_limits", status: "available", is_supported_by_plan: true };
+      return Response.json({ credits: [
+        { ...credit, expires_at: "2099-10-05T04:21:17Z" },
+        { ...credit, expires_at: "2099-10-22T21:06:04Z" },
+        { ...credit, expires_at: "2000-01-01T00:00:00Z" }
+      ] });
+    }
     return Response.json({
       plan_type: "pro",
       rate_limit: {
@@ -1124,7 +1132,9 @@ test("usage refresh is shared and throttled across status surfaces", async (test
   await vscode.commands.callbacks.get(COCOPI_COMMANDS.status)?.();
 
   const usageCalls = calls.filter((call) => !/\/models\?/u.test(call.url));
-  assert.equal(usageCalls.length, 3);
+  assert.equal(usageCalls.length, 4);
+  assert.equal(calls.filter((call) => call.url.endsWith("/rate-limit-reset-credits")).length, 1);
+  assert.match(vscode.panels[0].webview.html, /2 banked resets · Next expires/u);
   assert.ok(calls.some((call) => /\/usage$/u.test(call.url)));
   assert.ok(calls.some((call) => /\/usage\/daily-token-usage-breakdown/u.test(call.url)));
   assert.ok(calls.some((call) => /\/analytics\/daily-workspace-usage-counts/u.test(call.url)));

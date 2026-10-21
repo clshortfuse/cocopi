@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-import { fetchCodexRateLimits, fetchCodexUsageAnalytics, parseCodexDailyTokenUsageBreakdownResponse, parseCodexRateLimitEvent, parseCodexUsageResponse, parseCodexWorkspaceUsageCountsResponse } from "../lib/codex-api/rate-limits.js";
+import { fetchCodexRateLimits, fetchCodexUsageAnalytics, parseCodexDailyTokenUsageBreakdownResponse, parseCodexRateLimitEvent, parseCodexResetCreditExpirations, parseCodexUsageResponse, parseCodexWorkspaceUsageCountsResponse } from "../lib/codex-api/rate-limits.js";
 
 const chatgptProUsageFixture = JSON.parse(await readFile(new URL("fixtures/codex-rate-limits/chatgpt-pro-usage.json", import.meta.url), "utf8"));
 const dailyTokenUsageFixture = JSON.parse(await readFile(new URL("fixtures/codex-usage-analytics/daily-token-usage-breakdown.json", import.meta.url), "utf8"));
@@ -123,6 +123,10 @@ test("fetchCodexRateLimits falls back to upstream wham usage endpoint", async ()
       if (String(url) === "https://chatgpt.com/backend-api/codex/usage") {
         return new Response("forbidden", { status: 403 });
       }
+      if (String(url).endsWith("/rate-limit-reset-credits")) {
+        assert.equal(urls.length, 3);
+        return Response.json({ credits: [{ reset_type: "codex_rate_limits", status: "available", is_supported_by_plan: true, expires_at: "2026-10-05T04:21:17Z" }] });
+      }
 
       return Response.json({
         plan_type: "plus",
@@ -137,10 +141,26 @@ test("fetchCodexRateLimits falls back to upstream wham usage endpoint", async ()
 
   assert.deepEqual(urls, [
     "https://chatgpt.com/backend-api/codex/usage",
-    "https://chatgpt.com/backend-api/wham/usage"
+    "https://chatgpt.com/backend-api/wham/usage",
+    "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
   ]);
+  assert.deepEqual(snapshots[0]?.resetCreditExpirations, [Date.parse("2026-10-05T04:21:17Z") / 1000]);
   assert.equal(snapshots[0]?.planType, "plus");
   assert.equal(snapshots[0]?.primary?.usedPercent, 5);
+});
+
+test("banked reset expirations exclude redeemed, unsupported, invalid and unrelated credits", () => {
+  const credit = { reset_type: "codex_rate_limits", status: "available", is_supported_by_plan: true, expires_at: "2026-10-05T04:21:17Z" };
+  assert.deepEqual(parseCodexResetCreditExpirations({ credits: [
+    { ...credit, expires_at: "2026-10-22T21:06:04Z" },
+    credit,
+    { ...credit, status: "redeemed" },
+    { ...credit, is_supported_by_plan: false },
+    { ...credit, expires_at: "invalid" },
+    { ...credit, reset_type: "other" }
+  ] }), [Date.parse(credit.expires_at) / 1000, Date.parse("2026-10-22T21:06:04Z") / 1000]);
+  assert.deepEqual(parseCodexResetCreditExpirations({ credits: [] }), []);
+  assert.throws(() => parseCodexResetCreditExpirations({}), /invalid/u);
 });
 
 test("parse Codex account analytics responses", () => {
