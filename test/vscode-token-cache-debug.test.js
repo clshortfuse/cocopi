@@ -22,8 +22,227 @@ import {
   waitForCocopiTokenCacheDebugStorage
 } from "../lib/vscode/token-cache-debug.js";
 
-const COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY = "cocopi.diagnostics.tokenTracker.v1";
+const COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY = "cocopi.diagnostics.tokenTracker.v2";
+const COCOPI_TOKEN_CACHE_DEBUG_LEGACY_STORAGE_KEY = "cocopi.diagnostics.tokenTracker.v1";
 const COCOPI_RATE_LIMIT_STORAGE_KEY = "cocopi.diagnostics.rateLimits.v1";
+
+test("evicted rows survive as hourly usage across storage reload", async () => {
+  const secrets = fakeSecretStorage();
+  await initializeCocopiTokenCacheDebugStorage(secrets);
+  clearCocopiTokenCacheDebugSummaries();
+  for (let index = 1; index <= 5002; index += 1) {
+    recordCocopiTokenCacheSummary(tokenCacheSummary({ hostRequestIndex: index, sessionId: "hourly-test", inputTokens: 100, outputTokens: 10, cachedTokens: 50 }));
+  }
+  await waitForCocopiTokenCacheDebugStorage();
+  const stored = JSON.parse(secrets.values.get(COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY) ?? "{}");
+  assert.equal(stored.rows.length, 5000);
+  assert.equal(stored.hourly.length, 1);
+  assert.equal(stored.hourly[0].hourlyTotals.requestCount, 2);
+  assert.equal(stored.hourly[0].sessionId, "hourly");
+  assert.equal(Date.parse(stored.hourly[0].recordedAt) % 3_600_000, 0);
+  await initializeCocopiTokenCacheDebugStorage(secrets);
+  const analytics = readCocopiUsageAnalytics();
+  assert.equal(analytics.weeklyCycle.requestCount, 5002);
+  assert.equal(analytics.weeklyCycle.apiMeteredTokens, 5002 * 60);
+  assert.equal(analytics.workloads[0]?.requestCount, 5002);
+  assert.equal(analytics.timeline.buckets.reduce((sum, bucket) => sum + bucket.requestCount, 0), 5002);
+  assert.equal(deleteCocopiTokenCacheDebugSession("hourly-test"), true);
+  assert.equal(readCocopiUsageAnalytics().weeklyCycle.requestCount, 2);
+  clearCocopiTokenCacheDebugSummaries();
+  assert.equal(readCocopiUsageAnalytics().weeklyCycle.requestCount, 0);
+  await waitForCocopiTokenCacheDebugStorage();
+});
+
+test("startup merges and archives legacy rows with concurrent requests exactly once", async () => {
+  clearCocopiTokenCacheDebugSummaries();
+  await waitForCocopiTokenCacheDebugStorage();
+  const recordedAt = new Date(Date.now() - 3_600_000).toISOString();
+  const rows = Array.from({ length: 5000 }, (_, index) => storedTokenCacheSummary({
+    id: index + 1, hostRequestIndex: index + 1, recordedAt, billedTotalTokens: 10, sessionId: "old"
+  }));
+  const secrets = fakeSecretStorage(new Map([[COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY, JSON.stringify(rows)]]));
+  const loading = initializeCocopiTokenCacheDebugStorage(secrets);
+  recordCocopiTokenCacheSummary(tokenCacheSummary({ hostRequestIndex: 5001, sessionId: "new", inputTokens: 10, outputTokens: 0, cachedTokens: 0 }));
+  await loading;
+  await waitForCocopiTokenCacheDebugStorage();
+  const analytics = readCocopiUsageAnalytics();
+  assert.equal(analytics.weeklyCycle.requestCount, 5001);
+  assert.equal(analytics.weeklyCycle.apiMeteredTokens, 50_010);
+  assert.equal(JSON.parse(secrets.values.get(COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY) ?? "{}").hourly[0].hourlyTotals.requestCount, 1);
+  clearCocopiTokenCacheDebugSummaries();
+  await waitForCocopiTokenCacheDebugStorage();
+});
+
+test("clearing during startup does not restore stored rows or hourly totals", async () => {
+  const secrets = fakeSecretStorage(new Map([[COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY, JSON.stringify([
+    storedTokenCacheSummary({ id: 1, hostRequestIndex: 1, recordedAt: new Date().toISOString(), billedTotalTokens: 10 })
+  ])]]));
+  const loading = initializeCocopiTokenCacheDebugStorage(secrets);
+  clearCocopiTokenCacheDebugSummaries();
+  await loading;
+  await waitForCocopiTokenCacheDebugStorage();
+  assert.equal(readCocopiUsageAnalytics().weeklyCycle.requestCount, 0);
+  assert.deepEqual(JSON.parse(secrets.values.get(COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY) ?? "{}").rows, []);
+});
+
+test("startup session deletion persists even without an in-memory match", async () => {
+  const source = fakeSecretStorage();
+  await initializeCocopiTokenCacheDebugStorage(source);
+  clearCocopiTokenCacheDebugSummaries();
+  recordCocopiTokenCacheSummary(tokenCacheSummary({ hostRequestIndex: 1, cachedTokens: 0, sessionId: "delete-during-load" }));
+  await waitForCocopiTokenCacheDebugStorage();
+  const stored = source.values.get(COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY) ?? "";
+  clearCocopiTokenCacheDebugSummaries();
+  await waitForCocopiTokenCacheDebugStorage();
+  const secrets = fakeSecretStorage(new Map([[COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY, stored]]));
+  const loading = initializeCocopiTokenCacheDebugStorage(secrets);
+  deleteCocopiTokenCacheDebugSession("delete-during-load");
+  await loading;
+  await waitForCocopiTokenCacheDebugStorage();
+  await initializeCocopiTokenCacheDebugStorage(secrets);
+  assert.equal(readCocopiTokenCacheDebugSummaries().length, 0);
+});
+
+test("hourly usage preserves the count of billable requests separately from partial usage", async () => {
+  const secrets = fakeSecretStorage();
+  await initializeCocopiTokenCacheDebugStorage(secrets);
+  clearCocopiTokenCacheDebugSummaries();
+  const partial = { ...tokenCacheSummary({ hostRequestIndex: 1, cachedTokens: 1 }), inputTokens: undefined, outputTokens: undefined, totalTokens: undefined };
+  recordCocopiTokenCacheSummary(partial);
+  recordCocopiTokenCacheSummary(tokenCacheSummary({ hostRequestIndex: 2, inputTokens: 100, outputTokens: 10, cachedTokens: 50 }));
+  for (let index = 3; index <= 5002; index += 1) {
+    recordCocopiTokenCacheSummary({ ...partial, hostRequestIndex: index });
+  }
+  assert.equal(readCocopiUsageWindowStatus().requestCount, 1);
+  await waitForCocopiTokenCacheDebugStorage();
+  await initializeCocopiTokenCacheDebugStorage(secrets);
+  assert.equal(readCocopiUsageWindowStatus().requestCount, 1);
+  const stored = JSON.parse(secrets.values.get(COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY) ?? "{}");
+  delete stored.hourly[0].hourlyTotals.billableRequestCount;
+  const legacy = fakeSecretStorage(new Map([[COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY, JSON.stringify(stored)]]));
+  await initializeCocopiTokenCacheDebugStorage(legacy);
+  assert.equal(readCocopiUsageWindowStatus().requestCount, 2);
+  clearCocopiTokenCacheDebugSummaries();
+  await waitForCocopiTokenCacheDebugStorage();
+});
+
+test("legacy storage migrates once and old writers cannot replace or resurrect new history", async () => {
+  clearCocopiTokenCacheDebugSummaries();
+  await waitForCocopiTokenCacheDebugStorage();
+  const legacy = JSON.stringify([storedTokenCacheSummary({ id: 1, hostRequestIndex: 1, recordedAt: new Date().toISOString(), billedTotalTokens: 10, sessionId: "legacy-key" })]);
+  const secrets = fakeSecretStorage(new Map([[COCOPI_TOKEN_CACHE_DEBUG_LEGACY_STORAGE_KEY, legacy]]));
+  await initializeCocopiTokenCacheDebugStorage(secrets);
+  await waitForCocopiTokenCacheDebugStorage();
+  assert.equal(readCocopiTokenCacheDebugSummaries()[0]?.sessionId, "legacy-key");
+  assert.equal(secrets.values.get(COCOPI_TOKEN_CACHE_DEBUG_LEGACY_STORAGE_KEY), legacy);
+  assert.ok(secrets.values.has(COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY));
+  assert.ok(!secrets.storeCalls.includes(COCOPI_TOKEN_CACHE_DEBUG_LEGACY_STORAGE_KEY));
+  secrets.values.set(COCOPI_TOKEN_CACHE_DEBUG_LEGACY_STORAGE_KEY, "[]");
+  await initializeCocopiTokenCacheDebugStorage(secrets);
+  assert.equal(readCocopiTokenCacheDebugSummaries().length, 1);
+  clearCocopiTokenCacheDebugSummaries();
+  await waitForCocopiTokenCacheDebugStorage();
+  secrets.values.set(COCOPI_TOKEN_CACHE_DEBUG_LEGACY_STORAGE_KEY, legacy);
+  await initializeCocopiTokenCacheDebugStorage(secrets);
+  assert.equal(readCocopiTokenCacheDebugSummaries().length, 0);
+});
+
+test("archived usage preserves model effort and workload filters after reload", async () => {
+  const now = new Date("2026-06-01T15:00:00.000Z");
+  const specs = [
+    { workload: /** @type {const} */ ("chat"), workloadSubtype: /** @type {const} */ ("main"), model: "model-a", reasoningEffort: "low", tokens: 10 },
+    { workload: /** @type {const} */ ("utility"), workloadSubtype: /** @type {const} */ ("general"), model: "model-b", reasoningEffort: "high", tokens: 20 },
+    { workload: /** @type {const} */ ("utility"), workloadSubtype: /** @type {const} */ ("small"), model: "model-b", reasoningEffort: "low", tokens: 30 },
+    { workload: /** @type {const} */ ("autocomplete"), workloadSubtype: /** @type {const} */ ("inline"), model: "model-c", reasoningEffort: "none", tokens: 40 }
+  ];
+  await loadArchivedUsageFixture(specs.map((spec, index) => ({
+    ...storedTokenCacheSummary({ id: index + 1, hostRequestIndex: index + 1, recordedAt: "2026-06-01T12:15:00.000Z", billedTotalTokens: spec.tokens, selectedModel: spec.model, reasoningEffort: spec.reasoningEffort }),
+    model: spec.model, requestedModel: spec.model, resolvedModel: spec.model,
+    workload: spec.workload, workloadSubtype: spec.workloadSubtype
+  })), now);
+  try {
+    const all = readCocopiUsageAnalytics({ now });
+    assert.equal(all.retainedRequestRows, 0);
+    assert.equal(all.weeklyCycle.requestCount, 4);
+    assert.equal(all.weeklyCycle.apiMeteredTokens, 100);
+    assert.equal(all.timeline.series.length, 4);
+    for (const spec of specs) {
+      const filtered = readCocopiUsageAnalytics({ now, workload: spec.workload, workloadSubtype: spec.workloadSubtype });
+      assert.equal(filtered.weeklyCycle.requestCount, 1);
+      assert.equal(filtered.weeklyCycle.apiMeteredTokens, spec.tokens);
+      assert.equal(filtered.timeline.series[0]?.model, spec.model);
+      assert.equal(filtered.timeline.series[0]?.reasoningEffort, spec.reasoningEffort);
+      assert.equal(filtered.timeline.series[0]?.billableTokens, spec.tokens);
+      assert.equal(filtered.workloads[0]?.subtypes[0]?.billableTokens, spec.tokens);
+      assert.equal(filtered.sessions.length, 0);
+    }
+    const utility = readCocopiUsageAnalytics({ now, workload: "utility" });
+    assert.equal(utility.weeklyCycle.requestCount, 2);
+    assert.equal(utility.weeklyCycle.apiMeteredTokens, 50);
+    assert.equal(utility.workloads[0]?.subtypes.length, 2);
+  } finally {
+    clearCocopiTokenCacheDebugSummaries();
+    await waitForCocopiTokenCacheDebugStorage();
+  }
+});
+
+for (const transition of [
+  { name: "spring forward", start: "2026-03-08T06:00:00.000Z", offsets: [300, 240, 240] },
+  { name: "fall back", start: "2026-11-01T05:00:00.000Z", offsets: [240, 300, 300] }
+]) {
+  test(`archived UTC hours remain distinct through ${transition.name} and partial windows`, async () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    const start = Date.parse(transition.start);
+    const now = new Date(start + 3 * 3_600_000);
+    try {
+      assert.deepEqual([0, 1, 2].map((hour) => new Date(start + hour * 3_600_000).getTimezoneOffset()), transition.offsets);
+      await loadArchivedUsageFixture([0, 1, 2].map((hour) => storedTokenCacheSummary({
+        id: hour + 1, hostRequestIndex: hour + 1, recordedAt: new Date(start + hour * 3_600_000 + 59 * 60_000).toISOString(), billedTotalTokens: (hour + 1) * 10
+      })), now);
+      const analytics = readCocopiUsageAnalytics({ now, timelineDays: 1 });
+      const active = analytics.timeline.buckets.filter((bucket) => bucket.requestCount > 0);
+      assert.deepEqual(active.map((bucket) => bucket.bucketStart), [0, 1, 2].map((hour) => new Date(start + hour * 3_600_000).toISOString()));
+      assert.deepEqual(active.map((bucket) => bucket.billableTokens), [10, 20, 30]);
+      assert.ok(active.every((bucket) => Date.parse(bucket.bucketEnd) - Date.parse(bucket.bucketStart) === 3_600_000));
+      assert.equal(analytics.weeklyCycle.apiMeteredTokens, 60);
+      // At an exact hour boundary, the final archived hour belongs to the 1h window.
+      assert.equal(analytics.windows.find((window) => window.windowHours === 1)?.billableTokens, 30);
+      // Thirty minutes later it is outside that window: archived timestamps use hour starts.
+      const partial = readCocopiUsageAnalytics({ now: new Date(now.getTime() + 30 * 60_000) });
+      assert.equal(partial.windows.find((window) => window.windowHours === 1)?.billableTokens, 0);
+      assert.equal(partial.weeklyCycle.apiMeteredTokens, 60);
+    } finally {
+      if (previousTimezone === undefined) {
+        delete process.env.TZ;
+      } else {
+        process.env.TZ = previousTimezone;
+      }
+      clearCocopiTokenCacheDebugSummaries();
+      await waitForCocopiTokenCacheDebugStorage();
+    }
+  });
+}
+
+/**
+ * @param {ReturnType<typeof storedTokenCacheSummary>[]} rows
+ * @param {Date} now
+ */
+async function loadArchivedUsageFixture(rows, now) {
+  clearCocopiTokenCacheDebugSummaries();
+  clearCocopiRateLimitSnapshots();
+  await waitForCocopiTokenCacheDebugStorage();
+  const filler = Array.from({ length: 5000 }, (_, index) => storedTokenCacheSummary({
+    id: rows.length + index + 1, hostRequestIndex: rows.length + index + 1,
+    recordedAt: now.toISOString(), billedTotalTokens: 1, sessionId: "fixture-filler"
+  }));
+  const secrets = fakeSecretStorage(new Map([[COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY, JSON.stringify([...rows, ...filler])]]));
+  await initializeCocopiTokenCacheDebugStorage(secrets);
+  assert.equal(deleteCocopiTokenCacheDebugSession("fixture-filler"), true);
+  await waitForCocopiTokenCacheDebugStorage();
+  await initializeCocopiTokenCacheDebugStorage(secrets);
+  assert.equal(readCocopiTokenCacheDebugSummaries().length, 0);
+}
 
 test("recordCocopiTokenCacheSummary bills using uncached input plus output", () => {
   clearCocopiTokenCacheDebugSummaries();
