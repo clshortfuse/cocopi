@@ -511,10 +511,12 @@
   "enabledApiProposals": [
     "chatStatusItem",
     "chatProvider",
-    "languageModelThinkingPart"
+    "languageModelThinkingPart",
+    "languageModelCapabilities",
+    "languageModelRateLimit"
   ],
   "engines": {
-    "vscode": "^1.130.0"
+    "vscode": "^1.143.0"
   },
   "exports": {
     ".": {

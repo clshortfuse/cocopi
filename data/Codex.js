@@ -55,7 +55,7 @@
  * @typedef {object} CodexResponseFunctionCallOutputInputItem
  * @property {'function_call_output'} type
  * @property {string} call_id
- * @property {string} output
+ * @property {string | (CodexInputTextContent | CodexInputImageContent)[]} output
  */
 
 /**

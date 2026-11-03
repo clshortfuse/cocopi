@@ -1,0 +1,2 @@
+export const COCOPI_BUILD_PROFILE = "full";
+export const COCOPI_PROPOSED_APIS_ENABLED = COCOPI_BUILD_PROFILE === "full";

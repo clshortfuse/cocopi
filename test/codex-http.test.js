@@ -2,6 +2,37 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { fetchWithRetries, readJsonResponse, throwHttpError } from "../lib/utils/http.js";
+import { encodeWorkerError, decodeWorkerError } from "../lib/codex-api/worker-protocol.js";
+import { languageModelErrorFromCodexError } from "../lib/vscode/language-model-provider.js";
+
+test("terminal HTTP retry timing survives worker and provider boundaries", async (context) => {
+  const now = Date.UTC(2026, 9, 21);
+  context.mock.method(Date, "now", () => now);
+  for (const [header, expected] of [["120", 120_000], ["0", 0], [new Date(now + 120_000).toUTCString(), 120_000], [new Date(now - 1000).toUTCString(), 0], ["invalid", undefined], ["-1", undefined], ["9".repeat(400), undefined]]) {
+    let failure;
+    try {
+      await throwHttpError(new Response("", { status: 429, headers: { "Retry-After": String(header) } }), "Codex");
+    } catch (error) {
+      assert.ok(error instanceof Error);
+      failure = decodeWorkerError(encodeWorkerError(error));
+    }
+    assert.ok(failure instanceof Error);
+    let retryAfter;
+    const result = languageModelErrorFromCodexError(failure, new AbortController().signal, {
+      LanguageModelError: Object.assign(class extends Error { code = ""; }, {
+        NoPermissions: () => Object.assign(new Error("permissions"), { code: "NoPermissions" }),
+        NotFound: () => Object.assign(new Error("missing"), { code: "NotFound" }),
+        Blocked: () => Object.assign(new Error("blocked"), { code: "Blocked" }),
+        RateLimited: (/** @type {string | undefined} */ message, /** @type {number | undefined} */ delay) => {
+          retryAfter = delay;
+          return Object.assign(new Error(message), { code: "RateLimited" });
+        }
+      })
+    });
+    assert.equal(result.code, "RateLimited");
+    assert.equal(retryAfter, expected);
+  }
+});
 
 test("readJsonResponse includes safe error fields", async () => {
   await assert.rejects(

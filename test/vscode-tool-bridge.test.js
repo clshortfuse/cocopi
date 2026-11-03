@@ -577,12 +577,30 @@ function jsonString(value) {
   return JSON.stringify(value);
 }
 
-test("codexFunctionCallOutputInputItemFromToolResult summarizes binary data", () => {
+test("codexFunctionCallOutputInputItemFromToolResult preserves images and surrounding text", () => {
+  assert.deepEqual(codexFunctionCallOutputInputItemFromToolResult("call-image", {
+    content: [
+      { value: "before" },
+      { data: new Uint8Array([1, 2, 3]), mimeType: "image/png" },
+      { data: new TextEncoder().encode("after"), mimeType: "text/plain" }
+    ]
+  }), {
+    type: "function_call_output",
+    call_id: "call-image",
+    output: [
+      { type: "input_text", text: "before" },
+      { type: "input_image", image_url: "data:image/png;base64,AQID" },
+      { type: "input_text", text: "after" }
+    ]
+  });
+});
+
+test("codexFunctionCallOutputInputItemFromToolResult summarizes unsupported binary data", () => {
   assert.deepEqual(codexFunctionCallOutputInputItemFromToolResult("call-2", {
-    content: [{ data: new Uint8Array([1, 2, 3]), mimeType: "image/png" }]
+    content: [{ data: new Uint8Array([1, 2, 3]), mimeType: "application/octet-stream" }]
   }), {
     type: "function_call_output",
     call_id: "call-2",
-    output: "[image/png data, 3 bytes]"
+    output: "[application/octet-stream data, 3 bytes]"
   });
 });

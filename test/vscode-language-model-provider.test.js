@@ -58,7 +58,7 @@ class LanguageModelToolCallPart {
 class LanguageModelToolResultPart {
   /**
    * @param {string} callId
-   * @param {Array<LanguageModelTextPart>} content
+   * @param {Array<LanguageModelTextPart | LanguageModelDataPart>} content
    */
   constructor(callId, content) {
     this.callId = callId;
@@ -206,6 +206,22 @@ test("bootstrap provider does not escape failures from storage, diagnostics, or 
     { report() { throw new Error("progress unavailable"); } },
     fakeCancellationToken()
   ));
+});
+
+test("registered provider omits protocol capabilities without runtime authorization", async () => {
+  for (const authorized of [false, true]) {
+    const vscode = fakeVscode(configurationValues({ model: "gpt-protected" }));
+    const context = { ...fakeContext(), subscriptions: /** @type {{ dispose(): void }[]} */ ([]), extension: { packageJSON: { enabledApiProposals: authorized ? ["languageModelCapabilities"] : [] } } };
+    registerCocopiLanguageModelProvider(context, vscode);
+    const information = await vscode.languageModelProvider?.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken());
+    assert.ok(information?.length);
+    for (const model of information) {
+      assert.equal(model.capabilities.apiType, authorized ? 2 : undefined);
+    }
+    for (const subscription of context.subscriptions) {
+      subscription.dispose();
+    }
+  }
 });
 
 test("fail-closed provider propagates delegate request failures for host retry handling", async () => {
@@ -1119,6 +1135,39 @@ test("languageModelInformationFromCodexModels remains eligible for the Agent Hos
   assert.equal(/** @type {Record<string, unknown>} */ (model.capabilities).agentMode, true);
 });
 
+test("provider metadata declares Responses protocol for catalog and fallback models", async () => {
+  const catalog = languageModelInformationFromCodexModels([
+    { id: "protocol-fixture", displayName: "Protocol Fixture" }
+  ], "protocol-fixture");
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map()), fakeVscode(configurationValues({})));
+  const fallback = await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken());
+  assert.ok(fallback);
+  for (const model of [...catalog, ...fallback]) {
+    assert.equal(/** @type {Record<string, unknown>} */ (model.capabilities).apiType, 2, model.id);
+  }
+});
+
+for (const maximum of [100_000, 1_000_000]) {
+  test(`maximum-only catalog capacity ${maximum} survives provider projection without an invented tier`, () => {
+    const models = parseModelsResponse({ models: [{ slug: "capacity-only", display_name: "Capacity Only", max_context_window: maximum }] });
+    const [model] = languageModelInformationFromCodexModels(models, "capacity-only", { compactionFallbackStrategy: "full" });
+    assert.equal(model.maxContextWindowTokens, maximum);
+    assert.equal(model.maxInputTokens, maximum - 16_384);
+    assert.equal(model.maxOutputTokens, 16_384);
+    assert.equal(model.configurationSchema?.properties?.contextSize, undefined);
+  });
+}
+
+test("maximum-only catalog capacity bounds its compaction preference", () => {
+  const [model] = languageModelInformationFromCodexModels(parseModelsResponse({ models: [{
+    slug: "capacity-only", max_context_window: 100_000, auto_compact_token_limit: 64_000
+  }] }), "capacity-only");
+  assert.equal(model.maxContextWindowTokens, 100_000);
+  assert.equal(model.maxInputTokens, 83_616);
+  assert.equal(model.maxOutputTokens, 16_384);
+  assert.deepEqual(model.configurationSchema?.properties?.contextSize?.enum, [64_000, 83_616]);
+});
+
 test("languageModelInformationFromCodexModels can use model-provided auto-compact limits", () => {
   const [model] = languageModelInformationFromCodexModels([
     { id: "gpt-catalog", displayName: "GPT Catalog", contextWindow: 100_000, autoCompactTokenLimit: 64_000 }
@@ -1139,6 +1188,7 @@ test("languageModelInformationFromCodexModels can use server-advertised max cont
   ], "gpt-catalog", { useModelDefaultCompactionLimit: true, compactionFallbackStrategy: "ninety-percent" });
 
   assert.equal(model.maxInputTokens, 983_616);
+  assert.equal(model.maxContextWindowTokens, 1_000_000);
   assert.equal(model.maxOutputTokens, 16_384);
   const contextSize = /** @type {{ configurationSchema?: { properties?: Record<string, Record<string, unknown>> } }} */ (model).configurationSchema?.properties?.contextSize;
   assert.deepEqual(contextSize?.enum, [255_616, 983_616]);
@@ -1153,6 +1203,7 @@ test("languageModelInformationFromCodexModels falls back to 90% without a model-
   ], "gpt-catalog", { useModelDefaultCompactionLimit: true, compactionFallbackStrategy: "ninety-percent" });
 
   assert.equal(model.maxInputTokens, 75_254);
+  assert.equal(model.maxContextWindowTokens, 100_000);
   assert.equal(model.maxOutputTokens, 16_384);
   assert.ok(model.maxInputTokens + model.maxOutputTokens < 100_000);
 });
@@ -2047,6 +2098,349 @@ test("codexInputFromLanguageModelMessages serializes VS Code tool call input sta
   }]);
 });
 
+test("incremental continuation requires an explicit bridge request and a matching leading marker", () => {
+  for (const scenario of [
+    { bridge: true, markerModel: "gpt-test", responseId: "resp-prior", expected: true },
+    { bridge: false, markerModel: "gpt-test", responseId: "resp-prior", expected: false },
+    { bridge: true, markerModel: "gpt-other", responseId: "resp-prior", expected: false },
+    { bridge: true, markerModel: "gpt-test", responseId: undefined, expected: false }
+  ]) {
+    const state = codexRequestStateFromLanguageModelMessages([
+      fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
+        statefulMarkerMetadataDataPart(scenario.markerModel, {
+          sessionId: "cocopi-language-model-00000000-0000-4000-8000-000000000002",
+          responseId: scenario.responseId
+        })
+      ]),
+      fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
+        new LanguageModelToolResultPart("call-1", [new LanguageModelTextPart("file contents")])
+      ])
+    ], "gpt-test", { LanguageModelChatMessageRole }, { includeEncryptedThinking: scenario.bridge, issueTracking: false });
+    assert.equal(state.previousResponseId, scenario.expected ? "resp-prior" : undefined);
+    assert.equal(state.input.length, scenario.expected ? 1 : 0);
+  }
+});
+
+test("Agent Host system-role instructions remain instructions rather than user input", () => {
+  // Pinned 1.143 extHostTypeConverters preserves System = 3 from the renderer
+  // bridge. The public stable enum intentionally exposes only User/Assistant.
+  const roles = { ...LanguageModelChatMessageRole, System: 3 };
+  const state = codexRequestStateFromLanguageModelMessages([
+    fakeLanguageModelMessage(roles.System, "Follow workspace safety rules."),
+    fakeLanguageModelMessage(roles.System, "Use only host-provided tools."),
+    fakeLanguageModelMessage(roles.User, "inspect the project")
+  ], "gpt-test", { LanguageModelChatMessageRole: roles }, { includeEncryptedThinking: true });
+  assert.equal(state.instructions, "Follow workspace safety rules.\n\nUse only host-provided tools.");
+  assert.deepEqual(state.input, [{ role: "user", content: [{ type: "input_text", text: "inspect the project" }] }]);
+});
+
+test("Agent Host system instructions and effort reach the wire with host tools", async (testContext) => {
+  /** @type {import("../data/Codex.js").CodexResponseCreateRequest | undefined} */
+  let body;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    body = JSON.parse(String(options.body));
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "received" }),
+      sseData({ type: "response.completed", response: { id: "resp-system" } })
+    ]);
+  }));
+  const roles = { ...LanguageModelChatMessageRole, System: 3 };
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), { ...fakeVscode(), LanguageModelChatMessageRole: roles });
+  await provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), [
+    fakeLanguageModelMessage(roles.System, "Only inspect files; do not modify them."),
+    fakeLanguageModelMessage(roles.User, "Follow workspace safety rules.")
+  ], fakeResponseOptions({
+    requestInitiator: "core",
+    includeEncryptedThinking: true,
+    toolMode: LanguageModelChatToolMode.Auto,
+    modelConfiguration: { reasoningEffort: "high" },
+    modelOptions: { _conversationId: "system-role-fixture" },
+    tools: [{ name: "read_file", description: "Read a file", inputSchema: { type: "object" } }]
+  }), fakeProgress(), fakeCancellationToken());
+  assert.equal(body?.instructions, "Only inspect files; do not modify them.");
+  assert.deepEqual(body?.input, [{ role: "user", content: [{ type: "input_text", text: "Follow workspace safety rules." }] }]);
+  assert.equal(body?.reasoning?.effort, "high");
+  assert.equal(body?.tools?.[0].name, "read_file");
+  assert.equal(body?.previous_response_id, undefined);
+});
+
+test("Agent Host incremental tool results retain their continuation on the wire", async (testContext) => {
+  /** @type {RequestInit | undefined} */
+  let capturedOptions;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    capturedOptions = options;
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "done" }),
+      sseData({ type: "response.completed", response: { id: "resp-next" } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode());
+  await provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), [
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
+      statefulMarkerMetadataDataPart("gpt-test", {
+        sessionId: "cocopi-language-model-00000000-0000-4000-8000-000000000002",
+        responseId: "resp-prior"
+      })
+    ]),
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
+      new LanguageModelToolResultPart("call-1", [new LanguageModelTextPart("file contents")])
+    ])
+  ], fakeResponseOptions({ toolMode: 1, includeEncryptedThinking: true }), fakeProgress(), fakeCancellationToken());
+  const body = JSON.parse(String(capturedOptions?.body));
+  assert.equal(body.previous_response_id, "resp-prior");
+  assert.deepEqual(body.input, [{ type: "function_call_output", call_id: "call-1", output: "file contents" }]);
+});
+
+test("Agent Host tool turns retain full replay without advertising remote response state, including after provider recreation", async (testContext) => {
+  /** @type {import("../data/Codex.js").CodexResponseCreateRequest[]} */
+  const requestBodies = [];
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    const body = JSON.parse(String(options.body));
+    requestBodies.push(body);
+    assert.equal(body.previous_response_id, undefined);
+    return eventStreamResponse(requestBodies.length === 1 ? [
+      sseData({ type: "response.function_call_arguments.done", item_id: "fc-1", output_index: 0, call_id: "call-1", name: "read_file", arguments: jsonString({ path: "README.md" }) }),
+      sseData({ type: "response.completed", response: { id: "resp-not-durable" } })
+    ] : [
+      sseData({ type: "response.output_text.delta", delta: "done" }),
+      sseData({ type: "response.completed", response: { id: "resp-next" } })
+    ]);
+  }));
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  const options = fakeResponseOptions({
+    toolMode: 1,
+    includeEncryptedThinking: true,
+    modelOptions: { _conversationId: "00000000-0000-4000-8000-000000000002" },
+    tools: [{ name: "read_file", description: "Read a file.", inputSchema: { type: "object" } }]
+  });
+  const first = fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "read it");
+  const progress = fakeProgress();
+  const provider = createCocopiLanguageModelProvider(context, fakeVscode());
+  await provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), [first], options, progress, fakeCancellationToken());
+  assert.equal(progress.parts.some((part) => part instanceof LanguageModelDataPart && part.mimeType === COCOPI_STATEFUL_MARKER_MIME), false);
+  const call = progress.parts.find((part) => part instanceof LanguageModelToolCallPart);
+  assert.ok(call instanceof LanguageModelToolCallPart);
+  const replay = [
+    first,
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [call]),
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
+      new LanguageModelToolResultPart("call-1", [new LanguageModelTextPart("file contents")])
+    ])
+  ];
+  for (const nextProvider of [provider, createCocopiLanguageModelProvider(context, fakeVscode())]) {
+    const nextProgress = fakeProgress();
+    await nextProvider.provideLanguageModelChatResponse(fakeModel("gpt-test"), replay, options, nextProgress, fakeCancellationToken());
+    assert.equal(nextProgress.parts.some((part) => part instanceof LanguageModelDataPart && part.mimeType === COCOPI_STATEFUL_MARKER_MIME), false);
+    assert.deepEqual(requestBodies.at(-1)?.input, [
+      { role: "user", content: [{ type: "input_text", text: "read it" }] },
+      { type: "function_call", call_id: "call-1", name: "read_file", arguments: jsonString({ path: "README.md" }) },
+      { type: "function_call_output", call_id: "call-1", output: "file contents" }
+    ]);
+    assert.equal(requestBodies.at(-1)?.prompt_cache_key, requestBodies[0].prompt_cache_key);
+  }
+});
+
+test("Agent Host image tool results preserve ordered text and image content on the wire", async (testContext) => {
+  /** @type {import("../data/Codex.js").CodexResponseCreateRequest | undefined} */
+  let body;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    body = JSON.parse(String(options.body));
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "image received" }),
+      sseData({ type: "response.completed", response: { id: "resp-image" } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode());
+  await provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), [
+    fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "inspect the image"),
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
+      new LanguageModelToolCallPart("call-image", "view", { path: "image.png" })
+    ]),
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
+      new LanguageModelToolResultPart("call-image", [
+        new LanguageModelTextPart("before"),
+        new LanguageModelDataPart(new Uint8Array([1, 2, 3]), "image/png"),
+        new LanguageModelTextPart("between"),
+        new LanguageModelDataPart(new Uint8Array([4, 5, 6]), "image/jpeg"),
+        new LanguageModelTextPart("after")
+      ])
+    ])
+  ], fakeResponseOptions({ toolMode: 1, includeEncryptedThinking: true }), fakeProgress(), fakeCancellationToken());
+  assert.ok(Array.isArray(body?.input));
+  assert.deepEqual(body.input.at(-1), {
+    type: "function_call_output",
+    call_id: "call-image",
+    output: [
+      { type: "input_text", text: "before" },
+      { type: "input_image", image_url: "data:image/png;base64,AQID" },
+      { type: "input_text", text: "between" },
+      { type: "input_image", image_url: "data:image/jpeg;base64,BAUG" },
+      { type: "input_text", text: "after" }
+    ]
+  });
+});
+
+test("Agent Host adapted custom tools retain exact input strings and call pairing", async (testContext) => {
+  /** @type {import("../data/Codex.js").CodexResponseCreateRequest | undefined} */
+  let body;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    body = JSON.parse(String(options.body));
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "received" }),
+      sseData({ type: "response.completed", response: { id: "resp-custom" } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode());
+  const input = "line one\n  line two: \"quoted\"\\path\n";
+  const schema = { type: "object", properties: { input: { type: "string" } }, required: ["input"] };
+  await provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), [
+    fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "use custom tool"),
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
+      new LanguageModelToolCallPart("call-custom", "custom_editor", { input })
+    ]),
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
+      new LanguageModelToolResultPart("call-custom", [new LanguageModelTextPart("result")])
+    ])
+  ], fakeResponseOptions({ toolMode: 1, includeEncryptedThinking: true, tools: [{ name: "custom_editor", description: "Host-adapted custom tool", inputSchema: schema }] }), fakeProgress(), fakeCancellationToken());
+  assert.ok(Array.isArray(body?.input));
+  const call = body.input.find((item) => item.type === "function_call");
+  assert.ok(call?.type === "function_call");
+  assert.equal(call.call_id, "call-custom");
+  assert.ok(typeof call.arguments === "string");
+  assert.deepEqual(JSON.parse(call.arguments), { input });
+  assert.deepEqual(body.input.at(-1), { type: "function_call_output", call_id: "call-custom", output: "result" });
+  assert.equal(body.tools?.[0].type, "function");
+});
+
+test("host tool failure, session conflicts and unknown outcomes remain unchanged on the wire", async (testContext) => {
+  /** @type {import("../data/Codex.js").CodexResponseCreateRequest | undefined} */
+  let body;
+  let requests = 0;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    requests++;
+    body = JSON.parse(String(options.body));
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "results received" }),
+      sseData({ type: "response.completed", response: { id: "resp-outcomes" } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode());
+  const outputs = [
+    "Permission denied by host policy.",
+    "",
+    JSON.stringify({ status: "outcome_unknown", message: "No tool output was recorded. Verify the current state before retrying this tool if its result is still needed." }),
+    JSON.stringify({ action: "rejected", reason: "credentialBoundary", openLink: "test-link" }),
+    JSON.stringify({ action: "notCancelled", messageId: "message-1", reason: "processing", status: "processing", revision: 1, openLink: "test-link" }),
+    JSON.stringify({ action: "notReplaced", messageId: "message-1", reason: "processing", status: "processing", revision: 1, openLink: "test-link" }),
+    JSON.stringify({ action: "rejected", reason: "revisionConflict", messageId: "message-1", actualRevision: 2, openLink: "test-link" }),
+    "<command started in background with shellId: shell-attached>",
+    "<command started in detached background with shellId: shell-detached>",
+    "partial output\n<shellId: shell-attached completed with exit code -1>",
+    "<command with id: shell-detached had already stopped>"
+  ];
+  const names = ["task", "execution_subagent", "create_session", "send_message", "send_message", "send_message", "send_message", "bash", "powershell", "read_bash", "stop_powershell"];
+  await provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), [
+    fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "review the recorded outcomes"),
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant,
+      outputs.map((_output, index) => new LanguageModelToolCallPart(`call-${index}`, names[index], { index }))),
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User,
+      outputs.map((output, index) => new LanguageModelToolResultPart(`call-${index}`, [new LanguageModelTextPart(output)])))
+  ], fakeResponseOptions({ toolMode: 1, includeEncryptedThinking: true }), fakeProgress(), fakeCancellationToken());
+  assert.ok(Array.isArray(body?.input));
+  assert.deepEqual(body.input.filter((item) => item.type === "function_call"),
+    names.map((name, index) => ({ type: "function_call", call_id: `call-${index}`, name, arguments: jsonString({ index }) })));
+  assert.deepEqual(body.input.filter((item) => item.type === "function_call_output"),
+    outputs.map((output, index) => ({ type: "function_call_output", call_id: `call-${index}`, output })));
+  assert.equal(requests, 1);
+});
+
+test("Agent Host opaque conversation IDs retain isolated cache identity across provider recreation", async (testContext) => {
+  /** @type {import("../data/Codex.js").CodexResponseCreateRequest[]} */
+  const bodies = [];
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    bodies.push(JSON.parse(String(options.body)));
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "done" }),
+      sseData({ type: "response.completed", response: { id: "resp-next" } })
+    ]);
+  }));
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  // The pinned host's proxy tests use opaque IDs, not just UUIDs.
+  for (const conversationId of ["sess-1", "sess-1", "sess-2", "sess-1"]) {
+    const provider = createCocopiLanguageModelProvider(context, fakeVscode());
+    await provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), [
+      fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "hello")
+    ], fakeResponseOptions({ toolMode: 1, includeEncryptedThinking: true, modelOptions: { _conversationId: conversationId } }), fakeProgress(), fakeCancellationToken());
+  }
+  assert.equal(bodies[1].prompt_cache_key, bodies[0].prompt_cache_key);
+  assert.equal(bodies[3].prompt_cache_key, bodies[0].prompt_cache_key);
+  assert.notEqual(bodies[2].prompt_cache_key, bodies[0].prompt_cache_key);
+  assert.match(bodies[0].prompt_cache_key ?? "", /^cocopi-language-model-[0-9a-f-]{36}$/u);
+  assert.equal(bodies[0].prompt_cache_key?.includes("sess-1"), false);
+});
+
+test("Agent Host current conversation ID overrides inherited full-history marker identity", async (testContext) => {
+  /** @type {import("../data/Codex.js").CodexResponseCreateRequest | undefined} */
+  let body;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    body = JSON.parse(String(options.body));
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "done" }),
+      sseData({ type: "response.completed", response: { id: "resp-next" } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode());
+  await provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), [
+    fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "inherited context"),
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
+      new LanguageModelTextPart("earlier answer"),
+      statefulMarkerMetadataDataPart("gpt-test", {
+        sessionId: "cocopi-language-model-00000000-0000-4000-8000-000000000001",
+        hostRequestIndex: 42
+      })
+    ]),
+    fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "continue")
+  ], fakeResponseOptions({
+    toolMode: 1,
+    includeEncryptedThinking: true,
+    modelOptions: { _conversationId: "00000000-0000-4000-8000-000000000002" }
+  }), fakeProgress(), fakeCancellationToken());
+  assert.equal(body?.prompt_cache_key, "cocopi-language-model-00000000-0000-4000-8000-000000000002");
+  assert.equal(body?.client_metadata?.["x-cocopi-host-request-index"], "1");
+});
+
 test("provideLanguageModelChatResponse restores v3 marker metadata without previous_response_id", async (testContext) => {
   /** @type {RequestInit | undefined} */
   let requestOptions;
@@ -2551,6 +2945,101 @@ test("provideLanguageModelChatResponse reports received reasoning summary deltas
   assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), []);
   assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelThinkingPart).map((part) => part.value), ["Inspecting files.", ""]);
   assert.ok(progress.parts.some((part) => part instanceof LanguageModelDataPart));
+});
+
+test("encrypted thinking opt-in round-trips opaque state without exposing it as text", async (testContext) => {
+  const progress = fakeProgress();
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.output_item.done", output_index: 0, item: { type: "reasoning", id: "rs-opaque", encrypted_content: "synthetic-ciphertext" } }),
+    sseData({ type: "response.completed", response: { id: "resp-opaque" } })
+  ])));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(new Map(), { thinkingPart: true }));
+  await provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), [
+    fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "inspect")
+  ], fakeResponseOptions({ toolMode: 1, includeEncryptedThinking: true }), progress, fakeCancellationToken());
+  const opaque = progress.parts.filter((part) => part instanceof LanguageModelThinkingPart).filter((part) => part.metadata?.encrypted_content);
+  assert.equal(opaque.length, 1);
+  assert.equal(opaque[0].value, "");
+  assert.equal(opaque[0].id, "rs-opaque");
+  assert.equal(opaque[0].metadata?.encrypted_content, "synthetic-ciphertext");
+  assert.equal(progress.parts.some((part) => part instanceof LanguageModelTextPart && part.value.includes("synthetic-ciphertext")), false);
+  const state = codexRequestStateFromLanguageModelMessages([
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, opaque)
+  ], "gpt-test", { LanguageModelChatMessageRole }, { includeEncryptedThinking: true });
+  assert.deepEqual(state.input, [{ type: "reasoning", id: "rs-opaque", encrypted_content: "synthetic-ciphertext", summary: [] }]);
+});
+
+test("completed-only encrypted thinking is emitted only with explicit opt-in", async (testContext) => {
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.completed", response: { id: "resp-completed", output: [
+      { type: "reasoning", id: "rs-completed", encrypted_content: "synthetic-completed" }
+    ] } })
+  ])));
+  for (const includeEncryptedThinking of [false, true]) {
+    const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+      [CODEX_SECRET_KEYS.accessToken, "access-token"],
+      [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+      [CODEX_SECRET_KEYS.idToken, "id-token"]
+    ])), fakeVscode(new Map(), { thinkingPart: true }));
+    const progress = fakeProgress();
+    await provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), [
+      fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "inspect")
+    ], fakeResponseOptions({ toolMode: 1, includeEncryptedThinking }), progress, fakeCancellationToken());
+    const opaque = progress.parts.filter((part) => part instanceof LanguageModelThinkingPart).filter((part) => part.metadata?.encrypted_content);
+    assert.equal(opaque.length, includeEncryptedThinking ? 1 : 0);
+  }
+});
+
+test("reasoning replay rejects foreign protocol ciphertext and user-supplied thinking", () => {
+  const foreign = new LanguageModelThinkingPart("", "foreign", { encrypted_content: "foreign-state", vscode_thinking_origin_api: "messages" });
+  const userState = new LanguageModelThinkingPart("", "user-state", { encrypted_content: "user-state" });
+  const state = codexRequestStateFromLanguageModelMessages([
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [foreign]),
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [userState])
+  ], "gpt-test", { LanguageModelChatMessageRole });
+  assert.deepEqual(state.input, []);
+});
+
+test("encrypted reasoning replay preserves host summary boundaries", () => {
+  const state = codexRequestStateFromLanguageModelMessages([
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [
+      new LanguageModelThinkingPart(["First summary.", "Second summary."], "rs-summary", {
+        encrypted_content: "synthetic-summary-state",
+        vscode_thinking_origin_api: "responses"
+      })
+    ])
+  ], "gpt-test", { LanguageModelChatMessageRole });
+  assert.deepEqual(state.input, [{
+    type: "reasoning", id: "rs-summary", encrypted_content: "synthetic-summary-state",
+    summary: [{ type: "summary_text", text: "First summary." }, { type: "summary_text", text: "Second summary." }]
+  }]);
+});
+
+test("opted-in thinking uses backend item identity and host summary boundary markers", async (testContext) => {
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.reasoning_summary_text.delta", item_id: "rs-sections", output_index: 0, summary_index: 0, delta: "First." }),
+    sseData({ type: "response.reasoning_summary_part.done", item_id: "rs-sections", output_index: 0, summary_index: 0, part: { type: "summary_text", text: "First." } }),
+    sseData({ type: "response.reasoning_summary_text.delta", item_id: "rs-sections", output_index: 0, summary_index: 1, delta: "Second." }),
+    sseData({ type: "response.output_item.done", output_index: 0, item: { type: "reasoning", id: "rs-sections", encrypted_content: "synthetic-sections" } }),
+    sseData({ type: "response.completed", response: { id: "resp-sections" } })
+  ])));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(new Map(), { thinkingPart: true }));
+  const progress = fakeProgress();
+  await provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), [
+    fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "inspect")
+  ], fakeResponseOptions({ toolMode: 1, includeEncryptedThinking: true }), progress, fakeCancellationToken());
+  const parts = progress.parts.filter((part) => part instanceof LanguageModelThinkingPart);
+  assert.deepEqual(parts.filter((part) => part.value).map((part) => part.id), ["rs-sections", "rs-sections"]);
+  assert.equal(parts.filter((part) => part.metadata?.vscode_reasoning_summary_part_done === true && part.id === "rs-sections").length, 1);
+  assert.equal(parts.find((part) => part.metadata?.encrypted_content)?.id, "rs-sections");
 });
 
 test("provideLanguageModelChatResponse separates native thinking summary parts", async (testContext) => {
@@ -5310,6 +5799,20 @@ test("languageModelErrorFromCodexError maps common provider failure classes", ()
   assert.equal(reasoningError.code, undefined);
 });
 
+test("languageModelErrorFromCodexError exposes rate limits to the host utility backoff", () => {
+  const vscode = fakeVscode();
+  const api = {
+    LanguageModelError: Object.assign(vscode.LanguageModelError, {
+      RateLimited: (/** @type {string | undefined} */ message) => Object.assign(new Error(message), { code: "RateLimited" })
+    })
+  };
+  for (const message of ["failed with status 429", "rate limit exceeded", "quota exceeded"]) {
+    assert.equal(languageModelErrorFromCodexError(new Error(message), fakeAbortSignal(), api).code, "RateLimited");
+  }
+  assert.equal(languageModelErrorFromCodexError(new Error("blocked by policy"), fakeAbortSignal(), api).code, "Blocked");
+  assert.equal(languageModelErrorFromCodexError(new Error("idle for 120000ms"), fakeAbortSignal(), api).code, "Blocked");
+});
+
 test("provideTokenCount returns a stable rough count", async () => {
   const provider = createCocopiLanguageModelProvider(fakeContext(), fakeVscode());
 
@@ -5909,10 +6412,12 @@ function modelInformation(id, name, detail = id, options = {}) {
     version: id,
     isBYOK: true,
     isUserSelectable: true,
+    maxContextWindowTokens: contextWindow,
     maxInputTokens: Math.max(1, Math.floor((contextWindow - maxOutputTokens) * 0.9)),
     maxOutputTokens,
     capabilities: {
       imageInput: options.imageInput ?? false,
+      apiType: 2,
       toolCalling: true,
       agentMode: true
     }

@@ -3,6 +3,8 @@
   "enabledApiProposals": [
     "chatStatusItem",
     "chatProvider",
-    "languageModelThinkingPart"
+    "languageModelThinkingPart",
+    "languageModelCapabilities",
+    "languageModelRateLimit"
   ]
 }
