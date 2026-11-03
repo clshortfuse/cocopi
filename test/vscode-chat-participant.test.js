@@ -35,6 +35,69 @@ class DeniedChatResponseThinkingProgressPart {
   }
 }
 
+for (const mode of ["unauthorized", "denied", "unavailable"]) {
+  test(`participant keeps text and file references when binary API is ${mode}`, async (testContext) => {
+    const context = {
+      ...fakeContext(new Map([
+        [CODEX_SECRET_KEYS.accessToken, "access-token"],
+        [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+        [CODEX_SECRET_KEYS.idToken, "id-token"]
+      ])),
+      extension: { packageJSON: { enabledApiProposals: mode === "unauthorized" ? [] : ["chatReferenceBinaryData"] } }
+    };
+    class AttachedUri {
+      scheme = "file";
+      toString() { return "file:/attached"; }
+    }
+    const base = fakeVscode();
+    let getterReads = 0;
+    let fileReads = 0;
+    const api = {
+      ...base,
+      Uri: AttachedUri,
+      Location: class {},
+      workspace: {
+        ...base.workspace,
+        textDocuments: [],
+        async openTextDocument() {
+          fileReads += 1;
+          return { getText() { return "attached file text"; } };
+        }
+      },
+      get ChatReferenceBinaryData() {
+        getterReads += 1;
+        if (mode !== "unavailable") {
+          throw new Error("Binary reference proposal denied");
+        }
+        // eslint-disable-next-line unicorn/no-useless-undefined -- An absent API getter must explicitly return a value.
+        return undefined;
+      }
+    };
+    /** @type {import("../data/Codex.js").CodexResponseCreateRequest[]} */
+    const bodies = [];
+    testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+      bodies.push(JSON.parse(String(options.body)));
+      return eventStreamResponse([sseData({ type: "response.completed", response: { id: "resp-reference-gate" } })]);
+    }));
+    // eslint-disable-next-line jsdoc/check-types -- Minimal host constructors exercise registration without VS Code runtime classes.
+    registerCocopiChatParticipant(context, /** @type {Parameters<typeof registerCocopiChatParticipant>[1]} */ (/** @type {unknown} */ (api)));
+    assert.equal(base.chatParticipantId, COCOPI_CHAT_PARTICIPANT_ID);
+    assert.equal(getterReads, mode === "unauthorized" ? 0 : 1);
+    assert.ok(base.chatParticipantHandler);
+    await base.chatParticipantHandler({
+      ...fakeChatRequest("inspect"),
+      references: [{ id: "text", value: "attached text" }, { id: "file", value: new AttachedUri() }]
+    }, fakeChatContext(), fakeChatResponseStream(), fakeCancellationToken());
+    assert.equal(fileReads, 1);
+    assert.equal(bodies.length, 1);
+    assert.deepEqual(bodies[0].input, [{ role: "user", content: [
+      { type: "input_text", text: "inspect" },
+      { type: "input_text", text: "attached text" },
+      { type: "input_text", text: "attached file text" }
+    ] }]);
+  });
+}
+
 test("registerCocopiChatParticipant registers the Cocopi chat participant", () => {
   const context = fakeContext();
   const vscode = fakeVscode();
@@ -77,6 +140,129 @@ test("Cocopi chat handler sends slash-prefixed fast text as a regular prompt", a
   const body = JSON.parse(String(calls[0].options.body));
   assert.equal(body.input[0].content[0].text, prompt);
   assert.equal(body.service_tier, undefined);
+});
+
+test("participant sends resolved reference-only input", async (testContext) => {
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  const request = { ...fakeChatRequest(""), references: [{ id: "context", value: "resolved context" }] };
+  const response = fakeChatResponseStream();
+  /** @type {import("../data/Codex.js").CodexResponseCreateRequest[]} */
+  const bodies = [];
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    bodies.push(JSON.parse(String(options.body)));
+    return eventStreamResponse([sseData({ type: "response.completed", response: { id: "resp-reference" } })]);
+  }));
+  await createCocopiChatRequestHandler(context, fakeVscode())(request, fakeChatContext(), response, fakeCancellationToken());
+  assert.equal(bodies.length, 1);
+  assert.deepEqual(bodies[0].input, [{ role: "user", content: [{ type: "input_text", text: "resolved context" }] }]);
+});
+
+test("participant replays saved attachment snapshots without reopening historical resources", async (testContext) => {
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  /** @type {import("../data/Codex.js").CodexResponseCreateRequest[]} */
+  const bodies = [];
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    bodies.push(JSON.parse(String(options.body)));
+    return eventStreamResponse([sseData({ type: "response.completed", response: { id: "resp-snapshot" } })]);
+  }));
+  class AttachedUri { scheme = "file"; toString() { return "file:/attached"; } }
+  const uri = new AttachedUri();
+  let reads = 0;
+  // eslint-disable-next-line jsdoc/check-types -- Minimal host fixture; snapshot replay must not reopen historical resources.
+  const referenceApi = /** @type {import("../lib/vscode/chat-references.js").ChatReferenceApi} */ (/** @type {unknown} */ ({
+    Uri: AttachedUri, Location: class {}, workspace: { textDocuments: [], async openTextDocument() {
+      reads += 1;
+      assert.equal(reads, 1);
+      return { getText() { return "original snapshot"; } };
+    } }
+  }));
+  const handler = createCocopiChatRequestHandler(context, { ...fakeVscode(), referenceApi });
+  const first = await handler({ ...fakeChatRequest("inspect"), references: [{ id: "file", value: uri }] }, fakeChatContext(), fakeChatResponseStream(), fakeCancellationToken());
+  assert.deepEqual(first?.metadata?.["cocopi.referenceSnapshot"], ["original snapshot"]);
+  const history = { ...fakeChatContext(), history: [
+    /** @type {import("vscode").ChatRequestTurn} */ ({ prompt: "inspect", participant: "cocopi.chat", references: [{ id: "file", value: { scheme: "file" } }], toolReferences: [] }),
+    /** @type {import("vscode").ChatResponseTurn} */ ({ participant: "cocopi.chat", response: [], result: first ?? {} })
+  ] };
+  await handler(fakeChatRequest("continue"), history, fakeChatResponseStream(), fakeCancellationToken());
+  assert.equal(bodies.length, 2);
+  assert.equal(reads, 1);
+  assert.ok(Array.isArray(bodies[1].input));
+  assert.deepEqual(bodies[1].input[0], { role: "user", content: [{ type: "input_text", text: "inspect" }, { type: "input_text", text: "original snapshot" }] });
+  const foreignHistory = { ...fakeChatContext(), history: [
+    /** @type {import("vscode").ChatRequestTurn} */ ({ prompt: "inspect", participant: "other.chat", references: [{ id: "text", value: "actual reference" }], toolReferences: [] }),
+    /** @type {import("vscode").ChatResponseTurn} */ ({ participant: "other.chat", response: [], result: { metadata: { "cocopi.referenceSnapshot": ["foreign snapshot"] } } })
+  ] };
+  await handler(fakeChatRequest("continue"), foreignHistory, fakeChatResponseStream(), fakeCancellationToken());
+  assert.equal(bodies.length, 3);
+  assert.ok(Array.isArray(bodies[2].input));
+  assert.deepEqual(bodies[2].input[0], { role: "user", content: [{ type: "input_text", text: "inspect" }, { type: "input_text", text: "actual reference" }] });
+  assert.equal(reads, 1);
+});
+
+test("participant replays image snapshots after host JSON serialization", async (testContext) => {
+  const context = fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ]));
+  /** @type {import("../data/Codex.js").CodexResponseCreateRequest[]} */
+  const bodies = [];
+  let reads = 0;
+  class BinaryReference {
+    mimeType = "image/png";
+    async data() {
+      reads += 1;
+      assert.equal(reads, 1);
+      return new Uint8Array([137, 80, 78, 71]);
+    }
+  }
+  // eslint-disable-next-line jsdoc/check-types -- Minimal host fixture; binary data is resolved only on the first turn.
+  const referenceApi = /** @type {import("../lib/vscode/chat-references.js").ChatReferenceApi} */ (/** @type {unknown} */ ({
+    Uri: class {}, Location: class {}, ChatReferenceBinaryData: BinaryReference,
+    workspace: { textDocuments: [], async openTextDocument() { throw new Error("Unexpected document read"); } }
+  }));
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    bodies.push(JSON.parse(String(options.body)));
+    return eventStreamResponse([sseData({ type: "response.completed", response: { id: "resp-image-snapshot" } })]);
+  }));
+  const handler = createCocopiChatRequestHandler(context, { ...fakeVscode(), referenceApi });
+  const first = await handler({ ...fakeChatRequest("inspect"), references: [{ id: "image", value: new BinaryReference() }] }, fakeChatContext(), fakeChatResponseStream(), fakeCancellationToken());
+  const history = { ...fakeChatContext(), history: [
+    /** @type {import("vscode").ChatRequestTurn} */ ({ prompt: "inspect", participant: "cocopi.chat", references: [{ id: "image", value: {} }], toolReferences: [] }),
+    // eslint-disable-next-line unicorn/prefer-structured-clone -- Exercise JSON persistence, not an in-memory deep clone.
+    /** @type {import("vscode").ChatResponseTurn} */ ({ participant: "cocopi.chat", response: [], result: JSON.parse(JSON.stringify(first)) })
+  ] };
+  await handler(fakeChatRequest("continue"), history, fakeChatResponseStream(), fakeCancellationToken());
+  assert.equal(bodies.length, 2);
+  assert.equal(reads, 1);
+  assert.ok(Array.isArray(bodies[0].input));
+  assert.ok(Array.isArray(bodies[1].input));
+  assert.deepEqual(bodies[1].input[0], bodies[0].input[0]);
+  assert.deepEqual(bodies[1].input[0], { role: "user", content: [
+    { type: "input_text", text: "inspect" },
+    { type: "input_image", image_url: "data:image/png;base64,iVBORw==" }
+  ] });
+});
+
+test("participant rejects unsupported references before network work", async (testContext) => {
+  let calls = 0;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => {
+    calls += 1;
+    throw new Error("Unexpected network call");
+  }));
+  const response = fakeChatResponseStream();
+  const request = { ...fakeChatRequest("inspect attachment"), references: [{ id: "file", value: { scheme: "file", path: "/private" } }] };
+  await createCocopiChatRequestHandler(fakeContext(), fakeVscode())(request, fakeChatContext(), response, fakeCancellationToken());
+  assert.equal(calls, 0);
+  assert.match(response.markdownValues.join(""), /supports only resolved text references/u);
 });
 
 test("Cocopi participant resolves a selected matrix alias without inheriting Ultra", async (testContext) => {

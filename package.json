@@ -513,7 +513,8 @@
     "chatProvider",
     "languageModelThinkingPart",
     "languageModelCapabilities",
-    "languageModelRateLimit"
+    "languageModelRateLimit",
+    "chatReferenceBinaryData"
   ],
   "engines": {
     "vscode": "^1.143.0"

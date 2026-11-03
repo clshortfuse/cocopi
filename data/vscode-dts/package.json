@@ -5,6 +5,7 @@
     "chatProvider",
     "languageModelThinkingPart",
     "languageModelCapabilities",
-    "languageModelRateLimit"
+    "languageModelRateLimit",
+    "chatReferenceBinaryData"
   ]
 }

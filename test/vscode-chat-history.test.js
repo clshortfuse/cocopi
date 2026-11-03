@@ -3,6 +3,37 @@ import assert from "node:assert/strict";
 
 import { COCOPI_RESPONSE_ITEMS_METADATA_KEY, chatResultWithCodexResponseItems, chatResultWithCodexState, codexInputFromChatHistory } from "../lib/vscode/chat-history.js";
 
+test("chat history preserves resolved references in current and historical user turns", () => {
+  const prior = fakeRequestTurn("inspect #context");
+  prior.references.push({ id: "context", value: "historical snapshot" });
+  assert.deepEqual(codexInputFromChatHistory({ history: [prior] }, "compare", [
+    { id: "context", value: "current snapshot" },
+    { id: "context", value: "second value" }
+  ]), [
+    { role: "user", content: [
+      { type: "input_text", text: "inspect #context" },
+      { type: "input_text", text: "historical snapshot" }
+    ] },
+    { role: "user", content: [
+      { type: "input_text", text: "compare" },
+      { type: "input_text", text: "current snapshot" },
+      { type: "input_text", text: "second value" }
+    ] }
+  ]);
+});
+
+test("chat history accepts reference-only text and rejects unsupported attachments", () => {
+  assert.deepEqual(codexInputFromChatHistory({ history: [] }, "", [{ id: "text", value: "  exact text  " }]), [
+    { role: "user", content: [{ type: "input_text", text: "  exact text  " }] }
+  ]);
+  for (const value of [{ scheme: "file", path: "/private" }, { data: () => { throw new Error("must not read"); } }, undefined]) {
+    assert.throws(() => codexInputFromChatHistory({ history: [] }, "inspect", [{ id: "attachment", value }]), /supports only resolved text references/u);
+    const prior = fakeRequestTurn("inspect");
+    prior.references.push({ id: "attachment", value });
+    assert.throws(() => codexInputFromChatHistory({ history: [prior] }, "continue"), /supports only resolved text references/u);
+  }
+});
+
 test("codexInputFromChatHistory converts prior participant turns and current prompt", () => {
   assert.deepEqual(codexInputFromChatHistory({
     history: [
