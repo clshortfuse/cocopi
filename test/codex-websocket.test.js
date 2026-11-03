@@ -6,6 +6,7 @@ import { buildTextResponseBody } from "../lib/codex-api/response-body.js";
 import {
   CODEX_RESPONSES_WEBSOCKET_BETA_HEADER,
   CodexResponsesWebSocketSession,
+  codexContinuationAnchorFromInputItems,
   codexResponsesWebSocketUrl,
   fetchCodexResponseWebSocketStream,
   responseCancelWebSocketMessage,
@@ -15,6 +16,15 @@ import { closeCodexResponseWebSocketSessions, fetchCodexResponseStreamWithAuthRe
 import { DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS, DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS } from "../lib/vscode/configuration.js";
 
 /** @typedef {import("../data/Codex.js").CodexResponseStreamEvent} CodexResponseStreamEvent */
+
+test("reasoning continuation matches normalized empty summaries without conflating visible summaries", () => {
+  const opaque = { type: "reasoning", id: "rs-opaque", encrypted_content: "synthetic-state" };
+  const original = codexContinuationAnchorFromInputItems("resp-one", [], [opaque]);
+  const normalized = codexContinuationAnchorFromInputItems("resp-one", [{ ...opaque, summary: [] }]);
+  assert.deepEqual(normalized, original);
+  const visible = codexContinuationAnchorFromInputItems("resp-one", [{ ...opaque, summary: [{ type: "summary_text", text: "Visible." }] }]);
+  assert.notEqual(visible.baselineDigest, original.baselineDigest);
+});
 
 test("codexResponsesWebSocketUrl converts Responses endpoint URLs", () => {
   assert.equal(codexResponsesWebSocketUrl("https://chatgpt.example.test/backend-api/codex"), "wss://chatgpt.example.test/backend-api/codex/responses");
@@ -382,87 +392,115 @@ test("fetchCodexResponseStreamWithAuthRefresh retries WebSocket connection limit
   closeCodexResponseWebSocketSessions();
 });
 
-test("fetchCodexResponseStreamWithAuthRefresh retries stale previous response ids with full SSE", async (testContext) => {
+for (const errorPayload of [
+  { code: "previous_response_not_found", message: "Previous response with id 'resp-missing' not found." },
+  { message: "Invalid `previous_response_id`." }
+]) {
+  test(`fetchCodexResponseStreamWithAuthRefresh retries stale previous response ids with full SSE: ${errorPayload.message}`, async (testContext) => {
+    FakeWebSocket.reset();
+    closeCodexResponseWebSocketSessions();
+    replaceGlobalWebSocket(testContext, fakeWebSocketConstructor());
+    /** @type {Error[]} */
+    const fallbackErrors = [];
+    /** @type {import("../data/Codex.js").CodexResponseCreateRequest | undefined} */
+    let fallbackBody;
+    const fetchMock = testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+      fallbackBody = /** @type {import("../data/Codex.js").CodexResponseCreateRequest} */ (JSON.parse(String(options.body)));
+      return eventStreamResponse([
+        sseData({ type: "response.output_text.delta", delta: "replayed" }),
+        sseData({ type: "response.completed", response: { id: "resp-sse" } })
+      ]);
+    }));
+    const firstUserItem = { role: "user", content: [{ type: "input_text", text: "first" }] };
+    const assistantItem = { role: "assistant", content: [{ type: "output_text", text: "done" }] };
+    const secondUserItem = { role: "user", content: [{ type: "input_text", text: "second" }] };
+    const firstBody = buildTextResponseBody({
+      model: "gpt-5-codex",
+      input: [firstUserItem],
+      promptCacheKey: "cocopi-language-model-stale-previous"
+    });
+    const secondBody = buildTextResponseBody({
+      model: "gpt-5-codex",
+      input: [firstUserItem, assistantItem, secondUserItem],
+      promptCacheKey: "cocopi-language-model-stale-previous"
+    });
+
+    const firstStreamPromise = fetchCodexResponseStreamWithAuthRefresh(fakeSecretContext(), fakeRuntime({ transport: "websocket" }), {
+      body: firstBody
+    });
+    await nextMicrotask();
+    const socket = FakeWebSocket.single();
+    socket.open();
+    const firstEventsPromise = collectEvents(await firstStreamPromise);
+    socket.message(JSON.stringify({
+      type: "response.completed",
+      response: {
+        id: "resp-missing",
+        output: [assistantItem]
+      }
+    }));
+    await firstEventsPromise;
+
+    const streamPromise = fetchCodexResponseStreamWithAuthRefresh(fakeSecretContext(), fakeRuntime({ transport: "websocket" }), {
+      body: secondBody,
+      onWebSocketFallbackToSse(error) {
+        fallbackErrors.push(error);
+      }
+    });
+
+    const eventsPromise = collectEvents(await streamPromise);
+    const wireMessage = JSON.parse(socket.sent[1]);
+    assert.equal(wireMessage.previous_response_id, "resp-missing");
+    assert.deepEqual(wireMessage.input, [secondUserItem]);
+    const responseMetadata = {
+      type: "codex.response.metadata",
+      headers: { "x-codex-safety-buffering-enabled": "true" }
+    };
+    socket.message(JSON.stringify(responseMetadata));
+    socket.message(JSON.stringify({
+      type: "error",
+      status: 400,
+      error: errorPayload
+    }));
+
+    assert.deepEqual(await eventsPromise, [
+      responseMetadata,
+      { type: "response.output_text.delta", delta: "replayed" },
+      { type: "response.completed", response: { id: "resp-sse" } }
+    ]);
+    assert.equal(fetchMock.mock.callCount(), 1);
+    assert.equal(fallbackErrors.length, 1);
+    assert.ok(fallbackErrors[0].message.includes(errorPayload.message));
+    assert.equal(fallbackBody?.previous_response_id, undefined);
+    assert.deepEqual(fallbackBody?.input, secondBody.input);
+
+    closeCodexResponseWebSocketSessions();
+  });
+}
+
+test("invalid explicit delta continuation is not retried as incomplete full history", async (testContext) => {
   FakeWebSocket.reset();
   closeCodexResponseWebSocketSessions();
   replaceGlobalWebSocket(testContext, fakeWebSocketConstructor());
-  /** @type {Error[]} */
-  const fallbackErrors = [];
-  /** @type {import("../data/Codex.js").CodexResponseCreateRequest | undefined} */
-  let fallbackBody;
-  const fetchMock = testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
-    fallbackBody = /** @type {import("../data/Codex.js").CodexResponseCreateRequest} */ (JSON.parse(String(options.body)));
-    return eventStreamResponse([
-      sseData({ type: "response.output_text.delta", delta: "replayed" }),
-      sseData({ type: "response.completed", response: { id: "resp-sse" } })
-    ]);
+  const fetchMock = testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => {
+    throw new Error("Must not replay tool output without its history");
   }));
-  const firstUserItem = { role: "user", content: [{ type: "input_text", text: "first" }] };
-  const assistantItem = { role: "assistant", content: [{ type: "output_text", text: "done" }] };
-  const secondUserItem = { role: "user", content: [{ type: "input_text", text: "second" }] };
-  const firstBody = buildTextResponseBody({
-    model: "gpt-5-codex",
-    input: [firstUserItem],
-    promptCacheKey: "cocopi-language-model-stale-previous"
-  });
-  const secondBody = buildTextResponseBody({
-    model: "gpt-5-codex",
-    input: [firstUserItem, assistantItem, secondUserItem],
-    promptCacheKey: "cocopi-language-model-stale-previous"
-  });
-
-  const firstStreamPromise = fetchCodexResponseStreamWithAuthRefresh(fakeSecretContext(), fakeRuntime({ transport: "websocket" }), {
-    body: firstBody
+  const streamPromise = fetchCodexResponseStreamWithAuthRefresh(fakeSecretContext(), fakeRuntime({ transport: "websocket" }), {
+    body: buildTextResponseBody({
+      model: "gpt-5-codex",
+      input: [{ type: "function_call_output", call_id: "call-1", output: "contents" }],
+      previousResponseId: "resp-expired",
+      promptCacheKey: "cocopi-language-model-explicit-delta"
+    })
   });
   await nextMicrotask();
   const socket = FakeWebSocket.single();
   socket.open();
-  const firstEventsPromise = collectEvents(await firstStreamPromise);
-  socket.message(JSON.stringify({
-    type: "response.completed",
-    response: {
-      id: "resp-missing",
-      output: [assistantItem]
-    }
-  }));
-  await firstEventsPromise;
-
-  const streamPromise = fetchCodexResponseStreamWithAuthRefresh(fakeSecretContext(), fakeRuntime({ transport: "websocket" }), {
-    body: secondBody,
-    onWebSocketFallbackToSse(error) {
-      fallbackErrors.push(error);
-    }
-  });
-
   const eventsPromise = collectEvents(await streamPromise);
-  const wireMessage = JSON.parse(socket.sent[1]);
-  assert.equal(wireMessage.previous_response_id, "resp-missing");
-  assert.deepEqual(wireMessage.input, [secondUserItem]);
-  const responseMetadata = {
-    type: "codex.response.metadata",
-    headers: { "x-codex-safety-buffering-enabled": "true" }
-  };
-  socket.message(JSON.stringify(responseMetadata));
-  socket.message(JSON.stringify({
-    type: "error",
-    status: 400,
-    error: {
-      code: "previous_response_not_found",
-      message: "Previous response with id 'resp-missing' not found."
-    }
-  }));
-
-  assert.deepEqual(await eventsPromise, [
-    responseMetadata,
-    { type: "response.output_text.delta", delta: "replayed" },
-    { type: "response.completed", response: { id: "resp-sse" } }
-  ]);
-  assert.equal(fetchMock.mock.callCount(), 1);
-  assert.equal(fallbackErrors.length, 1);
-  assert.match(fallbackErrors[0].message, /previous_response_not_found/u);
-  assert.equal(fallbackBody?.previous_response_id, undefined);
-  assert.deepEqual(fallbackBody?.input, secondBody.input);
-
+  const rejection = assert.rejects(eventsPromise, /Invalid `previous_response_id`/u);
+  socket.message(JSON.stringify({ type: "error", status: 400, error: { message: "Invalid `previous_response_id`." } }));
+  await rejection;
+  assert.equal(fetchMock.mock.callCount(), 0);
   closeCodexResponseWebSocketSessions();
 });
 

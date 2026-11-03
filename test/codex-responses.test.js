@@ -48,6 +48,17 @@ test("buildTextResponseBody creates a reusable streaming text request", () => {
   });
 });
 
+test("buildTextResponseBody supplies required reasoning summaries without mutating replay state", () => {
+  const opaque = { type: /** @type {const} */ ("reasoning"), id: "rs-opaque", encrypted_content: "synthetic-ciphertext" };
+  const summarized = { ...opaque, id: "rs-summary", summary: [{ type: /** @type {const} */ ("summary_text"), text: "Existing summary." }] };
+  const input = [opaque, summarized];
+  const body = buildTextResponseBody({ model: "gpt-test", input });
+  assert.deepEqual(body.input, [{ ...opaque, summary: [] }, summarized]);
+  assert.equal(Object.hasOwn(opaque, "summary"), false);
+  assert.equal(input[0], opaque);
+  assert.match(JSON.stringify(body), /"summary":\[\]/u);
+});
+
 test("buildTextResponseBody omits automatic service tier", () => {
   assert.equal("service_tier" in buildTextResponseBody({ model: "gpt-5-codex", input: "say hi", serviceTier: "auto" }), false);
 });
