@@ -31,6 +31,10 @@
         "title": "Cocopi: Show Token Tracker"
       },
       {
+        "command": "cocopi.showLiveTracker",
+        "title": "Cocopi: Show Live Tracker"
+      },
+      {
         "command": "cocopi.signIn",
         "title": "Cocopi: Sign In"
       },

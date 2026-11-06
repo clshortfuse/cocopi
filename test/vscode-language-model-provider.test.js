@@ -2494,6 +2494,46 @@ test("provideLanguageModelChatResponse restores v3 marker metadata without previ
   assertMetadataOnlyStatefulMarker(dataPart, 1);
 });
 
+test("provider allows quiet output while transport status messages continue", async (testContext) => {
+  testContext.mock.timers.enable({ apis: ["Date", "setTimeout"], now: Date.now() });
+  /** @type {AbortSignal | null | undefined} */
+  let signal;
+  /** @type {ReadableStreamDefaultController<Uint8Array> | undefined} */
+  let streamController;
+  /** @type {() => void} */
+  let opened = () => {};
+  const ready = new Promise(/** @param {(value?: void) => void} resolve */ (resolve) => { opened = () => resolve(); });
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    signal = options.signal;
+    return new Response(new ReadableStream({
+      start(controller) {
+        streamController = controller;
+        controller.enqueue(new TextEncoder().encode(sseData({ type: "response.in_progress" })));
+        opened();
+      }
+    }), { headers: { "content-type": "text/event-stream" } });
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(configurationValues({ streamIdleTimeoutMs: 120_000 })));
+  const request = provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "inspect")], fakeResponseOptions({ toolMode: 1 }), fakeProgress(), fakeCancellationToken());
+  const outcome = Promise.resolve(request).then(() => {}, (error) => error);
+  await ready;
+  for (let index = 0; index < 20; index += 1) await Promise.resolve();
+  // Three minutes without output is legitimate when actual response traffic continues.
+  for (let minute = 0; minute < 3; minute += 1) {
+    testContext.mock.timers.tick(60_000);
+    streamController?.enqueue(new TextEncoder().encode(sseData({ type: "response.in_progress" })));
+    for (let index = 0; index < 20; index += 1) await Promise.resolve();
+  }
+  assert.equal(signal?.aborted, false);
+  streamController?.enqueue(new TextEncoder().encode(sseData({ type: "response.completed", response: { id: "quiet-fixture", output: [] } })));
+  streamController?.close();
+  assert.equal(await outcome, undefined);
+});
+
 test("provideLanguageModelChatResponse streams text parts", async (testContext) => {
   /** @type {RequestInit | undefined} */
   let requestOptions;

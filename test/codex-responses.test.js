@@ -445,6 +445,33 @@ test("fetchCodexResponseStream treats SSE comments as heartbeat activity", async
   ]);
 });
 
+for (const idleTimeoutMs of [120_000, 0]) {
+  test(`SSE comment bytes update transport telemetry independently of decoded output with idle timeout ${idleTimeoutMs}`, async (context) => {
+    context.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1000 });
+    context.mock.method(performance, "now", Date.now);
+    /** @type {ReadableStreamDefaultController<Uint8Array> | undefined} */
+    let source;
+    context.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => new Response(new ReadableStream({ start(controller) { source = controller; } }), { headers: { "content-type": "text/event-stream" } })));
+    /** @type {import('../lib/codex-api/websocket-heartbeat.js').CodexTransportStatus[]} */
+    const statuses = [];
+    const events = await fetchCodexResponseStream({ apiBaseUrl: "https://fixture.invalid", accessToken: "fixture", body: buildTextResponseBody({ model: "fixture", input: "fixture" }), idleTimeoutMs, onTransportStatus: (status) => statuses.push(status) });
+    const reader = events.getReader();
+    const pending = reader.read();
+    context.mock.method(Date, "now", () => -9_000_000);
+    context.mock.timers.tick(60_000);
+    source?.enqueue(new TextEncoder().encode(": server keepalive\n\n"));
+    for (let index = 0; index < 20; index += 1) await Promise.resolve();
+    assert.equal(statuses.at(-1)?.transport, "sse");
+    assert.equal(statuses.at(-1)?.heartbeat, "unsupported");
+    assert.equal(statuses.at(-1)?.lastDataAt, 61_000);
+    assert.equal(statuses.at(-1)?.responseIdleDeadlineAt, idleTimeoutMs ? 181_000 : undefined);
+    assert.equal(statuses.at(-1)?.lastPongAt, undefined);
+    await reader.cancel();
+    await pending;
+    assert.equal(statuses.at(-1)?.responseIdleDeadlineAt, undefined);
+  });
+}
+
 test("sseEventStream transforms chunks as records complete", async () => {
   assert.deepEqual(await collectEvents(readableStreamFromChunks([
     `data: {"type":"response.output_text.delta",`,

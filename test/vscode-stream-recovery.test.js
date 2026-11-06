@@ -106,7 +106,7 @@ async function* stream(events, error) {
   }
 }
 
-for (const scenario of ["recover", "exhaustion", "tool", "partial", "quota", "cancel", "oversize", "terminal", "cancel-backoff"]) {
+for (const scenario of ["recover", "exhaustion", "tool", "partial", "quota", "cancel", "oversize", "terminal", "cancel-backoff", "heartbeat"]) {
   test(`completed-item recovery safety: ${scenario}`, async () => {
     const abort = new AbortController();
     let attempts = 0;
@@ -126,7 +126,7 @@ for (const scenario of ["recover", "exhaustion", "tool", "partial", "quota", "ca
     if (scenario === "cancel") {
       abort.abort();
     }
-    const error = scenario === "quota" ? new Error("quota exceeded") : new CodexResponseWebSocketError("fixture transport error");
+    const error = scenario === "quota" ? new Error("quota exceeded") : new CodexResponseWebSocketError("fixture transport error", scenario === "heartbeat" ? { code: "heartbeat_timeout" } : {});
     const recovered = withCompletedItemRecovery(stream(events, error), {
       signal: abort.signal,
       completedItem() {

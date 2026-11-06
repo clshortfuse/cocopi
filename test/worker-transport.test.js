@@ -75,6 +75,31 @@ test("worker still rejects genuine server silence", async (context) => {
   assert.equal(Atomics.load(counts, 0), 1);
 });
 
+test("worker transport health advances independently of output-consumer backpressure", { timeout: 10_000 }, async (context) => {
+  const { service, apiBaseUrl } = await fixture(context);
+  const startedAt = performance.now();
+  /** @type {import('../lib/codex-api/websocket-heartbeat.js').CodexTransportStatus | undefined} */
+  let latest;
+  /** @type {(() => void) | undefined} */
+  let onStatus;
+  const stream = await service.request({ apiBaseUrl, transport: "websocket", accessToken: "local-fixture", body: { model: "active", stream: true, input: [] }, idleTimeoutMs: 250, onTransportStatus(status) { latest = status; onStatus?.(); } });
+  const reader = stream.getReader();
+  const first = await reader.read();
+  assert.equal(first.value?.type, "response.created");
+  const firstDataAt = latest?.lastDataAt ?? 0;
+  await new Promise(/** @param {(value?: void) => void} resolve */ (resolve) => {
+    onStatus = () => { if ((latest?.lastDataAt ?? 0) > firstDataAt && latest?.heartbeat === "healthy" && latest.nextPingAt !== undefined) resolve(); };
+    onStatus();
+  });
+  assert.equal(latest?.transport, "websocket");
+  assert.equal(latest?.heartbeat, "healthy");
+  assert.ok(latest?.nextPingAt);
+  assert.ok(latest?.responseIdleDeadlineAt);
+  assert.ok((latest?.lastDataAt ?? -1) >= startedAt, "worker timestamps share the host process monotonic origin");
+  assert.ok((latest?.lastDataAt ?? Infinity) <= performance.now());
+  await reader.cancel();
+});
+
 test("worker cancellation discards backlog without another generation", async (context) => {
   const { service, apiBaseUrl, counts } = await fixture(context);
   const abort = new AbortController();

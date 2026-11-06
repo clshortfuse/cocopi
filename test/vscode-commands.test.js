@@ -7,6 +7,7 @@ import { COCOPI_COMMANDS, registerCocopiCommands, selectInlineCompletionModel, s
 import { clearCocopiInstructionReplacementSnapshots, recordCocopiInstructionReplacementSnapshot } from "../lib/vscode/instruction-replacements.js";
 import { recordCocopiIssue, clearCocopiIssues } from "../lib/vscode/issues.js";
 import { CODEX_SECRET_KEYS } from "../lib/vscode/secret-storage.js";
+import { startCocopiLiveRequest } from "../lib/vscode/live-sessions.js";
 import { clearCocopiRateLimitSnapshots, clearCocopiRemoteUsageAnalyticsSnapshots, clearCocopiTokenCacheDebugSummaries, recordCocopiRateLimitSnapshots, recordCocopiRemoteUsageAnalytics, recordCocopiTokenCacheSummary, waitForCocopiTokenCacheDebugStorage } from "../lib/vscode/token-cache-debug.js";
 
 class MarkdownString {
@@ -15,6 +16,116 @@ class MarkdownString {
     this.supportThemeIcons = supportThemeIcons;
   }
 }
+
+test("active requests use compact cards with escaped details and stable refresh targets", async (testContext) => {
+  const now = 1000.25;
+  testContext.mock.method(performance, "now", () => now);
+  const request = startCocopiLiveRequest("model<fixture>");
+  request.update({ sessionId: "session<private>", turn: 2, stage: "Waiting for server" });
+  request.recordTransportStatus({ transport: "websocket", heartbeat: "waiting", lastDataAt: now, lastPingAt: now + 60_000, lastPongAt: now + 30_000, pongDeadlineAt: now + 90_000, responseIdleDeadlineAt: now + 120_000 });
+  testContext.mock.method(performance, "now", () => now + 65_000);
+  testContext.mock.method(Date, "now", () => 9_000_000_000_000);
+  request.recordEvent({ type: "response.in_progress" });
+  const context = fakeContext();
+  const vscode = fakeVscode({ statusBar: true });
+  try {
+    registerCocopiCommands(context, vscode);
+    const openTracker = () => vscode.commands.callbacks.get(COCOPI_COMMANDS.showLiveTracker)?.();
+    await openTracker();
+    const html = vscode.panels[0].webview.html;
+    assert.equal(vscode.panels[0].viewType, "cocopiLiveTracker");
+    assert.match(html, /aria-label="Active requests"/u);
+    assert.match(html, /<h1>Live Tracker<\/h1>/u);
+    assert.equal(vscode.statusBarItems[0].text, "$(cocopi-logo) 1");
+    const tooltip = vscode.statusBarItems[0].tooltip;
+    assert.match(tooltip.value, /\$\(pulse\) Requests<\/th><td>1<\/td>/u);
+    request.update({ stage: "Receiving server events" });
+    assert.equal(vscode.statusBarItems[0].tooltip, tooltip);
+    request.update({ stage: "Waiting for server" });
+    assert.match(html, /data-live-count>1<\/span>/u);
+    assert.match(html, /class="live-request-card" data-live-request-id="\d+"/u);
+    assert.match(html, /data-live-model>model&lt;fixture&gt;</u);
+    assert.match(html, /data-live-stage>Waiting for server</u);
+    assert.match(html, /data-live-elapsed>1m 5s elapsed</u);
+    assert.match(html, /data-live-activity>Last event 0s ago</u);
+    assert.match(html, /data-live-progress>No output progress yet</u);
+    assert.match(html, /data-live-deadline>Response idle timeout in 55s</u);
+    assert.match(html, /data-live-heartbeat>WebSocket heartbeat: waiting; ping 5s ago; pong 35s ago</u);
+    assert.match(html, /data-live-heartbeat-deadline>Pong timeout in 25s</u);
+    assert.match(html, /data-live-wire>Last transport data 65s ago; server ping not observed</u);
+    assert.match(html, /data-live-event>response\.in_progress</u);
+    assert.match(html, /<details class="live-request-details"><summary>Request details<\/summary>/u);
+    assert.match(html, /data-live-session>session&lt;private&gt;</u);
+    assert.match(html, /data-live-turn>2</u);
+    assert.doesNotMatch(html, /<details class="live-request-details" open/u);
+    assert.doesNotMatch(html, /liveRequests\.innerHTML\s*=/u);
+    request.recordTransportStatus({ transport: "websocket", heartbeat: "waiting", pongDeadlineAt: now + 60_000, responseIdleDeadlineAt: now + 60_000 });
+    await openTracker();
+    const overdue = vscode.panels.at(-1).webview.html;
+    assert.match(overdue, /Response idle timeout overdue by 5s/u);
+    assert.match(overdue, /Pong timeout overdue by 5s/u);
+    request.recordTransportStatus({ transport: "websocket", heartbeat: "probing", pongDeadlineAt: now + 90_000 });
+    await openTracker();
+    assert.match(vscode.panels.at(-1).webview.html, /Capability probe ends in 25s/u);
+    request.recordTransportStatus({ transport: "websocket", heartbeat: "unconfirmed" });
+    await openTracker();
+    assert.match(vscode.panels.at(-1).webview.html, /unanswered probe, enforcement disabled/u);
+    request.recordTransportStatus({ transport: "sse", heartbeat: "unsupported", lastDataAt: now + 64_000 });
+    await openTracker();
+    const sse = vscode.panels.at(-1).webview.html;
+    assert.match(sse, /SSE: no ping\/pong; byte activity monitored/u);
+    assert.match(sse, /Last transport data 1s ago/u);
+    assert.match(sse, /Response idle timer inactive/u);
+    request.recordTransportStatus({ transport: "websocket", heartbeat: "unsupported" });
+    await openTracker();
+    assert.match(vscode.panels.at(-1).webview.html, /WebSocket heartbeat unavailable in this runtime/u);
+    request.dispose();
+    assert.match(vscode.statusBarItems[0].tooltip.value, /\$\(pulse\) Requests<\/th><td>0<\/td>/u);
+    assert.equal(vscode.statusBarItems[0].text, "$(cocopi-logo) 0");
+    assert.equal(vscode.statusBarItems[0].visible, true);
+    await openTracker();
+    const empty = vscode.panels.at(-1).webview.html;
+    assert.match(empty, /data-live-count>0<\/span>/u);
+    assert.match(empty, /data-live-empty>No active model requests\.<\/p>/u);
+    await vscode.commands.callbacks.get(COCOPI_COMMANDS.status)?.();
+    const dashboard = vscode.panels.at(-1).webview.html;
+    assert.doesNotMatch(dashboard, /cocopiLiveRequests|data-live-request-id|Live request diagnostics/u);
+    assert.match(dashboard, /cocopi\.showLiveTracker/u);
+  } finally {
+    request.dispose();
+    for (const subscription of context.subscriptions) subscription.dispose();
+    for (const panel of vscode.panels) panel.dispose?.();
+  }
+});
+
+test("Live Tracker refreshes independently of settings and clears its timer on close", async (testContext) => {
+  testContext.mock.timers.enable({ apis: ["setInterval"] });
+  const context = fakeContext();
+  const vscode = fakeVscode({ statusBar: true });
+  registerCocopiCommands(context, vscode);
+  await vscode.commands.callbacks.get(COCOPI_COMMANDS.status)?.();
+  const dashboard = vscode.panels[0];
+  await vscode.commands.callbacks.get(COCOPI_COMMANDS.showLiveTracker)?.();
+  const tracker = vscode.panels[1];
+  const request = startCocopiLiveRequest("fixture");
+  try {
+    testContext.mock.timers.tick(1000);
+    assert.equal(tracker.postedMessages.length, 1);
+    assert.equal(tracker.postedMessages[0].type, "cocopiLiveRequests");
+    assert.match(tracker.postedMessages[0].html, /data-live-count>1</u);
+    assert.deepEqual(dashboard.postedMessages, []);
+    tracker.dispose();
+    request.dispose();
+    testContext.mock.timers.tick(5000);
+    assert.equal(tracker.postedMessages.length, 1);
+    assert.equal(vscode.statusBarItems[0].text, "$(cocopi-logo) 0");
+    assert.equal(vscode.statusBarItems[0].visible, true);
+  } finally {
+    request.dispose();
+    for (const subscription of context.subscriptions) subscription.dispose();
+    for (const panel of vscode.panels) panel.dispose?.();
+  }
+});
 
 test("registerCocopiCommands wires diagnostics webview commands", async () => {
   clearCocopiIssues();
@@ -203,7 +314,7 @@ test("Cocopi status bar item is clickable", () => {
   assert.equal(vscode.statusBarItems[0].priority, 0);
   assert.equal(vscode.statusBarItems[0].name, "Cocopi");
   assert.equal(vscode.statusBarItems[0].command, COCOPI_COMMANDS.status);
-  assert.equal(vscode.statusBarItems[0].text, "$(cocopi-logo)");
+  assert.equal(vscode.statusBarItems[0].text, "$(cocopi-logo) 0");
   assert.equal(vscode.statusBarItems[0].tooltip.supportThemeIcons, true);
   assert.equal(vscode.statusBarItems[0].tooltip.supportHtml, true);
   assert.match(vscode.statusBarItems[0].tooltip.value, /\*\*Cocopi\*\*/u);
@@ -229,6 +340,7 @@ test("Cocopi status bar item is clickable", () => {
     enabledCommands: [
       COCOPI_COMMANDS.status,
       COCOPI_COMMANDS.showTokenTracker,
+      COCOPI_COMMANDS.showLiveTracker,
       COCOPI_COMMANDS.showDiagnostics,
       COCOPI_COMMANDS.signIn,
       COCOPI_COMMANDS.signOut,
@@ -471,6 +583,59 @@ test("utility route controls use the catalog model default and disable tuning fo
   assert.match(namedUtility, /name="routes\.utility\.serviceTier">/u);
   assert.doesNotMatch(namedUtility, /name="routes\.utility\.(?:reasoningEffort|serviceTier)" disabled/u);
   vscode.panels[0].dispose();
+});
+
+test("live activity preserves hover content and only writes changed counter values", async (testContext) => {
+  const vscode = fakeVscode({ chatStatus: true, statusBar: true });
+  const context = fakeContext();
+  const reads = testContext.mock.method(context.secrets, "get");
+  registerCocopiCommands(context, vscode);
+  await vscode.commands.callbacks.get(COCOPI_COMMANDS.status)?.();
+  const count = reads.mock.calls.length;
+  const item = vscode.statusBarItems[0];
+  const diagnosticsRow = item.tooltip.value.match(/<tr><th[^>]*>[^<]*Diagnostics<\/th><td>[^<]*<\/td><\/tr>/u)?.[0];
+  assert.match(item.tooltip.value, /\$\(pulse\) Requests<\/th><td>0<\/td>/u);
+  assert.match(vscode.chatStatusItems[0].detail, /^\$\(pulse\) Requests: 0/u);
+  let text = item.text;
+  let writes = 0;
+  Object.defineProperty(item, "text", {
+    get() { return text; },
+    set(value) { text = value; writes += 1; },
+    configurable: true
+  });
+  const request = startCocopiLiveRequest("fixture");
+  try {
+    assert.equal(item.text, "$(cocopi-logo) 1");
+    const tooltip = item.tooltip;
+    const detail = vscode.chatStatusItems[0].detail;
+    assert.equal(tooltip.value.match(/<tr><th[^>]*>[^<]*Diagnostics<\/th><td>[^<]*<\/td><\/tr>/u)?.[0], diagnosticsRow, "request start must preserve diagnostics");
+    assert.match(tooltip.value, /\$\(pulse\) Requests<\/th><td>1<\/td>/u);
+    assert.match(detail, /^\$\(pulse\) Requests: 1/u);
+    request.update({ stage: "Waiting for server" });
+    request.update({ stage: "Receiving server events" });
+    assert.equal(item.tooltip, tooltip);
+    assert.equal(vscode.chatStatusItems[0].detail, detail);
+    assert.equal(writes, 1, "stage changes must not reassign unchanged status text");
+    assert.equal(reads.mock.calls.length, count, "live activity must not read auth or trigger remote refreshes");
+    request.dispose();
+    assert.equal(item.text, "$(cocopi-logo) 0");
+    assert.equal(item.tooltip.value.match(/<tr><th[^>]*>[^<]*Diagnostics<\/th><td>[^<]*<\/td><\/tr>/u)?.[0], diagnosticsRow, "request finish must preserve diagnostics");
+    assert.match(item.tooltip.value, /\$\(pulse\) Requests<\/th><td>0<\/td>/u);
+    assert.match(vscode.chatStatusItems[0].detail, /^\$\(pulse\) Requests: 0/u);
+    assert.equal(writes, 2);
+    for (const subscription of context.subscriptions) subscription.dispose();
+    const idleTooltip = item.tooltip;
+    const idleDetail = vscode.chatStatusItems[0].detail;
+    const later = startCocopiLiveRequest("fixture");
+    later.dispose();
+    assert.equal(writes, 2);
+    assert.equal(vscode.statusBarItems[0].tooltip, idleTooltip);
+    assert.equal(vscode.chatStatusItems[0].detail, idleDetail);
+  } finally {
+    request.dispose();
+    for (const subscription of context.subscriptions) subscription.dispose();
+    for (const panel of vscode.panels) panel.dispose?.();
+  }
 });
 
 test("Cocopi native chat status item is registered when available", async () => {
