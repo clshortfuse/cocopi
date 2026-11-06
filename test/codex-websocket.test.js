@@ -102,6 +102,46 @@ test("fetchCodexResponseWebSocketStream connects with Codex headers and streams 
   assert.equal(socket.closeCalls.length, 1);
 });
 
+test("one-shot WebSocket closes when the consumer stops at the terminal event", async () => {
+  FakeWebSocket.reset();
+  const streamPromise = fetchCodexResponseWebSocketStream({
+    apiBaseUrl: "https://chatgpt.example.test/backend-api/codex",
+    accessToken: "synthetic",
+    body: buildTextResponseBody({ model: "synthetic", input: "hello" }),
+    WebSocketConstructor: fakeWebSocketConstructor()
+  });
+  await nextMicrotask();
+  const socket = FakeWebSocket.single();
+  socket.open();
+  const stream = await streamPromise;
+  const reader = stream.getReader();
+  const received = reader.read();
+  socket.message(JSON.stringify({ type: "response.completed", response: { id: "synthetic" } }));
+  const result = await received;
+  assert.equal(result.value?.type, "response.completed");
+  await reader.cancel();
+  assert.equal(socket.closeCalls.length, 1);
+});
+
+test("one-shot WebSocket cancellation settles a pending read and closes the socket", async () => {
+  FakeWebSocket.reset();
+  const streamPromise = fetchCodexResponseWebSocketStream({
+    apiBaseUrl: "https://chatgpt.example.test/backend-api/codex",
+    accessToken: "synthetic",
+    body: buildTextResponseBody({ model: "synthetic", input: "hello" }),
+    WebSocketConstructor: fakeWebSocketConstructor()
+  });
+  await nextMicrotask();
+  const socket = FakeWebSocket.single();
+  socket.open();
+  const stream = await streamPromise;
+  const reader = stream.getReader();
+  const received = reader.read();
+  await reader.cancel();
+  assert.deepEqual(await received, { done: true, value: undefined });
+  assert.equal(socket.closeCalls.length, 1);
+});
+
 test("fetchCodexResponseWebSocketStream reports malformed messages", async () => {
   FakeWebSocket.reset();
   const streamPromise = fetchCodexResponseWebSocketStream({
