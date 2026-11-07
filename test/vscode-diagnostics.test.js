@@ -637,6 +637,53 @@ test("summarizeCodexRequestBodyForDiagnostics detects compaction and previous re
   assert.equal(summaryReplay.requestKind, "conversation-summary");
 });
 
+test("request diagnostic details are lazy and memoized per summary", () => {
+  let reads = 0;
+  const body = {
+    model: "gpt-test",
+    input: [],
+    get instructions() {
+      reads += 1;
+      return "large request instructions";
+    }
+  };
+  const summary = summarizeCodexRequestBodyForDiagnostics(body);
+  assert.equal(reads, 0);
+  assert.equal(summary.inputItems, 0);
+  const digest = summary.bodyDigest;
+  assert.equal(reads, 1);
+  assert.equal(summary.bodyDigest, digest);
+  assert.equal(reads, 1);
+  assert.equal(digest, summarizeCodexRequestBodyForDiagnostics({ ...body }).bodyDigest);
+});
+
+test("request logging reuses the supplied request-local diagnostic summary", () => {
+  let reads = 0;
+  const body = {
+    model: "synthetic",
+    input: [],
+    get instructions() { reads += 1; return "synthetic instructions"; }
+  };
+  const summary = summarizeCodexRequestBodyForDiagnostics(body);
+  const digest = summary.bodyDigest;
+  assert.equal(reads, 1);
+  const logger = fakeLogger();
+  logCodexRequestDiagnostics(logger, "metadata", body, {}, summary);
+  assert.equal(reads, 2, "only the instruction-presence check may reread instructions");
+  assert.ok(logger.debugMessages.some((message) => message.includes(`bodyDigest=${digest}`)));
+});
+
+test("request diagnostic digests share one payload traversal", () => {
+  let reads = 0;
+  const body = { model: "synthetic", input: [{ type: "function_call_output", call_id: "synthetic", get output() { reads += 1; return "synthetic output"; } }], tools: [] };
+  const summary = summarizeCodexRequestBodyForDiagnostics(body);
+  assert.equal(reads, 0);
+  assert.match(summary.inputDigest, /^sha256:/u);
+  assert.match(summary.toolsDigest, /^sha256:/u);
+  assert.match(summary.bodyDigest, /^sha256:/u);
+  assert.equal(reads, 1);
+});
+
 test("payload debug level logs request and stream event payload text", () => {
   const logger = fakeLogger();
 
