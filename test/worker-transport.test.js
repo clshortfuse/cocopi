@@ -9,7 +9,7 @@ import { Worker } from "node:worker_threads";
 import { CodexTransport } from "../lib/codex-api/transport.js";
 import { CodexWorkerTransport } from "../lib/codex-api/worker-transport.js";
 import { WorkerDeliveryBuffer } from "../lib/codex-api/worker-buffer.js";
-import { CodexWorkerError } from "../lib/codex-api/worker-protocol.js";
+import { CodexWorkerError, WORKER_PROTOCOL_VERSION } from "../lib/codex-api/worker-protocol.js";
 import { closeCodexResponseWebSocketSessions, fetchCodexResponseStreamWithAuthRefresh } from "../lib/vscode/codex-request.js";
 
 /**
@@ -298,4 +298,23 @@ test("shared response entry point invalidates worker streams on account changes"
   closeCodexResponseWebSocketSessions();
   await rejected;
   assert.equal(Atomics.load(counts, 0), 1);
+});
+test("worker requests cannot wait indefinitely before opening or starting heartbeat", async (context) => {
+  const code = `import { parentPort, workerData } from 'node:worker_threads';
+    parentPort.on('message', message => { if (message.type === 'shutdown') parentPort.close(); });
+    parentPort.postMessage({ type: 'ready', version: ${WORKER_PROTOCOL_VERSION}, generation: workerData.generation });`;
+  const service = new CodexWorkerTransport({ url: new URL(`data:text/javascript,${encodeURIComponent(code)}`), requestStartTimeoutMs: 30 });
+  context.after(() => service.dispose());
+  let cancelled = 0;
+  const post = service.worker.postMessage.bind(service.worker);
+  service.worker.postMessage = (message, transferList) => {
+    if (message.type === "cancel") cancelled += 1;
+    return post(message, transferList);
+  };
+  await assert.rejects(service.request({ apiBaseUrl: "https://example.invalid", accessToken: "synthetic",
+    body: { model: "synthetic", input: [], stream: true } }), /did not open within 30ms/u);
+  assert.equal(cancelled, 1);
+  assert.equal(service.invocations.size, 0);
+  assert.equal(service.uploadBytes, 0);
+  assert.equal(service.closed, false, "the deadline must not kill other requests or the worker");
 });

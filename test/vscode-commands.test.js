@@ -51,7 +51,7 @@ test("active requests use compact cards with escaped details and stable refresh 
     assert.match(html, /data-live-progress>No output progress yet</u);
     assert.match(html, /data-live-deadline>Response idle timeout in 55s</u);
     assert.match(html, /data-live-heartbeat>WebSocket heartbeat: waiting; ping 5s ago; pong 35s ago</u);
-    assert.match(html, /data-live-heartbeat-deadline>Pong timeout in 25s</u);
+    assert.match(html, /data-live-heartbeat-deadline>Transport silence timeout in 25s</u);
     assert.match(html, /data-live-wire>Last transport data 65s ago; server ping not observed</u);
     assert.match(html, /data-live-event>response\.in_progress</u);
     assert.match(html, /<details class="live-request-details"><summary>Request details<\/summary>/u);
@@ -63,13 +63,13 @@ test("active requests use compact cards with escaped details and stable refresh 
     await openTracker();
     const overdue = vscode.panels.at(-1).webview.html;
     assert.match(overdue, /Response idle timeout overdue by 5s/u);
-    assert.match(overdue, /Pong timeout overdue by 5s/u);
+    assert.match(overdue, /Transport silence timeout overdue by 5s/u);
     request.recordTransportStatus({ transport: "websocket", heartbeat: "probing", pongDeadlineAt: now + 90_000 });
     await openTracker();
-    assert.match(vscode.panels.at(-1).webview.html, /Capability probe ends in 25s/u);
+    assert.match(vscode.panels.at(-1).webview.html, /Transport silence timeout in 25s/u);
     request.recordTransportStatus({ transport: "websocket", heartbeat: "unconfirmed" });
     await openTracker();
-    assert.match(vscode.panels.at(-1).webview.html, /unanswered probe, enforcement disabled/u);
+    assert.match(vscode.panels.at(-1).webview.html, /pong support unconfirmed; incoming traffic monitored/u);
     request.recordTransportStatus({ transport: "sse", heartbeat: "unsupported", lastDataAt: now + 64_000 });
     await openTracker();
     const sse = vscode.panels.at(-1).webview.html;

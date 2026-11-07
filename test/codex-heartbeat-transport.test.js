@@ -57,17 +57,18 @@ async function fixture(context, idleTimeoutMs, confirm = true) {
   return { session, socket, reader, statuses, waitFor };
 }
 
-test("a server that never answers the initial ping can still complete its response", { timeout: 10_000 }, async (context) => {
+test("a server that never sends any traffic fails even without a first pong", { timeout: 10_000 }, async (context) => {
   const { session, socket, reader, statuses } = await fixture(context, 120_000, false);
   context.mock.timers.tick(0);
   assert.equal(statuses.at(-1)?.heartbeat, "probing");
-  context.mock.timers.tick(30_000);
-  assert.equal(statuses.at(-1)?.heartbeat, "unconfirmed");
-  assert.equal(session.socket?.readyState, WebSocket.OPEN);
-  assert.equal(statuses.at(-1)?.responseIdleDeadlineAt, 121_000);
-  socket.send(JSON.stringify({ type: "response.completed", response: { id: "no-pong", output: [] } }));
-  const completed = await reader.read();
-  assert.equal(completed.value?.type, "response.completed");
+  const rejected = assert.rejects(reader.read(), (error) => error instanceof CodexResponseWebSocketError && error.code === "heartbeat_timeout");
+  context.mock.timers.tick(29_999);
+  assert.equal(statuses.at(-1)?.heartbeat, "probing");
+  context.mock.timers.tick(1);
+  await rejected;
+  assert.equal(statuses.at(-1)?.heartbeat, "failed");
+  assert.equal(session.socket, undefined);
+  socket.terminate();
 });
 
 test("real WebSocket probes remain healthy through quiet output and answer server pings", { timeout: 10_000 }, async (context) => {
@@ -78,11 +79,11 @@ test("real WebSocket probes remain healthy through quiet output and answer serve
   const [payload] = await serverPong;
   assert.equal(String(payload), "server-fixture");
   for (let probe = 1; probe <= 6; probe += 1) {
-    assert.equal(statuses.at(-1)?.nextPingAt, 1000 + probe * 30_000);
-    const pong = waitFor((status) => status.lastPongAt === 1000 + probe * 30_000);
-    context.mock.timers.tick(30_000);
-    assert.equal(performance.now(), 1000 + probe * 30_000);
-    assert.equal(statuses.at(-1)?.lastPingAt, 1000 + probe * 30_000);
+    assert.equal(statuses.at(-1)?.nextPingAt, 1000 + probe * 15_000);
+    const pong = waitFor((status) => status.lastPongAt === 1000 + probe * 15_000);
+    context.mock.timers.tick(15_000);
+    assert.equal(performance.now(), 1000 + probe * 15_000);
+    assert.equal(statuses.at(-1)?.lastPingAt, 1000 + probe * 15_000);
     await pong;
   }
   assert.equal(statuses.at(-1)?.heartbeat, "healthy");
@@ -100,8 +101,8 @@ test("missing pong fails the stream with a non-replayable heartbeat code and ret
   const { session, socket, reader, statuses } = await fixture(context, 120_000);
   const pendingRead = reader.read();
   const rejected = assert.rejects(pendingRead, (error) => error instanceof CodexResponseWebSocketError && error.code === "heartbeat_timeout" && !error.retryableWithFreshWebSocket && !error.retryableWithSseBeforeOutput);
-  context.mock.timers.tick(30_000);
-  context.mock.timers.tick(30_000);
+  context.mock.timers.tick(15_000);
+  context.mock.timers.tick(15_000);
   await rejected;
   assert.equal(session.socket, undefined);
   assert.equal(statuses.at(-1)?.heartbeat, "failed");
@@ -110,17 +111,58 @@ test("missing pong fails the stream with a non-replayable heartbeat code and ret
   socket.terminate();
 });
 
+test("incoming fragments keep transport live without completing a response message", { timeout: 10_000 }, async (context) => {
+  const { session, socket, reader, statuses } = await fixture(context, 120_000, false);
+  assert.ok(session.socket);
+  const receiveSocket = /** @type {import('node:net').Socket} */ (Reflect.get(session.socket, "_socket"));
+  const originalDataListeners = receiveSocket.listenerCount("data");
+  context.mock.timers.tick(0);
+  for (let fragment = 0; fragment < 5; fragment += 1) {
+    context.mock.timers.tick(10_000);
+    const received = once(receiveSocket, "data");
+    socket.send(fragment === 0 ? '{"type":"response.completed","response":{"id":"fragmented","output":[' : " ", { fin: false });
+    await received;
+    assert.equal(statuses.at(-1)?.pongDeadlineAt, performance.now() + 30_000);
+    assert.equal(statuses.at(-1)?.responseIdleDeadlineAt, 121_000, "fragments do not count as complete response messages");
+    assert.equal(statuses.at(-1)?.lastDataAt, undefined);
+    assert.notEqual(statuses.at(-1)?.heartbeat, "failed");
+  }
+  socket.send("]}}", { fin: true });
+  const completed = await reader.read();
+  assert.equal(completed.value?.type, "response.completed");
+  assert.equal(receiveSocket.listenerCount("data"), originalDataListeners - 1, "completion removes only the heartbeat byte listener");
+});
+
+test("an incomplete message fails after 30 seconds without further receive bytes", { timeout: 10_000 }, async (context) => {
+  const { session, socket, reader, statuses } = await fixture(context, 120_000, false);
+  assert.ok(session.socket);
+  const receiveSocket = /** @type {import('node:net').Socket} */ (Reflect.get(session.socket, "_socket"));
+  const originalDataListeners = receiveSocket.listenerCount("data");
+  const rejected = assert.rejects(reader.read(), (error) => error instanceof CodexResponseWebSocketError && error.code === "heartbeat_timeout");
+  context.mock.timers.tick(10_000);
+  const received = once(receiveSocket, "data");
+  socket.send('{"type":', { fin: false });
+  await received;
+  context.mock.timers.tick(29_999);
+  assert.notEqual(statuses.at(-1)?.heartbeat, "failed");
+  context.mock.timers.tick(1);
+  await rejected;
+  assert.equal(statuses.at(-1)?.heartbeat, "failed");
+  assert.equal(receiveSocket.listenerCount("data"), originalDataListeners - 1);
+  socket.terminate();
+});
+
 test("healthy pongs do not extend the response-idle deadline", { timeout: 10_000 }, async (context) => {
   const { socket, reader, statuses, waitFor } = await fixture(context, 120_000);
   socket.on("ping", (payload) => socket.pong(payload));
   const rejected = assert.rejects(reader.read(), /idle for 120000ms/u);
-  for (let probe = 1; probe <= 3; probe += 1) {
-    const pong = waitFor((status) => status.lastPongAt === 1000 + probe * 30_000);
-    context.mock.timers.tick(30_000);
+  for (let probe = 1; probe <= 7; probe += 1) {
+    const pong = waitFor((status) => status.lastPongAt === 1000 + probe * 15_000);
+    context.mock.timers.tick(15_000);
     await pong;
     assert.equal(statuses.at(-1)?.responseIdleDeadlineAt, 121_000);
   }
-  context.mock.timers.tick(30_000);
+  context.mock.timers.tick(15_000);
   await rejected;
   assert.equal(statuses.at(-1)?.responseIdleDeadlineAt, undefined);
 });

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { setImmediate } from "node:timers/promises";
 
 import { canonicalCodexJsonString } from "../lib/codex-api/json.js";
 import { buildTextResponseBody } from "../lib/codex-api/response-body.js";
@@ -211,10 +212,16 @@ test("CodexResponsesWebSocketSession does not send queued requests cancelled bef
     signal: controller.signal
   });
   controller.abort(new Error("stop queued websocket"));
+  let queuedRejected = false;
+  const queuedRejection = assert.rejects(secondStreamPromise, /stop queued websocket/u).then(() => { queuedRejected = true; });
+  await setImmediate();
+  assert.equal(queuedRejected, true, "queued cancellation must settle while the first response remains active");
+  assert.equal(socket.sent.length, 1, "queued cancellation must not send response.cancel for the active request");
+  assert.equal(socket.closeCalls.length, 0, "queued cancellation must not close the active socket");
   socket.message(JSON.stringify({ type: "response.completed", response: { id: "resp-one" } }));
 
   assert.deepEqual(await firstEventsPromise, [{ type: "response.completed", response: { id: "resp-one" } }]);
-  await assert.rejects(secondStreamPromise, /stop queued websocket/u);
+  await queuedRejection;
   assert.equal(socket.sent.length, 1);
 
   session.dispose();
