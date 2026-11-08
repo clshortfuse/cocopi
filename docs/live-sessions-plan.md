@@ -59,3 +59,69 @@ after explicit cancellation of the first request. Separate coverage verifies
 unacknowledged dispatch still times out and cancellation wording does not hide
 operational failures. No running requests are cancelled or replayed by applying
 these source changes.
+
+### Renounce whitespace-only argument stall
+
+Passive payload/log inspection on 2026-11-08 mapped `C:/Mods/renounce` to its
+workspace-storage chat and window14 capture. Request turn 46 was prepared at
+19:18:03.807Z, its wire request at 19:18:03.817Z, and `response.created` at
+19:18:04.170Z. The prepared request had 99 input items; continuation adaptation
+sent one input item plus a previous-response ID, with 57 tools. These metadata
+alone do not implicate continuation adaptation in the failure.
+
+The retained output-log tail spans 19:43:53.339Z–19:55:13.166Z and contains
+34,007 payload-decoded `response.function_call_arguments.delta` events for one
+item. Their sequence numbers are contiguous, 77,399–111,405. All 204,045 captured
+argument characters are whitespace, across only five distinct chunk values.
+No non-argument stream event or terminal completion appears in that retained
+tail. Initial large response events survive in the payload sidecar, but the
+earlier small-delta output-log prefix is not retained; do not claim the full
+37-minute generation was whitespace-only or reconstruct its initial arguments.
+
+This confirms an actively delivered, non-completing whitespace generation loop,
+not a silent socket or repeated display of the same sequence-numbered event.
+It also establishes a local UX/safety gap: argument fragments keep response idle
+and displayed output progress fresh even when no usable tool call results.
+Transport liveness must remain byte/ping/pong based. Any future runaway-argument
+guard must be separate, tested against legitimate JSON string content and
+fragment boundaries, fail visibly without automatic paid replay, and not impose
+an arbitrary time cap on valid long-running output. No runtime guard was added
+or active generation cancelled during this investigation. Raw argument text,
+prompts, and credentials are intentionally absent from these notes.
+
+### Runaway argument guard
+
+The shared `CodexTransport` stream now rejects more than 16,384 consecutive JSON
+whitespace characters (space, tab, CR, LF) outside a string within one unfinished
+function-call argument stream. This is an explicit Cocopi-local defensive limit,
+not an upstream protocol restriction, total response deadline, or limit on
+whitespace inside a tool's string values. A deliberately formatted valid JSON
+argument containing a longer outside-string run is also rejected by this policy.
+
+Per-item lexical state tracks quotes and backslash escapes across delta
+boundaries, including initial arguments on `response.output_item.added`. Any
+non-whitespace JSON progress resets the run. Completed items and responses clear
+state; no argument text is retained or rewritten by the guard. Interleaved calls
+do not share whitespace counters. SSE and WebSocket paths use the same guard,
+including the actual worker-backed path before delivery to the host. Existing
+heartbeat and response-idle semantics are unchanged.
+
+On violation, cancel only the guarded source, release its reader/admission
+resources, and return a payload-free `tool arguments stalled` error. It is not a
+retryable WebSocket/TypeError failure, so no automatic SSE fallback, socket retry,
+or paid completed-item continuation is triggered. No active installed request is
+modified merely by changing source files.
+
+The fragmented whitespace regression first failed with `Missing expected
+rejection` before the guard, then passed unchanged afterward. Additional tests
+cover large quoted whitespace with escaped quotes split across chunks, exact
+boundary acceptance, non-whitespace progress, interleaved calls, completed-item
+cleanup, downstream cancellation, WebSocket non-replay behavior, and real worker
+error delivery/admission cleanup.
+
+Upstream comparison on 2026-11-08:
+`openai/codex` main `codex-rs/codex-api/src/sse/responses.rs` handles function
+argument delta/done events as unhandled transport events and relies on completed
+output items; no equivalent 16,384-character whitespace-run limit appears in
+that handler. This guard is intentional local safety behavior, not claimed
+upstream parity.

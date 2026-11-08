@@ -343,3 +343,16 @@ test("accepted queued requests survive the dispatch deadline behind an active ge
   assert.equal(outcome, "opened");
   assert.equal(Atomics.load(counts, 0), 2);
 });
+
+test("worker surfaces runaway tool whitespace and releases admission without replay", async (context) => {
+  const { service, apiBaseUrl, counts } = await fixture(context, { interval: 1, events: [
+    { type: "response.function_call_arguments.delta", item_id: "a", output_index: 0, delta: " ".repeat(16_385) }
+  ] });
+  assert.ok(service instanceof CodexWorkerTransport);
+  const stream = await service.request({ apiBaseUrl, accessToken: "synthetic", transport: "websocket",
+    body: { model: "events", input: [], stream: true }, idleTimeoutMs: 0 });
+  await assert.rejects(async () => { for await (const event of stream) assert.ok(event.type); }, /tool arguments stalled/iu);
+  assert.equal(Atomics.load(counts, 0), 1);
+  assert.equal(service.invocations.size, 0);
+  assert.equal(service.uploadBytes, 0);
+});
