@@ -6583,3 +6583,11 @@ function sseData(event) {
 function jsonString(value) {
   return JSON.stringify(value);
 }
+
+test("languageModelErrorFromCodexError preserves timeout reasons containing cancellation wording", () => {
+  const message = "Codex transport worker request did not open within 30000ms; the queued or starting invocation was cancelled without replay.";
+  const mapped = languageModelErrorFromCodexError(new Error(message), fakeAbortSignal(), fakeVscode());
+  assert.match(mapped.message, /did not open within 30000ms/u);
+  assert.notEqual(mapped.message, "Cocopi request was cancelled.");
+  assert.equal(languageModelErrorFromCodexError(new DOMException("operation aborted", "AbortError"), fakeAbortSignal(), fakeVscode()).message, "Cocopi request was cancelled.");
+});

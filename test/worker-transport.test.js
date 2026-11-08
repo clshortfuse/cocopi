@@ -14,7 +14,7 @@ import { closeCodexResponseWebSocketSessions, fetchCodexResponseStreamWithAuthRe
 
 /**
  * @param {import("node:test").TestContext} context
- * @param {{ events?: object[], keepOpen?: boolean }} [options]
+ * @param {{ events?: object[], keepOpen?: boolean, interval?: number }} [options]
  */
 async function fixture(context, options = {}) {
   const counts = new Int32Array(new SharedArrayBuffer(12));
@@ -299,7 +299,7 @@ test("shared response entry point invalidates worker streams on account changes"
   await rejected;
   assert.equal(Atomics.load(counts, 0), 1);
 });
-test("worker requests cannot wait indefinitely before opening or starting heartbeat", async (context) => {
+test("worker requests cannot wait indefinitely for dispatch acceptance", async (context) => {
   const code = `import { parentPort, workerData } from 'node:worker_threads';
     parentPort.on('message', message => { if (message.type === 'shutdown') parentPort.close(); });
     parentPort.postMessage({ type: 'ready', version: ${WORKER_PROTOCOL_VERSION}, generation: workerData.generation });`;
@@ -312,9 +312,34 @@ test("worker requests cannot wait indefinitely before opening or starting heartb
     return post(message, transferList);
   };
   await assert.rejects(service.request({ apiBaseUrl: "https://example.invalid", accessToken: "synthetic",
-    body: { model: "synthetic", input: [], stream: true } }), /did not open within 30ms/u);
+    body: { model: "synthetic", input: [], stream: true } }), /did not acknowledge request dispatch within 30ms/u);
   assert.equal(cancelled, 1);
   assert.equal(service.invocations.size, 0);
   assert.equal(service.uploadBytes, 0);
   assert.equal(service.closed, false, "the deadline must not kill other requests or the worker");
+});
+
+test("accepted queued requests survive the dispatch deadline behind an active generation", async (context) => {
+  const { service, apiBaseUrl, counts } = await fixture(context, { keepOpen: true, interval: 1,
+    events: [{ type: "response.completed", response: { id: "synthetic", output: [], status: "completed" } }] });
+  assert.ok(service instanceof CodexWorkerTransport);
+  const abort = new AbortController();
+  const body = { model: "silent", input: [], stream: true, prompt_cache_key: "synthetic-shared-session" };
+  const first = await service.request({ apiBaseUrl, accessToken: "synthetic", transport: "websocket", body, signal: abort.signal, idleTimeoutMs: 0 });
+  const firstReader = first.getReader();
+  const created = await firstReader.read();
+  assert.equal(created.value?.type, "response.created");
+  service.requestStartTimeoutMs = 30;
+  let outcome = "pending";
+  const second = service.request({ apiBaseUrl, accessToken: "synthetic", transport: "websocket", body: { ...body, model: "events" }, idleTimeoutMs: 0 });
+  void second.then(() => { outcome = "opened"; }, () => { outcome = "rejected"; });
+  await delay(90);
+  assert.equal(outcome, "pending", "accepted queue waiting must not expire as a dispatch failure");
+  assert.equal(Atomics.load(counts, 0), 1, "the queued request must not generate concurrently");
+  abort.abort();
+  await assert.rejects(firstReader.read());
+  const stream = await second;
+  for await (const event of stream) assert.ok(event.type);
+  assert.equal(outcome, "opened");
+  assert.equal(Atomics.load(counts, 0), 2);
 });

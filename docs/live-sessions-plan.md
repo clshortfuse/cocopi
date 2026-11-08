@@ -34,13 +34,28 @@
 - Clear timers/listeners on completion, cancellation, error, and disposal; keep telemetry payload-free and never record ping payloads, prompts, or credentials.
 - Validate matching/mismatched/missing pongs, ongoing traffic without output, server ping replies, response-idle independence, worker backpressure, unsupported transports, UI countdowns, and cleanup.
 - Already running requests use their loaded extension code; source changes do not retrofit their timers. No claim is made that this diagnoses the backend cause of an existing stall.
-- Independently bound worker request opening/queue waits to 30 seconds. A request that has not opened is cancelled locally with a non-replayable error and its admission reservation released; unrelated requests and the worker remain running. This is not proof that a stalled request reached a socket.
+- Bound unacknowledged host-to-worker dispatch to 30 seconds, not queue waiting. Protocol v5 sends an independent `accepted` message once the worker admits the invocation, before parsing/network/queue awaits. Acceptance clears the dispatch watchdog without claiming that the request has opened or produced output. A healthy shared session may serve an earlier generation longer than 30 seconds; queued requests must not expire for that reason. Socket-owned receive liveness remains fatal after 30 seconds without bytes/ping/pong; outgoing traffic never extends it. The existing socket connection-opening and response-idle protections remain separate.
+- An unacknowledged dispatch fails with its actual dispatch-timeout reason and no automatic replay. Do not classify errors as user cancellation merely because their explanatory text contains `cancel` or `abort`: provider cancellation classification requires an aborted signal or an `AbortError`.
 
 ### Queue ownership investigation
 
 - A synthetic local-server probe reproduced the reported card pattern with exactly one WebSocket: the first request remains active, while a second request awaits `state.started` and has no heartbeat status of its own. Separate cards do not establish separate sockets.
 - Fixed cancellation gap: queued WebSocket requests now attach their abort listener at admission, before awaiting the queue. Cancellation immediately rejects the opening promise without cancelling or closing the active request's socket. When a cancelled entry reaches the queue front, it is skipped without sending a prompt.
 - The strengthened queued-cancellation regression leaves the first request active, requires rejection after one event-loop turn, verifies no active-response cancel or socket close, and then verifies the first response completes normally. It failed on the original listener timing and passed unchanged after the fix.
-- The worker opening deadline bounds host-side waiting; its cancellation can now also promptly settle the underlying queued request. The promise-chain queue still retains the cancelled entry until its position is reached; this change does not claim immediate removal of that entry or shared heartbeat reporting for queued cards.
+- The worker dispatch deadline bounds unacknowledged admission only. Explicit cancellation can promptly settle an accepted queued request; its queue wait has no independent absolute expiry. The promise-chain queue still retains the cancelled entry until its position is reached; this change does not claim immediate removal of that entry or shared heartbeat reporting for queued cards.
 - Continuous `response.function_call_arguments.delta` messages keep receive and response-idle deadlines alive without completing a tool call. A healthy heartbeat cannot detect an abandoned request that continues producing data.
 - The affected window's minimal logs identify request starts and cancellations, but do not contain invocation/socket identifiers or enough terminal-event records to prove the exact live queue owner. Do not infer socket identity from the logical session ID alone.
+
+### Queue deadline regression correction
+
+On 2026-11-08, affected-window metadata showed repeated 30-second worker-opening
+timeouts while an earlier generation continued receiving events. The original
+queue-inclusive watchdog confused request opening with connection liveness, and
+the error mapper hid the timeout behind a generic cancellation message. Real
+worker/local WebSocket regression coverage first failed with a rejected queued
+request behind an active generation, then passed after admission acknowledgment.
+The same test verifies one active generation and successful queue progression
+after explicit cancellation of the first request. Separate coverage verifies
+unacknowledged dispatch still times out and cancellation wording does not hide
+operational failures. No running requests are cancelled or replayed by applying
+these source changes.
