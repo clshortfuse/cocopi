@@ -459,8 +459,8 @@
           "type": "string"
         },
         "cocopi.toolStrict": {
-          "default": true,
-          "description": "Send VS Code tool schemas to Codex with strict structured-output validation enabled. Request-specific tool options can override this setting.",
+          "default": false,
+          "description": "Opt into strict structured-output decoding for VS Code tools. Disabled by default to match upstream Codex bridged tools and preserve optional arguments. Request-specific tool options can override this setting.",
           "type": "boolean"
         },
         "cocopi.transport": {

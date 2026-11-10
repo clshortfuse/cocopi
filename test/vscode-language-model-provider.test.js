@@ -5275,8 +5275,8 @@ test("provideLanguageModelChatResponse sends tools and streams tool calls from a
     type: "function",
     name: "read_file",
     description: "Read a workspace file.",
-    parameters: { additionalProperties: false, type: "object", properties: { path: { type: "string" } }, required: ["path"] },
-    strict: true
+    parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+    strict: false
   }]);
   assert.deepEqual(body.include, ["reasoning.encrypted_content"]);
   assert.equal(body.tool_choice, "required");
@@ -6590,4 +6590,24 @@ test("languageModelErrorFromCodexError preserves timeout reasons containing canc
   assert.match(mapped.message, /did not open within 30000ms/u);
   assert.notEqual(mapped.message, "Cocopi request was cancelled.");
   assert.equal(languageModelErrorFromCodexError(new DOMException("operation aborted", "AbortError"), fakeAbortSignal(), fakeVscode()).message, "Cocopi request was cancelled.");
+});
+
+test("terminal task completion separates a leading filename from prior edit output", async (testContext) => {
+  const fetchMock = testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => {
+    throw new Error("terminal task completion must not reach Codex");
+  }));
+  const progress = fakeProgress();
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode());
+  const summary = "`file.cpp` now compiles.";
+  await provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), [
+    fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "finish"),
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [new LanguageModelToolCallPart("complete", "task_complete", { summary })]),
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [new LanguageModelToolResultPart("complete", [new LanguageModelTextPart(summary)])])
+  ], fakeResponseOptions({ toolMode: 1 }), progress, fakeCancellationToken());
+  assert.equal(fetchMock.mock.callCount(), 0);
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), [`\n\n${summary}`]);
 });

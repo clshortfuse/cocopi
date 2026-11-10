@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { CODEX_CLIENT_VERSION, DEFAULT_CODEX_API_BASE_URL, DEFAULT_CODEX_MODEL } from "../lib/codex-api/config.js";
 import { COCOPI_AUTH_MODES, COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_DEBUG_LEVELS, COCOPI_INLINE_COMPLETION_MODEL_AUTO, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_SERVICE_TIERS, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, COCOPI_ULTRA_MULTI_AGENT_MODE_INSTRUCTIONS, DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS, DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS, DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS, DEFAULT_EDIT_PROGRESS_INTERVAL_MS, DEFAULT_INLINE_COMPLETION_MAX_PREFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_MAX_SUFFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS, codexReasoningFromCocopiOptions, codexServiceTierFromCocopiOptions, codexToolOptionsFromCocopiOptions, cocopiUltraMultiAgentModeFromOptions, readCocopiConfiguration, resolveChatParticipantInstructions, resolveCocopiUltraMultiAgentInstructions, resolveVscodeLanguageModelTools } from "../lib/vscode/configuration.js";
 import { clearCocopiInstructionReplacementSnapshots, readCocopiInstructionReplacementSnapshots } from "../lib/vscode/instruction-replacements.js";
+import { codexToolsFromLanguageModelTools } from "../lib/vscode/tool-bridge.js";
 
 test("readCocopiConfiguration reads defaults", () => {
   assert.deepEqual(readCocopiConfiguration(fakeVscodeConfiguration()), {
@@ -23,7 +25,7 @@ test("readCocopiConfiguration reads defaults", () => {
     showTokenTrackerTimeline: true,
     tokenTrackerTimelineDays: DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS,
     tokenTrackerTimelineMode: COCOPI_TOKEN_TRACKER_TIMELINE_MODES.both,
-    toolStrict: true,
+    toolStrict: false,
     editProgressIntervalMs: DEFAULT_EDIT_PROGRESS_INTERVAL_MS,
     streamIdleTimeoutMs: DEFAULT_STREAM_IDLE_TIMEOUT_MS,
     chatInstructions: DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS,
@@ -203,7 +205,7 @@ test("readCocopiConfiguration falls back from blank and disabled values", () => 
     showTokenTrackerTimeline: true,
     tokenTrackerTimelineDays: DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS,
     tokenTrackerTimelineMode: COCOPI_TOKEN_TRACKER_TIMELINE_MODES.both,
-    toolStrict: true,
+    toolStrict: false,
     editProgressIntervalMs: undefined,
     streamIdleTimeoutMs: undefined,
     chatInstructions: DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS,
@@ -483,6 +485,69 @@ test("codexServiceTierFromCocopiOptions falls back for unsupported modelOptions"
   assert.equal(codexServiceTierFromCocopiOptions(configuration, { serviceTier: "unsupported" }), "auto");
   assert.equal(codexServiceTierFromCocopiOptions(configuration, { serviceTier: "fast" }), "auto");
   assert.equal(codexServiceTierFromCocopiOptions(configuration, { service_tier: "default" }), "auto");
+});
+
+test("default bridged tools match upstream Codex non-strict decoding and preserve optional fields", () => {
+  const configuration = readCocopiConfiguration(fakeVscodeConfiguration());
+  const tools = [{
+    name: "run_in_terminal",
+    description: "Run a terminal command.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        command: { type: "string" },
+        mode: { type: "string", enum: ["sync", "async"] },
+        timeout: { type: "number" }
+      },
+      required: ["command"]
+    }
+  }];
+  const original = structuredClone(tools);
+  const [tool] = codexToolsFromLanguageModelTools(tools, codexToolOptionsFromCocopiOptions(configuration));
+  const parameters = /** @type {import("../lib/vscode/tool-bridge.js").CodexToolParametersSchema} */ (tool.parameters);
+  assert.equal(tool.strict, false);
+  assert.deepEqual(parameters.required, ["command"]);
+  assert.equal(parameters.additionalProperties, undefined);
+  assert.deepEqual(tools, original);
+
+  for (const options of [{ toolStrict: true }, { tools: { strict: true } }]) {
+    const [strictTool] = codexToolsFromLanguageModelTools(tools, codexToolOptionsFromCocopiOptions(configuration, options));
+    const strictParameters = /** @type {import("../lib/vscode/tool-bridge.js").CodexToolParametersSchema} */ (strictTool.parameters);
+    assert.equal(strictTool.strict, true);
+    assert.deepEqual(strictParameters.required, ["command", "mode", "timeout"]);
+    assert.equal(strictParameters.additionalProperties, false);
+  }
+});
+
+test("terminal wire schema preserves omission of timeout and legacy background flag", () => {
+  const configuration = readCocopiConfiguration(fakeVscodeConfiguration());
+  const required = ["command", "explanation", "goal", "mode"];
+  const [tool] = codexToolsFromLanguageModelTools([{
+    name: "run_in_terminal",
+    description: "Run a terminal command.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        command: { type: "string" },
+        explanation: { type: "string" },
+        goal: { type: "string" },
+        isBackground: { type: "boolean" },
+        mode: { type: "string", enum: ["sync", "async"] },
+        timeout: { type: "number" }
+      },
+      required
+    }
+  }], codexToolOptionsFromCocopiOptions(configuration));
+  const parameters = /** @type {import("../lib/vscode/tool-bridge.js").CodexToolParametersSchema} */ (tool.parameters);
+  assert.deepEqual(parameters.required, required);
+  assert.deepEqual(parameters.properties?.timeout, { type: "number" });
+  assert.deepEqual(parameters.properties?.isBackground, { type: "boolean" });
+  assert.equal(tool.strict, false);
+});
+
+test("contributed tool strictness default matches upstream Codex", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(manifest.contributes.configuration.properties["cocopi.toolStrict"].default, false);
 });
 
 test("codexToolOptionsFromCocopiOptions maps strict defaults and request overrides", () => {

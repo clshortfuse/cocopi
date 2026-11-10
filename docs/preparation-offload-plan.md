@@ -38,6 +38,58 @@ to the transport worker. Neither choice is approved as a production design.
 
 ## Required integration design
 
+### Concurrent profiling checkpoint (2026-11-10)
+
+The pressure mode is now available by supplying an explicit fourth argument:
+`scripts/benchmark-preparation-offload.js [message-pairs] [iterations] [concurrency]`.
+It supports 1–8 concurrent cloned requests, capped at 16 MiB per synthetic upload
+and 32 MiB total per batch. It uses one worker with correlated replies, alternates
+host/offload batch order, excludes a paired warmup, and checks exact hashes and
+upload bytes. No credentials, API calls, or running editor changes are involved.
+The existing compiler target is preserved: deferred completion uses a typed
+`Promise` executor, not `Promise.withResolvers`.
+
+Eight workloads, five measured iterations each, on the existing Windows session:
+
+| Pairs | Concurrent | Reserved upload MiB | Host batch ms | Host scheduling probe ms | Offload post ms | Offload scheduling probe ms | Offload batch ms | Process max RSS MiB |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 8 | 1 | 0.14 | 1.53 | 1.58 | 0.15 | 0.19 | 1.95 | 62.4 |
+| 8 | 4 | 0.55 | 5.49 | 5.54 | 0.35 | 0.40 | 5.94 | 67.7 |
+| 8 | 8 | 1.10 | 10.99 | 11.09 | 0.47 | 0.52 | 11.68 | 77.4 |
+| 128 | 1 | 2.23 | 18.49 | 18.54 | 2.11 | 2.22 | 22.06 | 128.0 |
+| 128 | 4 | 8.91 | 94.33 | 97.11 | 10.05 | 10.15 | 114.93 | 204.0 |
+| 128 | 8 | 17.82 | 170.70 | 170.89 | 18.83 | 18.93 | 176.45 | 227.5 |
+| 512 | 1 | 8.99 | 70.51 | 70.69 | 8.82 | 8.92 | 90.79 | 313.1 |
+| 512 | 3 | 26.98 | 252.67 | 254.48 | 37.09 | 37.21 | 321.88 | 381.8 |
+
+The scheduling probe is one `setImmediate` per batch, not live UI latency or a
+tail-latency distribution. One worker handles preparation serially; these are
+concurrent submissions, not parallel preparation across several workers. All
+eight runs preserve exact reply identity and bytes.
+
+Offloading reduces synchronous host blocking but does not reduce total helper
+latency in these measurements. Cloning still blocks the host for approximately
+37 ms in the largest batch. Process maximum RSS combines fixtures, parity
+buffers, host and worker, both measurement paths, warmup, and GC/system effects;
+it is not a path-specific comparison, retained-memory measurement, evidence of
+a leak, or an explanation of the earlier whitespace incident. Baselines and
+sampled per-thread memory are included in the report for subsequent runs.
+
+**Decision:** do not enable production offloading. Next investigate ownership
+and admission before cloning, and measure retention/cancellation/backpressure
+in a separate transport workload. The host/network worker separation remains a
+requirement; do not move preparation onto the heartbeat worker.
+
+Validation: the worktree passes typecheck, lint, and all 843 offline tests. An
+independent archived staged tree, with its own cached dependency installation,
+passes typecheck, lint, and all 722 offline tests. The counts differ because
+unrelated worktree changes remain unstaged. Smoke coverage includes legacy
+sequential reporting, concurrency 1/3/8, invalid concurrency, exact upload/hash
+parity, private-payload exclusion, and the aggregate synthetic upload bound.
+The previously identified profiler type/lint blockers are resolved. No compiler
+target, runtime transport default, dependency version, or running process was
+changed; only benchmark-created workers were terminated by their own runner.
+
 1. Define immutable request ownership at admission. Do not allow caller mutation
    between measured-byte reservation, digest calculation, and wire serialization.
 2. Bound concurrency and queued bytes before cloning. Existing 8-request,

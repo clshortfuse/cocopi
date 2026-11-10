@@ -1044,8 +1044,8 @@ test("Cocopi chat handler replays reasoning through consecutive tool calls", asy
     type: "function",
     name: "read_file",
     description: "Read a workspace file.",
-    parameters: { additionalProperties: false, type: "object", properties: { path: { type: "string" } }, required: ["path"] },
-    strict: true
+    parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+    strict: false
   }]);
   assert.equal(/** @type {Record<string, string>} */ (requestOptions[0].headers).Accept, "text/event-stream");
   const secondToolBody = JSON.parse(String(requestOptions[1].body));

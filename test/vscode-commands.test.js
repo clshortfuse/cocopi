@@ -744,7 +744,7 @@ test("Cocopi dashboard reports features limited by user settings", async () => {
   assert.match(html, /Token Tracker recording[\s\S]*Disabled[\s\S]*cocopi\.tokenTracking/u);
   assert.match(html, /Runtime diagnostics[\s\S]*Disabled[\s\S]*cocopi\.issueTracking/u);
   assert.match(html, /Reasoning summaries[\s\S]*Disabled[\s\S]*cocopi\.reasoningSummary/u);
-  assert.match(html, /Tool schema strictness[\s\S]*Limited[\s\S]*cocopi\.toolStrict/u);
+  assert.match(html, /Tool schema strictness[\s\S]*Enabled[\s\S]*cocopi\.toolStrict/u);
   assert.match(html, /Edit progress updates[\s\S]*Disabled[\s\S]*cocopi\.editProgressIntervalMs/u);
   assert.match(html, /Context budgeting[\s\S]*Limited[\s\S]*cocopi\.useModelDefaultCompactionLimit/u);
   assert.match(html, /recommended true/u);

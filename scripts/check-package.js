@@ -70,7 +70,7 @@ function checkManifest(manifest) {
   assertNonEmptyString(engines.vscode, "VS Code engine range");
   assertPropertyAbsent(engines, "node", "Node engine range");
   assertStringArrayEqual(readArray(manifest.activationEvents, "activationEvents"), ["onLanguageModelChat:cocopi", "onStartupFinished"], "activation events");
-  assertStringArrayEqual(readArray(manifest.enabledApiProposals, "enabledApiProposals"), ["chatStatusItem", "chatProvider", "languageModelThinkingPart"], "enabled API proposals");
+  assertStringArrayEqual(readArray(manifest.enabledApiProposals, "enabledApiProposals"), ["chatStatusItem", "chatProvider", "languageModelThinkingPart", "languageModelCapabilities", "languageModelRateLimit", "chatReferenceBinaryData"], "enabled API proposals");
   assertStringArrayEqual(readArray(manifest.files, "files"), PACKAGE_FILES, "package files");
   assertStringArrayEqual(readArray(manifest.keywords, "keywords"), PACKAGE_KEYWORDS, "package keywords");
   assertEqual(manifest.icon, "media/icon.png", "package icon");
@@ -86,6 +86,7 @@ function checkManifest(manifest) {
   assertConfigurationProperty(properties, "cocopi.chatParticipantModelSource", "string", COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES.selected);
   assertConfigurationProperty(properties, "cocopi.transport", "string", COCOPI_TRANSPORTS.websocket);
   assertConfigurationProperty(properties, "cocopi.workerTransport", "boolean", true);
+  assertConfigurationProperty(properties, "cocopi.toolStrict", "boolean", false);
   assertConfigurationProperty(properties, "cocopi.editProgressIntervalMs", "number", DEFAULT_EDIT_PROGRESS_INTERVAL_MS);
   assertConfigurationProperty(properties, "cocopi.streamIdleTimeoutMs", "number", DEFAULT_STREAM_IDLE_TIMEOUT_MS);
   assertConfigurationProperty(properties, "cocopi.inlineCompletions.enabled", "boolean", false);
