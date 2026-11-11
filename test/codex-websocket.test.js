@@ -8,6 +8,7 @@ import {
   CODEX_RESPONSES_WEBSOCKET_BETA_HEADER,
   CodexResponsesWebSocketSession,
   codexContinuationAnchorFromInputItems,
+  codexContinuationRequestState,
   codexResponsesWebSocketUrl,
   fetchCodexResponseWebSocketStream,
   responseCancelWebSocketMessage,
@@ -1079,8 +1080,7 @@ test("CodexResponsesWebSocketSession continues when client metadata changes", as
       reason: "matched-prefix",
       inputItems: 3,
       baselineItems: 2,
-      deltaItems: 1,
-      requestStateChanges: ["client_metadata.changed"]
+      deltaItems: 1
     }
   ]);
   assert.equal(FakeWebSocket.instances.length, 1);
@@ -1214,7 +1214,7 @@ test("CodexResponsesWebSocketSession diagnoses input prefix mismatches without p
   session.dispose();
 });
 
-test("CodexResponsesWebSocketSession continues when instructions change", async () => {
+test("CodexResponsesWebSocketSession sends full input on the same socket when instructions change", async () => {
   FakeWebSocket.reset();
   const session = new CodexResponsesWebSocketSession({
     apiBaseUrl: "https://chatgpt.example.test/backend-api/codex",
@@ -1266,16 +1266,16 @@ test("CodexResponsesWebSocketSession continues when instructions change", async 
 
   const secondWireMessage = JSON.parse(socket.sent[1]);
   assert.equal(secondWireMessage.type, "response.create");
-  assert.equal(secondWireMessage.previous_response_id, "resp-one");
+  assert.equal(secondWireMessage.previous_response_id, undefined);
   assert.equal(secondWireMessage.instructions, "Changed instructions.");
-  assert.deepEqual(secondWireMessage.input, [secondUserItem]);
+  assert.deepEqual(secondWireMessage.input, fullInput);
   assert.deepEqual(decisions, [
     {
-      action: "used",
-      reason: "matched-prefix",
+      action: "skipped",
+      reason: "request-state-changed",
       inputItems: 3,
       baselineItems: 2,
-      deltaItems: 1,
+      deltaItems: undefined,
       requestStateChanges: ["instructions.changed"]
     }
   ]);
@@ -1283,7 +1283,7 @@ test("CodexResponsesWebSocketSession continues when instructions change", async 
   session.dispose();
 });
 
-test("CodexResponsesWebSocketSession continues through tool request state changes", async () => {
+test("CodexResponsesWebSocketSession sends full input when tools change", async () => {
   FakeWebSocket.reset();
   const session = new CodexResponsesWebSocketSession({
     apiBaseUrl: "https://chatgpt.example.test/backend-api/codex",
@@ -1333,18 +1333,45 @@ test("CodexResponsesWebSocketSession continues through tool request state change
   await collectEvents(secondStream);
 
   const secondWireMessage = JSON.parse(socket.sent[1]);
-  assert.equal(secondWireMessage.previous_response_id, "resp-one");
-  assert.deepEqual(secondWireMessage.input, [secondUserItem]);
+  assert.equal(secondWireMessage.previous_response_id, undefined);
+  assert.deepEqual(secondWireMessage.input, secondBody.input);
   assert.deepEqual(secondWireMessage.tools, secondBody.tools);
-  assert.deepEqual(decisions, [
-    {
-      action: "used",
-      reason: "matched-prefix",
-      inputItems: 3,
-      baselineItems: 2,
-      deltaItems: 1
-    }
-  ]);
+  assert.equal(decisions[0]?.reason, "request-state-changed");
+  session.dispose();
+});
+
+test("automatic continuation rejects unnamed tool changes and tool reordering", () => {
+  const session = new CodexResponsesWebSocketSession({
+    apiBaseUrl: "https://chatgpt.example.test/backend-api/codex",
+    accessToken: "access-token",
+    WebSocketConstructor: fakeWebSocketConstructor()
+  });
+  const body = buildTextResponseBody({ model: "synthetic", input: [] });
+  const firstTool = { type: "web_search", search_context_size: "low" };
+  const secondTool = { type: "function", name: "read", parameters: { type: "object" } };
+  for (const tools of [[{ ...firstTool, search_context_size: "high" }, secondTool], [secondTool, firstTool]]) {
+    session.continuationAnchors = [codexContinuationAnchorFromInputItems(
+      "resp-one", [], [], codexContinuationRequestState({ ...body, tools: [firstTool, secondTool] })
+    )];
+    const changed = { ...body, tools };
+    assert.deepEqual(session.prepareRequestBody(changed), changed);
+  }
+  session.dispose();
+});
+
+test("automatic continuation rejects model changes but ignores delivery metadata", () => {
+  const session = new CodexResponsesWebSocketSession({
+    apiBaseUrl: "https://chatgpt.example.test/backend-api/codex",
+    accessToken: "access-token",
+    WebSocketConstructor: fakeWebSocketConstructor()
+  });
+  const body = buildTextResponseBody({ model: "first-model", input: [{ role: "user", content: "hello" }] });
+  session.continuationAnchors = [codexContinuationAnchorFromInputItems(
+    "resp-one", /** @type {import("../data/Codex.js").CodexResponseInputItem[]} */ (body.input), [], codexContinuationRequestState(body)
+  )];
+  const changed = { ...body, model: "second-model" };
+  assert.deepEqual(session.prepareRequestBody(changed), changed);
+  assert.equal(session.prepareRequestBody({ ...body, client_metadata: { arbitrary: "changed" } }).previous_response_id, "resp-one");
   session.dispose();
 });
 
