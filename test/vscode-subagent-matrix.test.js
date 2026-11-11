@@ -8,6 +8,18 @@ const matrix = { enabled: true, defaultChoice: "lookup", choices: [choice] };
 const models = [{ id: "test-small", displayName: "Small", supportedReasoningLevels: [{ effort: "low" }, { effort: "high" }] }];
 const tools = [{ name: "runSubagent", description: "Host description", inputSchema: { type: "object", properties: { model: { type: "string" } } } }];
 
+test("explicit saved routes override the merged default preset", () => {
+  const choices = [
+    { ...choice, id: "sol-low", model: "gpt-6.1-sol" },
+    { ...choice, id: "luna-max", model: "gpt-6-luna", reasoningEffort: "max" }
+  ];
+  const saved = { enabled: true, defaultChoice: "", choices, routes: [{ parent: "sol-low", targets: ["sol-low", "luna-max"] }] };
+  const normalized = normalizeSubagentMatrix({ preset: "gpt6-ultra", ...saved });
+  assert.deepEqual(normalized, saved);
+  assert.deepEqual(subagentMatrixForParent(normalized, "gpt-6.1-sol", "low")?.choices, choices);
+  assert.deepEqual(normalizeSubagentMatrix({ preset: "gpt6-ultra", enabled: true, choices: [], routes: [] }).routes, []);
+});
+
 test("operating default permits only GPT-6 Ultra parents and catalog non-Fast targets", () => {
   const catalog = ["gpt-6-astra", "gpt-5.6", "gpt-6-fast", "gpt-5.6-fast", "gpt-5.5", "gpt-60"].map((id) => ({
     id, displayName: id, supportedReasoningLevels: ["low", "medium", "high", "xhigh", "max", "ultra"].map((effort) => ({ effort }))
