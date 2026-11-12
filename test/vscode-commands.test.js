@@ -445,6 +445,10 @@ test("Cocopi status action opens the dashboard webview", async (testContext) => 
   assert.match(vscode.panels[0].webview.html, /Inline autocomplete/u);
   assert.doesNotMatch(vscode.panels[0].webview.html, /\$\(check\)|\$\(server\)|\$\(sparkle\)|\$\(pulse\)|\$\(bug\)/u);
   assert.match(vscode.panels[0].webview.html, /data-subagent-matrix/u);
+  assert.match(vscode.panels[0].webview.html, /data-agent-feature-coverage/u);
+  assert.match(vscode.panels[0].webview.html, /data-command="cocopi.previewSdkAgentProfile"/u);
+  assert.match(vscode.panels[0].webview.html, /This does not disable SDK task, execution-subagent or session tools/u);
+  assert.match(vscode.panels[0].webview.html, /Cocopi defaults to the lowest catalog tier and a fixed recommended input budget/u);
   assert.match(vscode.panels[0].webview.html, /data-matrix-parents/u);
   assert.match(vscode.panels[0].webview.html, /data-command="refresh">Refresh/u);
   assert.match(vscode.panels[0].webview.html, /<select name="model">/u);

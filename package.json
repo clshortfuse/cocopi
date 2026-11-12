@@ -15,6 +15,10 @@
   "contributes": {
     "commands": [
       {
+        "command": "cocopi.previewSdkAgentProfile",
+        "title": "Cocopi: Preview SDK Agent Profile"
+      },
+      {
         "command": "cocopi.manage",
         "title": "Manage Cocopi"
       },

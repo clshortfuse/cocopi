@@ -86,6 +86,7 @@ test("activateWithVscode wires commands, provider and diagnostics without a part
   activateWithVscode(context, vscode);
 
   assert.deepEqual(vscode.registeredCommands, [
+    COCOPI_COMMANDS.previewSdkAgentProfile,
     COCOPI_COMMANDS.manage,
     COCOPI_COMMANDS.showDiagnostics,
     COCOPI_COMMANDS.showTokenTracker,
@@ -103,7 +104,7 @@ test("activateWithVscode wires commands, provider and diagnostics without a part
   assert.deepEqual(vscode.selectedModelSelectors, [{ vendor: COCOPI_LANGUAGE_MODEL_VENDOR }]);
   assert.equal(vscode.chatParticipantId, "");
   assert.equal(vscode.outputChannelName, COCOPI_OUTPUT_CHANNEL_NAME);
-  assert.equal(context.subscriptions.length, 17);
+  assert.equal(context.subscriptions.length, 18);
 });
 
 test("activateWithVscode registers the model provider when Chat status proposed API access is denied", () => {

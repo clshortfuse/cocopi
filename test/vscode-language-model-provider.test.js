@@ -22,6 +22,7 @@ import {
 import { clearCocopiIssues, readCocopiIssues } from "../lib/vscode/issues.js";
 import { registerFailClosedCocopiLanguageModelProvider } from "../lib/vscode/fail-closed-language-model-provider.js";
 import { CODEX_SECRET_KEYS } from "../lib/vscode/secret-storage.js";
+import { createCocopiSdkAgentProfiles } from "../lib/vscode/sdk-agent-profiles.js";
 import { clearCocopiTokenCacheDebugSummaries, readCocopiTokenCacheDebugSummaries } from "../lib/vscode/token-cache-debug.js";
 
 const chatgptProCatalogFixture = JSON.parse(await readFile(new URL("fixtures/codex-models/chatgpt-pro-catalog.json", import.meta.url), "utf8"));
@@ -3446,6 +3447,50 @@ test("matrix alias publishes a host-selectable model and overrides parent Ultra"
   assert.notEqual(body.service_tier, "priority");
   assert.doesNotMatch(body.instructions ?? "", /Proactive multi-agent delegation is active/u);
   assert.match(body.tools.find((/** @type {{ name: string }} */ tool) => tool.name === "runSubagent").description, /Narrow searches/u);
+});
+
+test("generated SDK profile resolves to a published alias and retains its wire effort", async (testContext) => {
+  /** @type {import('../data/Codex.js').CodexResponseCreateRequest | undefined} */
+  let body;
+  const matrix = { enabled: true, defaultChoice: "sdk-review", choices: [{ id: "sdk-review", model: "gpt-sdk-fixture", reasoningEffort: "low", label: "SDK Review", description: "Fixture route" }] };
+  const catalog = [{ id: "gpt-sdk-fixture", displayName: "SDK Fixture", supportedReasoningLevels: [{ effort: "low" }, { effort: "high" }] }];
+  const [profile] = createCocopiSdkAgentProfiles(matrix, catalog).profiles;
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
+    if (!options.body) {
+      return Response.json({ models: [{ slug: "gpt-sdk-fixture", supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }] }] });
+    }
+    body = JSON.parse(String(options.body));
+    return eventStreamResponse([
+      sseData({ type: "response.output_text.delta", delta: "ok" }),
+      sseData({ type: "response.function_call_arguments.done", call_id: "sdk-explicit", name: "task", arguments: JSON.stringify({ agent_type: "explore", prompt: "bounded fixture" }) }),
+      sseData({ type: "response.completed", response: { id: "resp-sdk-fixture" } })
+    ]);
+  }));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(configurationValues({ subagents: matrix })));
+  const information = await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken());
+  const alias = information?.find((model) => `cocopi/${model.id}` === profile.model);
+  assert.ok(alias, "The generated SDK selection must match a published model, not a display name");
+  const progress = fakeProgress();
+  await provider.provideLanguageModelChatResponse(alias,
+    [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "Review fixture")],
+    fakeResponseOptions({
+      toolMode: LanguageModelChatToolMode.Auto, includeEncryptedThinking: true,
+      modelConfiguration: { reasoningEffort: "high" }, modelOptions: { _conversationId: "sdk-profile-fixture" },
+      tools: [{ name: "task", description: "Host SDK task", inputSchema: { type: "object", properties: { agent_type: { type: "string", enum: ["explore", "cocopi-sdk-review"] }, prompt: { type: "string" } }, required: ["agent_type", "prompt"] } }]
+    }), progress, fakeCancellationToken());
+  assert.equal(body?.model, "gpt-sdk-fixture");
+  assert.equal(body?.reasoning?.effort, "low", "The exported alias remains authoritative over inherited SDK effort");
+  assert.match(String(body?.tools?.[0].description ?? ""), /Host-listed agent names matching configured Cocopi SDK profile candidates/u);
+  const parameters = /** @type {{ properties: Record<string, { enum?: string[] }> }} */ (body?.tools?.[0].parameters);
+  assert.deepEqual(parameters.properties.agent_type.enum, ["explore", "cocopi-sdk-review"]);
+  assert.equal(Object.hasOwn(parameters.properties, "model"), false);
+  const call = progress.parts.find((part) => part instanceof LanguageModelToolCallPart);
+  assert.ok(call instanceof LanguageModelToolCallPart);
+  assert.deepEqual(call.input, { agent_type: "explore", prompt: "bounded fixture" });
 });
 
 test("operating preset distinguishes Ultra parent from xhigh and keeps child requests non-Fast", async (testContext) => {
