@@ -324,7 +324,7 @@ test("Cocopi status bar item is clickable", () => {
   assert.match(vscode.statusBarItems[0].tooltip.value, /\$\(server\) Model/u);
   assert.match(vscode.statusBarItems[0].tooltip.value, /\$\(edit\) Inline/u);
   assert.match(vscode.statusBarItems[0].tooltip.value, /\$\(pulse\) Usage/u);
-  assert.match(vscode.statusBarItems[0].tooltip.value, /\$\((?:sync~spin|check|bug)\) Diagnostics/u);
+  assert.doesNotMatch(vscode.statusBarItems[0].tooltip.value, /Diagnostics|cocopi\.showDiagnostics/u);
   assert.doesNotMatch(vscode.statusBarItems[0].tooltip.value, /class="/u);
   assert.doesNotMatch(vscode.statusBarItems[0].tooltip.value, /\| Status \| Detail \|/u);
   assert.match(vscode.statusBarItems[0].tooltip.value, /Open Dashboard/u);
@@ -519,7 +519,8 @@ test("Cocopi status action opens the dashboard webview", async (testContext) => 
   assert.doesNotMatch(vscode.panels[0].webview.html, /Edit common Cocopi and VS Code routing settings here/u);
   assert.match(vscode.statusBarItems[0].tooltip.value, /\$\(pulse\) Regular 5h/u);
   assert.match(vscode.statusBarItems[0].tooltip.value, /58% left · resets/u);
-  assert.match(vscode.statusBarItems[0].tooltip.value, /\$\(pulse\) Regular weekly/u);
+  assert.match(vscode.statusBarItems[0].tooltip.value, /\$\(pulse\) Weekly Usage/u);
+  assert.doesNotMatch(vscode.statusBarItems[0].tooltip.value, /Regular weekly|Diagnostics/u);
   assert.match(vscode.statusBarItems[0].tooltip.value, /79% left · resets/u);
   assert.match(vscode.statusBarItems[0].tooltip.value, /\$\(sparkle\) Spark 5h/u);
   assert.match(vscode.statusBarItems[0].tooltip.value, /94% left · resets/u);
@@ -1315,7 +1316,7 @@ test("usage refresh is shared and throttled across status surfaces", async (test
   const usageCalls = calls.filter((call) => !/\/models\?/u.test(call.url));
   assert.equal(usageCalls.length, 4);
   assert.equal(calls.filter((call) => call.url.endsWith("/rate-limit-reset-credits")).length, 1);
-  assert.match(vscode.panels[0].webview.html, /2 banked resets · Next expires/u);
+  assert.match(vscode.panels[0].webview.html, /\(2\) · Next exp\./u);
   assert.ok(calls.some((call) => /\/usage$/u.test(call.url)));
   assert.ok(calls.some((call) => /\/usage\/daily-token-usage-breakdown/u.test(call.url)));
   assert.ok(calls.some((call) => /\/analytics\/daily-workspace-usage-counts/u.test(call.url)));
