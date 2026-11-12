@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import { CODEX_CLIENT_VERSION, DEFAULT_CODEX_API_BASE_URL } from "../lib/codex-api/config.js";
@@ -2211,6 +2212,14 @@ test("Agent Host incremental tool results retain their continuation on the wire"
 });
 
 test("Agent Host tool turns retain full replay without advertising remote response state, including after provider recreation", async (testContext) => {
+  const prototype = Object.getPrototypeOf(createHash("sha256"));
+  let continuationFrames = 0;
+  testContext.mock.method(prototype, "update", new Proxy(prototype.update, {
+    apply(target, receiver, args) {
+      if (typeof args[0] === "string" && /^\d+:$/u.test(args[0])) continuationFrames += 1;
+      return Reflect.apply(target, receiver, args);
+    }
+  }));
   /** @type {import("../data/Codex.js").CodexResponseCreateRequest[]} */
   const requestBodies = [];
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options = {}) => {
@@ -2261,6 +2270,7 @@ test("Agent Host tool turns retain full replay without advertising remote respon
     ]);
     assert.equal(requestBodies.at(-1)?.prompt_cache_key, requestBodies[0].prompt_cache_key);
   }
+  assert.equal(continuationFrames, 0, "suppressed markers must not compute an unused visible replay digest");
 });
 
 test("Agent Host image tool results preserve ordered text and image content on the wire", async (testContext) => {
@@ -5115,6 +5125,46 @@ test("provideLanguageModelChatResponse reports patch preparation while patch arg
   const firstToolIndex = progress.parts.findIndex((part) => part instanceof LanguageModelToolCallPart);
   assert.notEqual(targetThinkingIndex, -1);
   assert.ok(firstToolIndex > targetThinkingIndex);
+});
+
+test("provideLanguageModelChatResponse stops reparsing a saturated edit preview", async (testContext) => {
+  const progress = fakeProgress();
+  const editInput = `*** Begin Patch\n*** Update File: src/story.md\n@@\n-old\n+${"x".repeat(90_000)}\n*** End Patch\n`;
+  const prefix = String.raw`{"input":"*** Begin Patch\n*** Update File: src/story.md\n@@`;
+  const saturated = prefix + "x".repeat(64 * 1024 - prefix.length);
+  let normalizations = 0;
+  const replaceAll = String.prototype.replaceAll;
+  /**
+   * @this {string}
+   * @param {string | RegExp} search
+   * @param {string | ((substring: string, ...args: string[]) => string)} replacement
+   */
+  function countedReplaceAll(search, replacement) {
+    if (search === String.raw`\r\n` && this.length === 64 * 1024) normalizations += 1;
+    return Reflect.apply(replaceAll, this, [search, replacement]);
+  }
+  testContext.mock.method(String.prototype, "replaceAll", countedReplaceAll);
+  testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
+    sseData({ type: "response.output_item.added", output_index: 1, item: { id: "fc-cap", type: "function_call", arguments: "", call_id: "call-cap", name: "apply_patch" } }),
+    sseData({ type: "response.function_call_arguments.delta", item_id: "fc-cap", output_index: 1, delta: saturated }),
+    ...Array.from({ length: 20 }, () => sseData({ type: "response.function_call_arguments.delta", item_id: "fc-cap", output_index: 1, delta: "x".repeat(1000) })),
+    sseData({ type: "response.function_call_arguments.done", item_id: "fc-cap", output_index: 1, call_id: "call-cap", name: "apply_patch", arguments: jsonString({ input: editInput }) }),
+    sseData({ type: "response.completed", response: { id: "resp-cap" } })
+  ])));
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode(new Map(), { thinkingPart: true }));
+  await provider.provideLanguageModelChatResponse(
+    fakeModel("gpt-test"), [fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "edit it")],
+    fakeResponseOptions({ toolMode: 2, tools: [{ name: "apply_patch", description: "Edit a file.", inputSchema: { type: "object" } }] }),
+    progress, fakeCancellationToken()
+  );
+  assert.equal(normalizations, 1);
+  const toolCall = progress.parts.find((part) => part instanceof LanguageModelToolCallPart);
+  assert.ok(toolCall instanceof LanguageModelToolCallPart);
+  assert.deepEqual(toolCall.input, { input: editInput });
 });
 
 test("provideLanguageModelChatResponse reports timed progress while patch arguments stream slowly", async (testContext) => {
