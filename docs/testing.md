@@ -2,7 +2,7 @@
 
 ## Goals
 
-The test system should let us move quickly without leaking credentials or depending on third-party forks. Default tests run offline when no local credentials are present. Live ChatGPT/Codex tests are local-only and run when the developer provides a private `.env` with usable credentials.
+The test system should let us move quickly without leaking credentials or depending on third-party forks. Default tests and coverage run offline even when local credentials are present. Live ChatGPT/Codex tests require explicitly running `npm run test:live` with usable credentials and authorization for remote calls.
 
 ## Test Layers
 
@@ -14,7 +14,7 @@ The test system should let us move quickly without leaking credentials or depend
 2. Unit tests
    - `npm test`
    - Uses Node's built-in `node:test` runner.
-   - No network calls.
+   - Unit fixtures do not call remote services. The offline runner excludes `*-live.test.js` modules entirely, without loading their credential-reading code.
    - Covers request shaping, SSE parsing, tool translation, token storage helpers, and auth state machines with fixtures.
 
 3. Coverage
@@ -68,9 +68,9 @@ Tests may assert behavior described by official docs or OpenAI Codex source. Do 
 2. Add SSE parser tests with hand-written event fixtures.
 3. Add browser callback login tests for authorization URL generation, local callback parsing, state validation, and token exchange.
 4. Add SecretStorage adapter tests using an in-memory fake.
-5. Keep live smoke tests enabled automatically by private `.env` credentials.
+5. Keep live smoke tests explicitly opt-in through `npm run test:live`.
 
-Run live smoke tests after `npm run setup:codex-login` has written `.env`, then run `npm run test:live` or `npm test`. The live tests may call the remote models endpoint, the Codex `/usage` endpoint, and tiny streaming Responses requests. Output must stay redacted and limited to safe diagnostics such as model ids, rate-limit percentages, and the ISO datetime smoke response.
+With explicit authorization for remote calls, run live smoke tests after `npm run setup:codex-login` has written `.env`, then run `npm run test:live`. The live tests may call the remote models endpoint, the Codex `/usage` endpoint, and tiny streaming Responses requests. Output must stay redacted and limited to safe diagnostics such as model ids, rate-limit percentages, and the ISO datetime smoke response.
 
 For a more meaningful manual stream check, run:
 
