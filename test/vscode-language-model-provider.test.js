@@ -5364,6 +5364,26 @@ test("provideLanguageModelChatResponse renders task completion without a model f
   assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["Completed successfully."]);
 });
 
+test("terminal task completion separates a leading filename from prior edit output", async (testContext) => {
+  const fetchMock = testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => {
+    throw new Error("terminal task completion must not reach Codex");
+  }));
+  const progress = fakeProgress();
+  const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
+    [CODEX_SECRET_KEYS.accessToken, "access-token"],
+    [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
+    [CODEX_SECRET_KEYS.idToken, "id-token"]
+  ])), fakeVscode());
+  const summary = "`file.cpp` now compiles.";
+  await provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), [
+    fakeLanguageModelMessage(LanguageModelChatMessageRole.User, "finish"),
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.Assistant, [new LanguageModelToolCallPart("complete", "task_complete", { summary })]),
+    fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [new LanguageModelToolResultPart("complete", [new LanguageModelTextPart(summary)])])
+  ], fakeResponseOptions({ toolMode: 1 }), progress, fakeCancellationToken());
+  assert.equal(fetchMock.mock.callCount(), 0);
+  assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), [`\n\n${summary}`]);
+});
+
 test("provideLanguageModelChatResponse delivers an identical pre-tool answer on the terminal surface", async (testContext) => {
   const fetchMock = testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => {
     throw new Error("terminal task completion must not reach Codex");
@@ -5461,13 +5481,49 @@ test("provideLanguageModelChatResponse requests a follow-up when task completion
   assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), ["Generated final response."]);
 });
 
-for (const scenario of ["success", "failed result", "cancelled", "empty", "malformed", "already terminal", "unmatched", "other tool"]) {
+for (const scenario of ["success", "offloaded", "JSON offloaded", "JSON offload wrong schema", "wrong offload call", "wrong offload size", "failed result", "acknowledgement", "annotated result", "cancelled", "empty", "malformed", "already terminal", "unmatched", "other tool"]) {
   test(`terminal answer boundary: ${scenario}`, async (testContext) => {
-    const answer = "The queue defers destruction until the lock is released.\n\n```js\nqueue.push(resource);\n```\n\nSee [details](https://example.test/details). Do not destroy resources while holding the lock.";
-    const fetchMock = testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => eventStreamResponse([
-      sseData({ type: "response.output_text.delta", delta: "Normal continuation." }),
-      sseData({ type: "response.completed", response: { id: "resp-normal" } })
-    ])));
+    const plainAnswer = "The queue defers destruction until the lock is released.\n\n```js\nqueue.push(resource);\n```\n\nSee [details](https://example.test/details). Do not destroy resources while holding the lock.".repeat(scenario.includes("offload") ? 70 : 1);
+    const answer = scenario.startsWith("JSON") ? JSON.stringify({ results: Array.from({ length: 300 }, () => ({ answer: plainAnswer.slice(0, 80) })) }) : plainAnswer;
+    let toolResult = answer;
+    if (scenario.includes("offload")) {
+      const size = Math.round(answer.length / 1024) + (scenario === "wrong offload size" ? 1 : 0);
+      const call = scenario === "wrong offload call" ? "different-call" : "call-complete";
+      toolResult = `Large tool result (${size}KB) written to file. Use the read_file tool to access the content at: C:\\host\\chat-session-resources\\session\\${call}\\content.txt`;
+    }
+    if (scenario.startsWith("JSON")) {
+      const size = Math.round(JSON.stringify(JSON.parse(answer), null, 2).length / 1024);
+      const directory = "C:\\host\\chat-session-resources\\session\\call-complete\\";
+      const schemaDirectory = scenario === "JSON offload wrong schema" ? "C:\\other\\" : directory;
+      toolResult = `Large tool result (${size}KB) written to file. Use the read_file tool to access the content at: ${directory}content.json\n\nData schema found at: ${schemaDirectory}schema.json`;
+    }
+    switch (scenario) {
+    case "failed result": {
+      toolResult = "Tool execution failed.";
+
+    break;
+    }
+    case "acknowledgement": {
+      toolResult = "Task completed.";
+
+    break;
+    }
+    case "annotated result": {
+      toolResult = `Completion acknowledged:\n\n${answer}`;
+
+    break;
+    }
+    // No default
+    }
+    /** @type {RequestInit | undefined} */
+    let requestOptions;
+    const fetchMock = testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async (_url, options) => {
+      requestOptions = options;
+      return eventStreamResponse([
+        sseData({ type: "response.output_text.delta", delta: "Normal continuation." }),
+        sseData({ type: "response.completed", response: { id: "resp-normal" } })
+      ]);
+    }));
     const provider = createCocopiLanguageModelProvider(fakeContext(new Map([
       [CODEX_SECRET_KEYS.accessToken, "access-token"],
       [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
@@ -5480,7 +5536,7 @@ for (const scenario of ["success", "failed result", "cancelled", "empty", "malfo
         new LanguageModelToolCallPart("call-complete", scenario === "other tool" ? "read_file" : "task_complete", { summary: scenario === "empty" ? "" : (scenario === "malformed" ? 42 : answer) })
       ]),
       fakeLanguageModelMessageFromParts(LanguageModelChatMessageRole.User, [
-        new LanguageModelToolResultPart(scenario === "unmatched" ? "different-call" : "call-complete", [new LanguageModelTextPart(scenario === "failed result" ? "Tool execution failed." : answer)])
+        new LanguageModelToolResultPart(scenario === "unmatched" ? "different-call" : "call-complete", [new LanguageModelTextPart(toolResult)])
       ])
     ];
     if (scenario === "already terminal") {
@@ -5490,15 +5546,19 @@ for (const scenario of ["success", "failed result", "cancelled", "empty", "malfo
     const token = fakeCancellationToken();
     token.isCancellationRequested = scenario === "cancelled";
     const result = Promise.resolve(provider.provideLanguageModelChatResponse(fakeModel("gpt-test"), messages, fakeResponseOptions({ toolMode: 1 }), progress, token));
-    if (["failed result", "cancelled", "empty", "malformed"].includes(scenario)) {
+    if (["cancelled", "empty", "malformed"].includes(scenario)) {
       await (scenario === "cancelled" ? result : assert.rejects(result, /did not confirm|did not supply/u));
       assert.equal(fetchMock.mock.callCount(), 0);
       assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart), []);
     } else {
       await result;
-      const shortcut = scenario === "success";
+      const shortcut = ["success", "offloaded", "JSON offloaded"].includes(scenario);
       assert.equal(fetchMock.mock.callCount(), shortcut ? 0 : 1);
       assert.deepEqual(progress.parts.filter((part) => part instanceof LanguageModelTextPart).map((part) => part.value), [shortcut ? answer : "Normal continuation."]);
+      if (["failed result", "acknowledgement", "annotated result", "wrong offload call", "wrong offload size", "JSON offload wrong schema"].includes(scenario)) {
+        const body = JSON.parse(String(requestOptions?.body));
+        assert.ok(body.input.some((/** @type {import("../data/Codex.js").CodexResponseInputItem} */ item) => item.type === "function_call_output" && item.output === toolResult));
+      }
     }
   });
 }
