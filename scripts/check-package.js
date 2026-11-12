@@ -1,8 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 
-import { COCOPI_CHAT_PARTICIPANT_ID } from "../lib/vscode/chat-participant.js";
 import { COCOPI_COMMANDS } from "../lib/vscode/commands.js";
-import { COCOPI_AUTH_MODES, COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_INLINE_COMPLETION_MODEL_AUTO, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS, DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS, DEFAULT_EDIT_PROGRESS_INTERVAL_MS, DEFAULT_INLINE_COMPLETION_MAX_PREFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_MAX_SUFFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS } from "../lib/vscode/configuration.js";
+import { COCOPI_AUTH_MODES, COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_INLINE_COMPLETION_MODEL_AUTO, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS, DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS, DEFAULT_EDIT_PROGRESS_INTERVAL_MS, DEFAULT_INLINE_COMPLETION_MAX_PREFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_MAX_SUFFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS } from "../lib/vscode/configuration.js";
 import { COCOPI_LANGUAGE_MODEL_VENDOR } from "../lib/vscode/language-model-provider.js";
 import { DEFAULT_CODEX_API_BASE_URL, DEFAULT_CODEX_MODEL } from "../lib/codex-api/config.js";
 
@@ -24,7 +23,6 @@ const REQUIRED_FILES = [
   "types/lib/vscode/commands.d.ts",
   "types/lib/vscode/inline-completions.d.ts",
   "lib/vscode/activate.js",
-  "lib/vscode/chat-participant.js",
   "lib/vscode/commands.js",
   "lib/vscode/inline-completions.js",
   "lib/vscode/language-model-provider.js"
@@ -70,7 +68,7 @@ function checkManifest(manifest) {
   assertNonEmptyString(engines.vscode, "VS Code engine range");
   assertPropertyAbsent(engines, "node", "Node engine range");
   assertStringArrayEqual(readArray(manifest.activationEvents, "activationEvents"), ["onLanguageModelChat:cocopi", "onStartupFinished"], "activation events");
-  assertStringArrayEqual(readArray(manifest.enabledApiProposals, "enabledApiProposals"), ["chatStatusItem", "chatProvider", "languageModelThinkingPart", "languageModelCapabilities", "languageModelRateLimit", "chatReferenceBinaryData"], "enabled API proposals");
+  assertStringArrayEqual(readArray(manifest.enabledApiProposals, "enabledApiProposals"), ["chatStatusItem", "chatProvider", "languageModelThinkingPart", "languageModelCapabilities", "languageModelRateLimit"], "enabled API proposals");
   assertStringArrayEqual(readArray(manifest.files, "files"), PACKAGE_FILES, "package files");
   assertStringArrayEqual(readArray(manifest.keywords, "keywords"), PACKAGE_KEYWORDS, "package keywords");
   assertEqual(manifest.icon, "media/icon.png", "package icon");
@@ -83,7 +81,8 @@ function checkManifest(manifest) {
   assertConfigurationProperty(properties, "cocopi.authMode", "string", COCOPI_AUTH_MODES.secretStorage);
   assertConfigurationProperty(properties, "cocopi.reasoningEffort", "string", COCOPI_REASONING_EFFORTS.default);
   assertConfigurationProperty(properties, "cocopi.reasoningSummary", "string", COCOPI_REASONING_SUMMARIES.auto);
-  assertConfigurationProperty(properties, "cocopi.chatParticipantModelSource", "string", COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES.selected);
+  assertPropertyAbsent(properties, "cocopi.chatParticipantModelSource", "retired participant model source");
+  assertConfigurationProperty(properties, "cocopi.lowestContextWindow", "boolean", true);
   assertConfigurationProperty(properties, "cocopi.transport", "string", COCOPI_TRANSPORTS.websocket);
   assertConfigurationProperty(properties, "cocopi.workerTransport", "boolean", true);
   assertConfigurationProperty(properties, "cocopi.toolStrict", "boolean", false);
@@ -121,15 +120,7 @@ function checkManifest(manifest) {
   assertIncludesCommand(commands, COCOPI_COMMANDS.status);
   assertIncludesCommand(commands, COCOPI_COMMANDS.signOut);
 
-  const chatParticipants = readArray(contributes.chatParticipants, "contributes.chatParticipants");
-  const chatParticipant = chatParticipants.find((participant) => readRecord(participant, "chat participant").id === COCOPI_CHAT_PARTICIPANT_ID);
-  if (!chatParticipant) {
-    throw new Error(`Missing chat participant ${COCOPI_CHAT_PARTICIPANT_ID}.`);
-  }
-  const chatParticipantRecord = readRecord(chatParticipant, "chat participant");
-  if (chatParticipantRecord.commands !== undefined && readArray(chatParticipantRecord.commands, "chat participant commands").length > 0) {
-    throw new Error("Cocopi chat participant should not contribute slash commands.");
-  }
+  assertPropertyAbsent(contributes, "chatParticipants", "retired chat participant contribution");
 
   const languageModelProviders = readArray(contributes.languageModelChatProviders, "contributes.languageModelChatProviders");
   const provider = languageModelProviders.find((item) => readRecord(item, "language model provider").vendor === COCOPI_LANGUAGE_MODEL_VENDOR);

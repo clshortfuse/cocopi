@@ -7,16 +7,12 @@
   "bugs": {
     "url": "https://github.com/clshortfuse/cocopi/issues"
   },
+  "capabilities": {
+    "agentsWindow": {
+      "supported": true
+    }
+  },
   "contributes": {
-    "chatParticipants": [
-      {
-        "description": "Ask remote Codex through Cocopi.",
-        "fullName": "Cocopi",
-        "id": "cocopi.chat",
-        "isSticky": true,
-        "name": "cocopi"
-      }
-    ],
     "commands": [
       {
         "command": "cocopi.manage",
@@ -189,19 +185,6 @@
           "description": "Regex pattern-to-replacement entries applied to VS Code tool descriptions. User entries add new patterns or override default patterns by using the same key. An empty replacement removes matches for a custom pattern; set a default pattern to an empty string to disable that built-in replacement.",
           "type": "object"
         },
-        "cocopi.chatParticipantModelSource": {
-          "default": "selected",
-          "description": "Model source for @cocopi chat participant requests.",
-          "enum": [
-            "selected",
-            "configured"
-          ],
-          "enumDescriptions": [
-            "Use VS Code's currently selected Cocopi chat model for @cocopi requests, falling back to cocopi.model when the selected model is not from Cocopi.",
-            "Always use the cocopi.model setting for @cocopi requests."
-          ],
-          "type": "string"
-        },
         "cocopi.compactionFallbackStrategy": {
           "default": "ninety-percent",
           "description": "Compaction threshold to use when no model-provided limit is available, or when model-provided limits are disabled.",
@@ -210,8 +193,8 @@
             "full"
           ],
           "enumDescriptions": [
-            "Use 90% of the usable input budget after reserving max output tokens.",
-            "Use the model context window minus max output tokens, delaying VS Code compaction until near the hard limit."
+            "Use 90% of the raw default context window, bounded by the upstream usable window and VS Code output reservation.",
+            "Use the upstream usable context window (95% by default), bounded by the VS Code output reservation."
           ],
           "type": "string"
         },
@@ -266,6 +249,11 @@
           "maximum": 50000,
           "minimum": 0,
           "type": "number"
+        },
+        "cocopi.lowestContextWindow": {
+          "default": true,
+          "description": "Report only the lowest catalog context tier and its default input budget to work around the upstream Copilot BYOK context-window bug. Disable to restore extended context choices; Copilot may ignore the selected/default budget.",
+          "type": "boolean"
         },
         "cocopi.inlineCompletions.timeoutMs": {
           "default": 10000,
@@ -517,11 +505,10 @@
     "chatProvider",
     "languageModelThinkingPart",
     "languageModelCapabilities",
-    "languageModelRateLimit",
-    "chatReferenceBinaryData"
+    "languageModelRateLimit"
   ],
   "engines": {
-    "vscode": "^1.143.0"
+    "vscode": "^1.146.0"
   },
   "exports": {
     ".": {

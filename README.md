@@ -4,13 +4,13 @@
 
 Bring Codex-backed ChatGPT models into VS Code Chat.
 
-Cocopi is an unofficial VS Code extension for using ChatGPT/Codex-backed models from the editor. It adds Cocopi models to the VS Code Chat model picker, provides an `@cocopi` chat participant, and includes local status, token, cache, and diagnostics views to help you understand what happened during a request.
+Cocopi is an unofficial VS Code extension for using ChatGPT/Codex-backed models from the editor. It adds Cocopi models to the VS Code Chat model picker and includes local status, token, cache, and diagnostics views to help you understand what happened during a request.
 
 Use Cocopi when you want Codex-style responses without leaving VS Code: ask coding questions, review files, continue a debugging conversation, or compare model behavior from the same Chat interface you already use.
 
 ## Highlights
 
-- **Use Cocopi from VS Code Chat** — pick a Cocopi model in the Chat model selector or mention `@cocopi` directly.
+- **Use Cocopi from VS Code Chat** — pick a Cocopi model in the Copilot harness's Chat model selector.
 - **Opt in to AI autocomplete** — enable Cocopi inline completions and choose a dedicated low-latency model for ghost text.
 - **Sign in from the editor** — complete the browser sign-in flow and keep runtime credentials in VS Code SecretStorage.
 - **Tune response behavior** — choose reasoning effort, context size, reasoning summaries, service tier, and transport settings.
@@ -20,7 +20,7 @@ Use Cocopi when you want Codex-style responses without leaving VS Code: ask codi
 
 ## Requirements
 
-- VS Code 1.130+ with the chat model provider support used by this extension. See `package.json` for the current engine range.
+- VS Code 1.146+ with the chat model provider support used by this extension. See `package.json` for the current engine range.
 - A signed-in account with access to the ChatGPT/Codex backend services Cocopi uses.
 - Internet access for authentication and model requests.
 
@@ -31,7 +31,7 @@ Backend availability, model access, rate limits, and exact capabilities depend o
 1. Install Cocopi from a VSIX package or a published build. In VS Code 1.130+, published model-provider builds can also be found from the Language Models editor's **Install Model Providers** search.
 2. Run **Cocopi: Sign In** from the command palette.
 3. Complete the browser sign-in flow.
-4. Open VS Code Chat and pick a Cocopi model, or type `@cocopi` in chat.
+4. Open VS Code Chat, select the Copilot harness, and pick a Cocopi model (full build required for the BYOK bridge).
 5. Optional: hover the Cocopi status-bar icon for a compact summary and quick links. Click the icon to open the richer Cocopi dashboard with card-style status and configuration actions. In VS Code builds with the proposed Chat status item API, Cocopi also mirrors the same summary into the native Chat/Copilot status dashboard. Open **Inline Options** for expanded autocomplete controls.
 6. Use the Cocopi status-bar item to check sign-in state, usage status, Token Tracker, and Diagnostics.
 
@@ -41,7 +41,7 @@ Backend availability, model access, rate limits, and exact capabilities depend o
 
 Open VS Code Chat and select a Cocopi model from the model picker. If no Cocopi model is selected, Cocopi can fall back to the configured `cocopi.model` value.
 
-In VS Code 1.130+, Cocopi model entries participate in the unified model customization picker. Models with Codex reasoning metadata show **Thinking Effort** options, and models expose **Context Size** choices only when the signed-in Codex catalog advertises them, such as a lower recommended auto-compaction limit or a larger `max_context_window` than the default `context_window`.
+Models with Codex reasoning metadata show **Thinking Effort** options. Cocopi defaults to a fixed lowest-tier context budget; opting out with `cocopi.lowestContextWindow: false` restores catalog-backed **Context Size** choices where the host supports them. Copilot BYOK does not preserve these choices.
 
 ### Use Cocopi in Agent Host sessions
 
@@ -51,9 +51,11 @@ The current Agent Host bridge forwards text, tool definitions, tool calls, and t
 
 Agent Host session-management tools reach Cocopi through that same ordinary tool-definition path; VS Code owns their execution, confirmation prompts, and safety limits. A message beginning with `!` is different: Agent Host intercepts and runs the terminal command locally before any model request, so the command is not sent to Cocopi.
 
-### Ask `@cocopi`
+### Use the Copilot harness
 
-Mention `@cocopi` in chat when you want a direct Cocopi response without changing the active chat model. By default, `@cocopi` uses the selected Cocopi model when available and falls back to `cocopi.model` otherwise.
+Select **Copilot** in the harness picker and a **Cocopi** model in the model picker. The legacy `@cocopi` participant and `cocopi.chatParticipantModelSource` setting have been removed. Existing conversation data is not deleted, but automatic migration of participant conversations is not provided. VS Code 1.146 deprecates the Local harness and announces its removal in February 2027.
+
+The upstream Copilot BYOK bridge loses provider context-size defaults/choices. Cocopi therefore enables `cocopi.lowestContextWindow` by default: it advertises only the lowest catalog context tier, fixes the input limit to that tier's recommended budget, and omits larger context choices. This is a conservative workaround, not an upstream fix. Disable the option to restore catalog-backed extended-context reporting; the host may ignore the selected/default budget. It applies consistently to provider variants and both package profiles, not only requests identifiable as Copilot.
 
 ### Check status and usage
 
@@ -93,8 +95,7 @@ Diagnostics are intended for troubleshooting extension behavior. They are stored
 | Setting | Default | Description |
 | --- | --- | --- |
 | `cocopi.model` | `gpt-5.5` | Fallback Codex model id. |
-| `cocopi.chatParticipantModelSource` | `selected` | Whether `@cocopi` uses VS Code's selected Cocopi model or the configured fallback. |
-| `cocopi.reasoningEffort` | `default` | Reasoning mode for Cocopi requests: `default`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, or `ultra`. Ultra sends the model's valid catalog `multi_agent_reasoning_effort` when present, otherwise `max` or its compatibility fallback; unlike Max, it also adds proactive VS Code `runSubagent` policy when the tool and model catalog permit it. It never sends literal `ultra` or means model-default reasoning. The custom `@cocopi` participant keeps the real tool optionally available at other efforts without enabling that Ultra policy. |
+| `cocopi.reasoningEffort` | `default` | Reasoning mode for Cocopi requests: `default`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, or `ultra`. Ultra sends the model's valid catalog `multi_agent_reasoning_effort` when present, otherwise `max` or its compatibility fallback; unlike Max, it also adds proactive VS Code `runSubagent` policy when the tool and model catalog permit it. It never sends literal `ultra` or means model-default reasoning. |
 | `cocopi.reasoningSummary` | `auto` | Reasoning summary behavior: `auto`, `model-default`, `off`, `concise`, or `detailed`. |
 | `cocopi.serviceTier` | `auto` | Processing tier override: `auto`, `flex`, or `priority`. |
 | `cocopi.transport` | `websocket` | Responses transport: `websocket` or `sse`. |
@@ -127,6 +128,7 @@ Diagnostics are intended for troubleshooting extension behavior. They are stored
 | `cocopi.streamIdleTimeoutMs` | `120000` | Stream idle timeout in milliseconds. Set `0` to disable. |
 | `cocopi.workerTransport` | `true` | Worker-owned WebSocket/SSE reception and idle timers. Keeps receiving during extension-host stalls; does not make a frozen UI responsive. Requires direct network access; VS Code proxy/certificate patches are not inherited. Set to `false` to use in-host transport. |
 | `cocopi.useModelDefaultCompactionLimit` | `true` | Uses the model-provided auto-compaction limit when available. |
+| `cocopi.lowestContextWindow` | `true` | Advertises only the lowest catalog context tier and its fixed default input budget, working around the upstream Copilot BYOK context-window bug. Disable to restore extended choices at your own discretion. |
 | `cocopi.compactionFallbackStrategy` | `ninety-percent` | Fallback compaction threshold when no model-provided limit is available. |
 
 ## Privacy and storage
@@ -145,7 +147,7 @@ Diagnostics are intended for troubleshooting extension behavior. They are stored
 - If requests fail after a successful sign-in, run **Cocopi: Show Status** to check usage-limit and fallback-model state.
 - `cocopi.workerTransport` is enabled by default and preserves reception of the original generation while the host is blocked; increasing the timeout or switching between in-host WebSocket/SSE does not isolate reception. If direct worker networking is incompatible with your proxy/certificate setup, set it to `false` for subsequent requests. Installed-extension and proxy/certificate testing remain pending.
 - Genuine server silence still triggers `cocopi.streamIdleTimeoutMs`. Worker/storage failures remain explicit and never silently switch to in-host transport or replay the request. Oversized requests/events and exhausted storage budgets are rejected rather than buffered without limit.
-- If a selected model is not used by `@cocopi`, check `cocopi.chatParticipantModelSource`.
+- Select a Cocopi model directly in the Copilot harness; `@cocopi` is no longer an entry point.
 - If inline completions do not appear, run **Cocopi: Toggle Inline Completions**, ensure VS Code's `editor.inlineSuggest.enabled` is enabled, then run **Cocopi: Set Inline Completion Model**. Set `cocopi.debugLevel` to `events` to confirm requests appear in the **Cocopi** output channel.
 - If you need detailed request diagnostics, temporarily set `cocopi.debugLevel` to `metadata` or `events`. Use `payloads` only for local debugging because it can include prompt and output text.
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { CODEX_CLIENT_VERSION, DEFAULT_CODEX_API_BASE_URL, DEFAULT_CODEX_MODEL } from "../lib/codex-api/config.js";
-import { COCOPI_AUTH_MODES, COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS, COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_DEBUG_LEVELS, COCOPI_INLINE_COMPLETION_MODEL_AUTO, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_SERVICE_TIERS, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, COCOPI_ULTRA_MULTI_AGENT_MODE_INSTRUCTIONS, DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS, DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS, DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS, DEFAULT_EDIT_PROGRESS_INTERVAL_MS, DEFAULT_INLINE_COMPLETION_MAX_PREFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_MAX_SUFFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS, codexReasoningFromCocopiOptions, codexServiceTierFromCocopiOptions, codexToolOptionsFromCocopiOptions, cocopiUltraMultiAgentModeFromOptions, readCocopiConfiguration, resolveChatParticipantInstructions, resolveCocopiUltraMultiAgentInstructions, resolveVscodeLanguageModelTools } from "../lib/vscode/configuration.js";
+import { COCOPI_AUTH_MODES, COCOPI_CHAT_INSTRUCTIONS_PLACEMENTS, COCOPI_COMPACTION_FALLBACK_STRATEGIES, COCOPI_DEBUG_LEVELS, COCOPI_INLINE_COMPLETION_MODEL_AUTO, COCOPI_REASONING_EFFORTS, COCOPI_REASONING_SUMMARIES, COCOPI_SERVICE_TIERS, COCOPI_TOKEN_TRACKER_TIMELINE_MODES, COCOPI_TRANSPORTS, COCOPI_ULTRA_MULTI_AGENT_MODE_INSTRUCTIONS, DEFAULT_COCOPI_CHAT_INSTRUCTIONS_REGEX_REPLACEMENTS, DEFAULT_COCOPI_CHAT_PARTICIPANT_INSTRUCTIONS, DEFAULT_COCOPI_CHAT_TOOL_DESCRIPTION_REGEX_REPLACEMENTS, DEFAULT_EDIT_PROGRESS_INTERVAL_MS, DEFAULT_INLINE_COMPLETION_MAX_PREFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_MAX_SUFFIX_CHARACTERS, DEFAULT_INLINE_COMPLETION_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_TOKEN_TRACKER_TIMELINE_DAYS, codexReasoningFromCocopiOptions, codexServiceTierFromCocopiOptions, codexToolOptionsFromCocopiOptions, cocopiUltraMultiAgentModeFromOptions, readCocopiConfiguration, resolveChatParticipantInstructions, resolveCocopiUltraMultiAgentInstructions, resolveVscodeLanguageModelTools } from "../lib/vscode/configuration.js";
 import { clearCocopiInstructionReplacementSnapshots, readCocopiInstructionReplacementSnapshots } from "../lib/vscode/instruction-replacements.js";
 import { codexToolsFromLanguageModelTools } from "../lib/vscode/tool-bridge.js";
 
@@ -16,7 +16,7 @@ test("readCocopiConfiguration reads defaults", () => {
     serviceTier: COCOPI_SERVICE_TIERS.auto,
     reasoningEffort: COCOPI_REASONING_EFFORTS.default,
     reasoningSummary: COCOPI_REASONING_SUMMARIES.auto,
-    chatParticipantModelSource: COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES.selected,
+    lowestContextWindow: true,
     transport: COCOPI_TRANSPORTS.websocket,
     workerTransport: true,
     debugLevel: COCOPI_DEBUG_LEVELS.off,
@@ -109,7 +109,7 @@ test("readCocopiConfiguration normalizes configured values", () => {
     serviceTier: COCOPI_SERVICE_TIERS.priority,
     reasoningEffort: COCOPI_REASONING_EFFORTS.xhigh,
     reasoningSummary: COCOPI_REASONING_SUMMARIES.detailed,
-    chatParticipantModelSource: COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES.configured,
+    lowestContextWindow: true,
     transport: COCOPI_TRANSPORTS.websocket,
     workerTransport: false,
     debugLevel: COCOPI_DEBUG_LEVELS.payloads,
@@ -196,7 +196,7 @@ test("readCocopiConfiguration falls back from blank and disabled values", () => 
     serviceTier: COCOPI_SERVICE_TIERS.auto,
     reasoningEffort: COCOPI_REASONING_EFFORTS.default,
     reasoningSummary: COCOPI_REASONING_SUMMARIES.auto,
-    chatParticipantModelSource: COCOPI_CHAT_PARTICIPANT_MODEL_SOURCES.selected,
+    lowestContextWindow: true,
     transport: COCOPI_TRANSPORTS.websocket,
     workerTransport: true,
     debugLevel: COCOPI_DEBUG_LEVELS.off,

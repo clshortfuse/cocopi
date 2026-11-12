@@ -427,6 +427,7 @@ test("specialized workload metadata follows its target but suppresses target rea
       slug: "gpt-route-target",
       display_name: "Route Target",
       context_window: 100_000,
+      max_context_window: 1_000_000,
       auto_compact_token_limit: 64_000,
       default_reasoning_level: "medium",
       supported_reasoning_levels: [
@@ -450,6 +451,10 @@ test("specialized workload metadata follows its target but suppresses target rea
 
   assert.ok(target);
   assert.ok(utility);
+  assert.equal(target.maxContextWindowTokens, 100_000);
+  assert.equal(target.maxInputTokens, 64_000);
+  assert.equal(utility.maxContextWindowTokens, 100_000);
+  assert.equal(utility.configurationSchema?.properties?.contextSize, undefined);
   assert.match(utility.name, /^Cocopi Utility \(gpt-route-target · [^)]+\)$/u);
   assert.equal(utility.version, "gpt-route-target");
   assert.equal(utility.maxInputTokens, target.maxInputTokens);
@@ -474,6 +479,8 @@ test("workload route configuration changes refresh language model information", 
   assert.equal(refreshes, 0);
   vscode.fireConfigurationChange("cocopi.routes.utility.model");
   assert.equal(refreshes, 1);
+  vscode.fireConfigurationChange("cocopi.lowestContextWindow");
+  assert.equal(refreshes, 2);
 
   subscription?.dispose();
 });
@@ -491,13 +498,14 @@ test("provideLanguageModelChatInformation logs model-provided compaction limits"
       [CODEX_SECRET_KEYS.refreshToken, "refresh-token"],
       [CODEX_SECRET_KEYS.idToken, "id-token"]
     ])),
-    fakeVscode(configurationValues({ debugLevel: "metadata", model: "gpt-5-codex" })),
+    fakeVscode(configurationValues({ debugLevel: "metadata", model: "gpt-5-codex", lowestContextWindow: false })),
     { logger }
   );
 
   assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: false }, fakeCancellationToken())), [
     {
       ...modelInformation("gpt-5-codex", "GPT-5 Codex", "gpt-5-codex", { contextWindow: 100_000 }),
+      maxContextWindowTokens: 100_000,
       maxInputTokens: 83_616,
       configurationSchema: {
         properties: {
@@ -680,7 +688,7 @@ test("provideLanguageModelChatInformation returns stored catalog during silent s
     [COCOPI_MODEL_CATALOG_STORAGE_KEY, JSON.stringify([{
       key: [DEFAULT_CODEX_API_BASE_URL, CODEX_CLIENT_VERSION, "account-id"].join("\n"),
       expiresAtMs: 1,
-      models: [{ id: "gpt-stored", displayName: "GPT Stored" }]
+      models: [{ id: "gpt-stored", displayName: "GPT Stored", contextWindow: 500_000, effectiveContextWindowPercent: 80, autoCompactTokenLimit: 490_000 }]
     }])]
   ]);
   testContext.mock.method(globalThis, "fetch", /** @type {typeof fetch} */ (async () => {
@@ -699,7 +707,10 @@ test("provideLanguageModelChatInformation returns stored catalog during silent s
     changeEvents.push("changed");
   });
 
-  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [modelInformation("gpt-stored", "GPT Stored")]);
+  assert.deepEqual(ordinaryProviderModelInformation(await provider.provideLanguageModelChatInformation({ silent: true }, fakeCancellationToken())), [{
+    ...modelInformation("gpt-stored", "GPT Stored", "gpt-stored", { contextWindow: 500_000 }),
+    maxInputTokens: 400_000
+  }]);
 
   resolveFetch();
   await nextMacrotask();
@@ -1152,7 +1163,7 @@ for (const maximum of [100_000, 1_000_000]) {
     const models = parseModelsResponse({ models: [{ slug: "capacity-only", display_name: "Capacity Only", max_context_window: maximum }] });
     const [model] = languageModelInformationFromCodexModels(models, "capacity-only", { compactionFallbackStrategy: "full" });
     assert.equal(model.maxContextWindowTokens, maximum);
-    assert.equal(model.maxInputTokens, maximum - 16_384);
+    assert.equal(model.maxInputTokens, Math.min(Math.floor(maximum * 0.95), maximum - 16_384));
     assert.equal(model.maxOutputTokens, 16_384);
     assert.equal(model.configurationSchema?.properties?.contextSize, undefined);
   });
@@ -1161,7 +1172,7 @@ for (const maximum of [100_000, 1_000_000]) {
 test("maximum-only catalog capacity bounds its compaction preference", () => {
   const [model] = languageModelInformationFromCodexModels(parseModelsResponse({ models: [{
     slug: "capacity-only", max_context_window: 100_000, auto_compact_token_limit: 64_000
-  }] }), "capacity-only");
+  }] }), "capacity-only", { lowestContextWindow: false });
   assert.equal(model.maxContextWindowTokens, 100_000);
   assert.equal(model.maxInputTokens, 83_616);
   assert.equal(model.maxOutputTokens, 16_384);
@@ -1171,7 +1182,7 @@ test("maximum-only catalog capacity bounds its compaction preference", () => {
 test("languageModelInformationFromCodexModels can use model-provided auto-compact limits", () => {
   const [model] = languageModelInformationFromCodexModels([
     { id: "gpt-catalog", displayName: "GPT Catalog", contextWindow: 100_000, autoCompactTokenLimit: 64_000 }
-  ], "gpt-catalog", { useModelDefaultCompactionLimit: true, compactionFallbackStrategy: "ninety-percent" });
+  ], "gpt-catalog", { lowestContextWindow: false, useModelDefaultCompactionLimit: true, compactionFallbackStrategy: "ninety-percent" });
 
   assert.equal(model.maxInputTokens, 83_616);
   assert.equal(model.maxOutputTokens, 16_384);
@@ -1185,15 +1196,15 @@ test("languageModelInformationFromCodexModels can use model-provided auto-compac
 test("languageModelInformationFromCodexModels can use server-advertised max context windows", () => {
   const [model] = languageModelInformationFromCodexModels([
     { id: "gpt-catalog", displayName: "GPT Catalog", contextWindow: 272_000, maxContextWindow: 1_000_000, autoCompactTokenLimit: null }
-  ], "gpt-catalog", { useModelDefaultCompactionLimit: true, compactionFallbackStrategy: "ninety-percent" });
+  ], "gpt-catalog", { lowestContextWindow: false, useModelDefaultCompactionLimit: true, compactionFallbackStrategy: "ninety-percent" });
 
-  assert.equal(model.maxInputTokens, 983_616);
+  assert.equal(model.maxInputTokens, 950_000);
   assert.equal(model.maxContextWindowTokens, 1_000_000);
   assert.equal(model.maxOutputTokens, 16_384);
   const contextSize = /** @type {{ configurationSchema?: { properties?: Record<string, Record<string, unknown>> } }} */ (model).configurationSchema?.properties?.contextSize;
-  assert.deepEqual(contextSize?.enum, [255_616, 983_616]);
-  assert.deepEqual(contextSize?.enumItemLabels, ["255.6K", "983.6K"]);
-  assert.equal(contextSize?.default, 255_616);
+  assert.deepEqual(contextSize?.enum, [244_800, 950_000]);
+  assert.deepEqual(contextSize?.enumItemLabels, ["244.8K", "950K"]);
+  assert.equal(contextSize?.default, 244_800);
   assert.equal(contextSize?.group, "tokens");
 });
 
@@ -1202,10 +1213,10 @@ test("languageModelInformationFromCodexModels falls back to 90% without a model-
     { id: "gpt-catalog", displayName: "GPT Catalog", contextWindow: 100_000, autoCompactTokenLimit: null }
   ], "gpt-catalog", { useModelDefaultCompactionLimit: true, compactionFallbackStrategy: "ninety-percent" });
 
-  assert.equal(model.maxInputTokens, 75_254);
+  assert.equal(model.maxInputTokens, 83_616);
   assert.equal(model.maxContextWindowTokens, 100_000);
   assert.equal(model.maxOutputTokens, 16_384);
-  assert.ok(model.maxInputTokens + model.maxOutputTokens < 100_000);
+  assert.ok(model.maxInputTokens + model.maxOutputTokens <= 100_000);
 });
 
 test("languageModelInformationFromCodexModels uses full fallback without a model-provided limit", () => {
@@ -6453,7 +6464,7 @@ function modelInformation(id, name, detail = id, options = {}) {
     isBYOK: true,
     isUserSelectable: true,
     maxContextWindowTokens: contextWindow,
-    maxInputTokens: Math.max(1, Math.floor((contextWindow - maxOutputTokens) * 0.9)),
+    maxInputTokens: Math.max(1, Math.min(Math.floor(contextWindow * 0.9), Math.floor(contextWindow * 0.95), contextWindow - maxOutputTokens)),
     maxOutputTokens,
     capabilities: {
       imageInput: options.imageInput ?? false,

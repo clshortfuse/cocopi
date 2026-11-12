@@ -1,5 +1,9 @@
 # Cocopi Local Semantics
 
+## 1.146 migration override (2026-11-12)
+
+The `@cocopi` participant, its model-source setting and participant-only history/reference modules/tests have been removed. Participant descriptions and file references below are historical, not current functionality. Shared provider instruction/tool conversion remains. Context reporting now defaults to the lowest catalog tier with a fixed recommended input budget; `cocopi.lowestContextWindow: false` explicitly restores extended reporting. This supersedes descriptions below that always expose full/extended capacity and context choices. See [the migration evidence](vscode-1.146-migration-plan.md).
+
 ## Purpose
 
 This file inventories behavior Cocopi adds on top of VS Code and Codex. Some of it is necessary bridge code because VS Code and Codex do not expose identical conversation models. Some of it is diagnostic-only. Some of it is heuristic and should be treated as technical debt until replaced by explicit upstream API signals.

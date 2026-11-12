@@ -1,5 +1,7 @@
 # Participant reference handling
 
+Status: **retired**, 2026-11-12. `@cocopi` and this participant-only implementation were removed for the 1.146 Copilot-first migration. The sections below preserve historical findings, not shipped reference support. The host now owns attachment/reference handling when using a Cocopi provider model; persisted user conversation data is not deleted.
+
 ## Implemented resource handling
 
 - Resolve explicit URI/location references using the host document API so unsaved text and selected ranges are respected. Never infer paths from arbitrary strings or call arbitrary reference accessors.

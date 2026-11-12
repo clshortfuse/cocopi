@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import { activateWithVscode } from "../lib/vscode/activate.js";
-import { COCOPI_CHAT_PARTICIPANT_ID } from "../lib/vscode/chat-participant.js";
 import { COCOPI_COMMANDS } from "../lib/vscode/commands.js";
 import { COCOPI_OUTPUT_CHANNEL_NAME } from "../lib/vscode/diagnostics.js";
 import { COCOPI_LANGUAGE_MODEL_VENDOR } from "../lib/vscode/language-model-provider.js";
@@ -62,7 +62,24 @@ class LanguageModelDataPart {
   }
 }
 
-test("activateWithVscode wires commands, provider, participant, and diagnostics", () => {
+test("staged manifest enables Agents window activation and exposes conservative context", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(manifest.capabilities?.agentsWindow?.supported, true);
+  assert.equal(manifest.contributes.chatParticipants, undefined);
+  assert.equal(manifest.contributes.configuration.properties["cocopi.lowestContextWindow"].default, true);
+  assert.equal(manifest.contributes.configuration.properties["cocopi.chatParticipantModelSource"], undefined);
+});
+
+test("workspace-less activation does not depend on the retired chat participant API", () => {
+  const vscode = fakeVscode({ participantRegistrationDenied: true });
+  const { chat: _chat, ...withoutChat } = vscode;
+  assert.ok(_chat);
+  activateWithVscode(fakeContext(), withoutChat);
+  assert.equal(vscode.languageModelVendor, COCOPI_LANGUAGE_MODEL_VENDOR);
+  assert.ok(vscode.registeredCommands.includes(COCOPI_COMMANDS.signIn));
+});
+
+test("activateWithVscode wires commands, provider and diagnostics without a participant", () => {
   const context = fakeContext();
   const vscode = fakeVscode();
 
@@ -84,9 +101,9 @@ test("activateWithVscode wires commands, provider, participant, and diagnostics"
   assert.equal(vscode.languageModelVendor, COCOPI_LANGUAGE_MODEL_VENDOR);
   assert.equal(vscode.inlineCompletionProviders, 1);
   assert.deepEqual(vscode.selectedModelSelectors, [{ vendor: COCOPI_LANGUAGE_MODEL_VENDOR }]);
-  assert.equal(vscode.chatParticipantId, COCOPI_CHAT_PARTICIPANT_ID);
+  assert.equal(vscode.chatParticipantId, "");
   assert.equal(vscode.outputChannelName, COCOPI_OUTPUT_CHANNEL_NAME);
-  assert.equal(context.subscriptions.length, 18);
+  assert.equal(context.subscriptions.length, 17);
 });
 
 test("activateWithVscode registers the model provider when Chat status proposed API access is denied", () => {
@@ -98,7 +115,7 @@ test("activateWithVscode registers the model provider when Chat status proposed 
   assert.ok(vscode.registeredCommands.includes(COCOPI_COMMANDS.status));
   assert.equal(vscode.languageModelVendor, COCOPI_LANGUAGE_MODEL_VENDOR);
   assert.equal(vscode.inlineCompletionProviders, 1);
-  assert.equal(vscode.chatParticipantId, COCOPI_CHAT_PARTICIPANT_ID);
+  assert.equal(vscode.chatParticipantId, "");
   assert.deepEqual(vscode.registrationOrder, ["languageModelProvider", "chatStatusItem"]);
   assert.ok(vscode.outputChannelLines.some((line) => line.includes("Cocopi native Chat status item is unavailable; using stable status surfaces.")));
   assert.ok(vscode.outputChannelLines.some((line) => line.includes("Extension 'shortfuse.cocopi' CANNOT use API proposal: chatStatusItem")));

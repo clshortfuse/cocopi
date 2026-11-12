@@ -423,6 +423,7 @@
  * @property {number} [priority]
  * @property {number} [contextWindow]
  * @property {number} [maxContextWindow]
+ * @property {number} [effectiveContextWindowPercent]
  * @property {number | null} [autoCompactTokenLimit]
  * @property {string[]} [additionalSpeedTiers]
  * @property {CodexModelServiceTier[]} [serviceTiers]

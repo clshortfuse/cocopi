@@ -1487,7 +1487,7 @@ function fakeRuntime(options) {
       serviceTier: "auto",
       reasoningEffort: "default",
       reasoningSummary: "auto",
-      chatParticipantModelSource: "selected",
+      lowestContextWindow: true,
       transport: options.transport,
       debugLevel: "off",
       issueTracking: true,

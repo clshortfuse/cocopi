@@ -1,5 +1,14 @@
 # VS Code Chat Feature Tracker
 
+## Current target: 1.146 (2026-11-12)
+
+- Engine target: `^1.146.0`; Copilot Agent Host is the primary compatibility path. Local is deprecated upstream, with removal announced for February 2027.
+- Removed `@cocopi`, its model-source setting and participant-only attachment/replay handling. Historical adoption rows below do not imply these are still shipped.
+- Default-enabled `cocopi.lowestContextWindow` fixes metadata to the lowest catalog tier and recommended input budget; opt-out restores extended reporting. Actual pinned 1.146 source probes reproduce upstream context-choice loss and preserve the workaround's fixed budget, not live SDK compaction parity.
+- Full builds retain five proposals; removed participant-only `chatReferenceBinaryData`. Marketplace remains stable-only and is not advertised as Copilot BYOK integration.
+- Agents-window activation declaration already matches 1.146. No new inbox/comparison/canvas orchestration is added. SDK custom-agent runtime names are now URI-derived; authored profile names remain display names, not guaranteed task identities.
+- See [migration evidence and remaining acceptance](vscode-1.146-migration-plan.md). The older version-specific inventories below remain historical evidence.
+
 ## Purpose
 
 This is the running table for VS Code Chat, Copilot-style, and adjacent user features that Cocopi can use or should intentionally avoid. It complements `docs/feature-checklist.md`: that file tracks implementation details, while this file tracks user-visible host features and whether Cocopi participates in them.
