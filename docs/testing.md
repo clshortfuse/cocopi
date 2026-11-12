@@ -40,6 +40,12 @@ The test system should let us move quickly without leaking credentials or depend
    - Verify minimal connectivity, auth behavior, `/usage` rate-limit snapshots, and tiny Responses/WebSocket behavior.
    - Must never print bearer tokens, refresh tokens, user codes, or full response bodies that might contain private data.
 
+## Packaged build profiles
+
+Run `npm run package:full` or `npm run package:marketplace` to build a VSIX. The default `npm run package:vsix` builds the full profile. Marketplace builds omit proposed API declarations and disable proposed runtime APIs; full builds retain them and still require host authorization.
+
+Run `node scripts/verify-provider-vsix.js <archive-path>` for either profile. The Marketplace build additionally runs `scripts/verify-marketplace-vsix.js`. These offline archive checks do not establish installed-host UI or live request acceptance.
+
 ## Private `.env`
 
 Use `.env.example` as the template and copy it to `.env` for local testing. `.env` and `.env.*` are ignored by git.

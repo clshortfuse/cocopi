@@ -665,6 +665,18 @@ test("Cocopi native chat status item is registered when available", async () => 
   assert.equal(vscode.quickPickItems.length, 0);
 });
 
+test("Cocopi skips chat status creation when runtime authorization is stripped", () => {
+  const vscode = fakeVscode({ chatStatus: true });
+  const context = fakeContext();
+  context.extension.packageJSON.enabledApiProposals = [];
+  registerCocopiCommands(context, vscode);
+  assert.equal(vscode.chatStatusItems.length, 0);
+  assert.ok(vscode.commands.callbacks.has(COCOPI_COMMANDS.status));
+  for (const subscription of context.subscriptions) {
+    subscription.dispose();
+  }
+});
+
 test("Cocopi commands stay registered if chat status item setup fails", async () => {
   const vscode = fakeVscode({ chatStatus: true });
   vscode.window.createChatStatusItem = () => {
@@ -1512,6 +1524,7 @@ function tokenCacheSummary(options) {
 /** @param {Map<string, string>} [secrets] */
 function fakeContext(secrets = new Map()) {
   return {
+    extension: { packageJSON: { enabledApiProposals: ["chatStatusItem"] } },
     subscriptions: [],
     secrets: {
       /** @param {string} key */

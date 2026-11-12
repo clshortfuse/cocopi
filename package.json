@@ -494,9 +494,12 @@
   ],
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/adm-zip": "^0.5.8",
     "@types/node": "^22.19.17",
     "@types/ws": "^8.18.1",
     "@vscode/dts": "^0.4.1",
+    "@vscode/vsce": "^4.0.0",
+    "adm-zip": "^0.6.1",
     "eslint": "^10.2.1",
     "eslint-plugin-jsdoc": "^62.9.0",
     "eslint-plugin-unicorn": "^64.0.0",
@@ -573,7 +576,9 @@
     "coverage": "node scripts/test-offline.js --experimental-test-coverage --test-coverage-include=lib/**/*.js --test-coverage-lines=90 --test-coverage-branches=75 --test-coverage-functions=90",
     "lint": "eslint .",
     "package:check": "npm run types && node scripts/check-package.js && npm pack --dry-run",
-    "package:vsix": "npm run types && node scripts/check-package.js && node scripts/package-vsix.js",
+    "package:full": "npm run types && node scripts/check-package.js && node scripts/package-vsix.js --profile=full",
+    "package:marketplace": "npm run types && node scripts/check-package.js && node scripts/package-vsix.js --profile=marketplace && node scripts/verify-marketplace-vsix.js",
+    "package:vsix": "npm run package:full",
     "setup:codex-login": "node scripts/setup-codex-login.js",
     "test": "node scripts/test-offline.js",
     "test:live": "node --test test/codex-live.test.js",
@@ -591,6 +596,9 @@
     }
   },
   "version": "0.0.1",
+  "bundledDependencies": [
+    "ws"
+  ],
   "dependencies": {
     "ws": "^8.21.3"
   }

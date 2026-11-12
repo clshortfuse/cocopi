@@ -117,9 +117,8 @@ test("activateWithVscode registers the model provider when Chat status proposed 
   assert.equal(vscode.languageModelVendor, COCOPI_LANGUAGE_MODEL_VENDOR);
   assert.equal(vscode.inlineCompletionProviders, 1);
   assert.equal(vscode.chatParticipantId, "");
-  assert.deepEqual(vscode.registrationOrder, ["languageModelProvider", "chatStatusItem"]);
-  assert.ok(vscode.outputChannelLines.some((line) => line.includes("Cocopi native Chat status item is unavailable; using stable status surfaces.")));
-  assert.ok(vscode.outputChannelLines.some((line) => line.includes("Extension 'shortfuse.cocopi' CANNOT use API proposal: chatStatusItem")));
+  assert.deepEqual(vscode.registrationOrder, ["languageModelProvider"]);
+  assert.equal(vscode.outputChannelLines.some((line) => line.includes("CANNOT use API proposal: chatStatusItem")), false);
 });
 
 for (const [failure, options] of /** @type {const} */ ([
@@ -140,6 +139,7 @@ for (const [failure, options] of /** @type {const} */ ([
 
 function fakeContext() {
   return {
+    extension: { packageJSON: { enabledApiProposals: [] } },
     subscriptions: [],
     secrets: {
       /** @returns {Promise<string | undefined>} */
