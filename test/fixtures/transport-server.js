@@ -8,6 +8,7 @@ const server = createServer((request, response) => {
   request.setEncoding("utf8");
   request.on("data", (chunk) => { body += chunk; });
   request.on("end", () => {
+    if (workerData.captureInput) parentPort?.postMessage(JSON.parse(body).input);
     response.writeHead(200, { "Content-Type": "text/event-stream" });
     const timer = generate(JSON.parse(body).model, (event) => response.write(`data: ${JSON.stringify(event)}\n\n`), () => response.end());
     response.on("close", () => clearInterval(timer));

@@ -14,17 +14,176 @@ import { closeCodexResponseWebSocketSessions, fetchCodexResponseStreamWithAuthRe
 
 /**
  * @param {import("node:test").TestContext} context
- * @param {{ events?: object[], keepOpen?: boolean, interval?: number }} [options]
+ * @param {{ events?: object[], keepOpen?: boolean, interval?: number, captureInput?: boolean, historyDelta?: boolean }} [options]
  */
 async function fixture(context, options = {}) {
   const counts = new Int32Array(new SharedArrayBuffer(12));
   const server = new Worker(new URL("fixtures/transport-server.js", import.meta.url), { workerData: { counts: counts.buffer, interval: 25, ...options }, execArgv: [] });
   context.after(() => server.terminate());
   const [apiBaseUrl] = await once(server, "message");
-  const service = process.env.COCOPI_TEST_TRANSPORT === "in-host" ? new CodexTransport() : new CodexWorkerTransport({ url: process.env.COCOPI_TEST_WORKER_URL ? new URL(process.env.COCOPI_TEST_WORKER_URL) : undefined });
+  const service = process.env.COCOPI_TEST_TRANSPORT === "in-host" ? new CodexTransport() : new CodexWorkerTransport({ url: process.env.COCOPI_TEST_WORKER_URL ? new URL(process.env.COCOPI_TEST_WORKER_URL) : undefined, historyDelta: options.historyDelta ?? true });
   context.after(() => service.dispose());
-  return { counts, service, apiBaseUrl: String(apiBaseUrl), idleTimeoutMs: 250, blockMs: 1200 };
+  return { counts, service, server, apiBaseUrl: String(apiBaseUrl), idleTimeoutMs: 250, blockMs: 1200 };
 }
+
+test("worker requests cannot wait indefinitely for dispatch acceptance", async (context) => {
+  const code = `import { parentPort, workerData } from 'node:worker_threads';
+    parentPort.on('message', message => { if (message.type === 'shutdown') parentPort.close(); });
+    parentPort.postMessage({ type: 'ready', version: ${WORKER_PROTOCOL_VERSION}, generation: workerData.generation });`;
+  const service = new CodexWorkerTransport({ url: new URL(`data:text/javascript,${encodeURIComponent(code)}`), requestStartTimeoutMs: 30 });
+  context.after(() => service.dispose());
+  let cancelled = 0;
+  const post = service.worker.postMessage.bind(service.worker);
+  service.worker.postMessage = (message, transferList) => {
+    if (message.type === "cancel") cancelled += 1;
+    return post(message, transferList);
+  };
+  await assert.rejects(service.request({ apiBaseUrl: "https://example.invalid", accessToken: "synthetic",
+    body: { model: "synthetic", input: [], stream: true } }), /did not acknowledge request dispatch within 30ms/u);
+  assert.equal(cancelled, 1);
+  assert.equal(service.invocations.size, 0);
+  assert.equal(service.uploadBytes, 0);
+  assert.equal(service.closed, false, "the deadline must not kill other requests or the worker");
+});
+
+test("accepted queued requests survive the dispatch deadline behind an active generation", async (context) => {
+  const { service, apiBaseUrl, counts } = await fixture(context, { historyDelta: false, keepOpen: true, interval: 1,
+    events: [{ type: "response.completed", response: { id: "synthetic", output: [], status: "completed" } }] });
+  assert.ok(service instanceof CodexWorkerTransport);
+  const abort = new AbortController();
+  const body = { model: "silent", input: [], stream: true, prompt_cache_key: "synthetic-shared-session" };
+  const first = await service.request({ apiBaseUrl, accessToken: "synthetic", transport: "websocket", body, signal: abort.signal, idleTimeoutMs: 0 });
+  const firstReader = first.getReader();
+  const created = await firstReader.read();
+  assert.equal(created.value?.type, "response.created");
+  service.requestStartTimeoutMs = 30;
+  let outcome = "pending";
+  const second = service.request({ apiBaseUrl, accessToken: "synthetic", transport: "websocket", body: { ...body, model: "events" }, idleTimeoutMs: 0 });
+  void second.then(() => { outcome = "opened"; }, () => { outcome = "rejected"; });
+  await delay(90);
+  assert.equal(outcome, "pending", "accepted queue waiting must not expire as a dispatch failure");
+  assert.equal(Atomics.load(counts, 0), 1, "the queued request must not generate concurrently");
+  abort.abort();
+  await assert.rejects(firstReader.read());
+  const stream = await second;
+  for await (const event of stream) assert.ok(event.type);
+  assert.equal(outcome, "opened");
+  assert.equal(Atomics.load(counts, 0), 2);
+});
+
+test("worker surfaces runaway tool whitespace and releases admission without replay", async (context) => {
+  const { service, apiBaseUrl, counts } = await fixture(context, { interval: 1, events: [
+    { type: "response.function_call_arguments.delta", item_id: "a", output_index: 0, delta: " ".repeat(16_385) }
+  ] });
+  assert.ok(service instanceof CodexWorkerTransport);
+  const stream = await service.request({ apiBaseUrl, accessToken: "synthetic", transport: "websocket",
+    body: { model: "events", input: [], stream: true }, idleTimeoutMs: 0 });
+  await assert.rejects(async () => { for await (const event of stream) assert.ok(event.type); }, /tool arguments stalled/iu);
+  assert.equal(Atomics.load(counts, 0), 1);
+  assert.equal(service.invocations.size, 0);
+  assert.equal(service.uploadBytes, 0);
+});
+
+test("worker full-request mode preserves input without retaining IPC history", async (context) => {
+  const { service, server, apiBaseUrl } = await fixture(context, { historyDelta: false, captureInput: true, interval: 1,
+    events: [{ type: "response.completed", response: { id: "synthetic", output: [], status: "completed" } }] });
+  assert.ok(service instanceof CodexWorkerTransport);
+  const input = [{ role: "user", content: "synthetic" }];
+  const received = once(server, "message");
+  const stream = await service.request({ apiBaseUrl, accessToken: "synthetic", transport: "sse", body: { model: "events", stream: true, input } });
+  for await (const event of stream) assert.ok(event.type);
+  const [wireInput] = await received;
+  assert.deepEqual(wireInput, input);
+  assert.equal(service.history.bytes, 0);
+  assert.equal(service.metrics?.retainedHistoryBytes, 0);
+  assert.equal(service.acknowledgedHistoryRevision, 0);
+});
+
+test("worker preserves unchanged prepared body identity without hiding incremental input", async (context) => {
+  const { service, apiBaseUrl } = await fixture(context, { historyDelta: false, interval: 1, keepOpen: true,
+    events: [{ type: "response.completed", response: { id: "synthetic", output: [], status: "completed" } }] });
+  const first = { model: "events", stream: true, prompt_cache_key: "synthetic-identity", input: [{ role: "user", content: "first" }] };
+  /** @type {import('../data/Codex.js').CodexResponseCreateRequest[]} */
+  const prepared = [];
+  const initial = await service.request({ apiBaseUrl, accessToken: "synthetic", transport: "websocket", body: first,
+    onWebSocketRequestPrepared(body) { prepared.push(body); } });
+  for await (const event of initial) assert.ok(event.type);
+  assert.equal(prepared[0], first);
+  const second = { ...first, input: [...first.input, { role: "user", content: "second" }] };
+  const followup = await service.request({ apiBaseUrl, accessToken: "synthetic", transport: "websocket", body: second,
+    onWebSocketRequestPrepared(body) { prepared.push(body); } });
+  for await (const event of followup) assert.ok(event.type);
+  assert.notEqual(prepared[1], second);
+  assert.deepEqual(prepared[1].input, second.input.slice(1));
+  assert.equal(prepared[1].previous_response_id, "synthetic");
+});
+
+test("worker history uploads only replacement suffixes and preserves rewrites on the wire", async (context) => {
+  const { service, server, apiBaseUrl, counts } = await fixture(context, { captureInput: true, interval: 1,
+    events: [{ type: "response.completed", response: { id: "synthetic", output: [], status: "completed" } }] });
+  assert.ok(service instanceof CodexWorkerTransport);
+  const post = service.worker.postMessage.bind(service.worker);
+  /** @type {import('../lib/codex-api/worker-history.js').HistoryPatch[]} */
+  const patches = [];
+  service.worker.postMessage = (message, transferList) => {
+    if (message.type === "start") patches.push(JSON.parse(new TextDecoder().decode(message.options)).history);
+    return post(message, transferList);
+  };
+  const item = (text = "original".repeat(8192)) => ({ role: /** @type {const} */ ("user"), content: text });
+  const histories = [[item(), item("second")], [item(), item("second"), item("third")],
+    [item()], [item("edited"), item("branch")], [item("compacted")], []];
+  for (const input of histories) {
+    const received = once(server, "message");
+    const stream = await service.request({ apiBaseUrl, accessToken: "synthetic", transport: "sse", body: { model: "events", stream: true, input } });
+    for await (const event of stream) assert.ok(event.type);
+    const [wireInput] = await received;
+    assert.deepEqual(wireInput, input);
+    assert.equal(service.metrics?.retainedHistoryItems, input.length);
+    assert.equal(service.metrics?.retainedHistoryBytes, service.history.bytes);
+    assert.ok((service.metrics?.requestUploadBytes ?? 0) > 0);
+  }
+  assert.deepEqual(patches.map((patch) => patch.keep), [0, 2, 1, 0, 0, 0]);
+  assert.deepEqual(patches.map((patch) => patch.suffix.length), [2, 1, 0, 2, 1, 0]);
+  assert.ok(JSON.stringify(patches[1]).length < JSON.stringify(patches[0]).length / 100);
+  assert.equal(service.acknowledgedHistoryRevision, histories.length);
+  assert.equal(Atomics.load(counts, 0), histories.length);
+  const concurrentInputs = [[item("active"), item("old tail")], [item("rewritten")], []];
+  /** @type {import('../data/Codex.js').CodexResponseInputItem[][]} */
+  const captured = [];
+  server.on("message", (input) => captured.push(input));
+  await Promise.all(concurrentInputs.map(async (input) => {
+    const stream = await service.request({ apiBaseUrl, accessToken: "synthetic", transport: "sse", body: { model: "events", stream: true, input } });
+    for await (const event of stream) assert.ok(event.type);
+  }));
+  assert.deepEqual(captured.toSorted((left, right) => left.length - right.length), concurrentInputs.toSorted((left, right) => left.length - right.length));
+  assert.equal(service.acknowledgedHistoryRevision, histories.length + concurrentInputs.length);
+  assert.equal(Atomics.load(counts, 0), histories.length + concurrentInputs.length);
+  service.dispose();
+  assert.equal(service.history.bytes, 0);
+  assert.equal(service.history.items.length, 0);
+});
+
+test("worker history base mismatch rejects before any network generation", async (context) => {
+  const { service, apiBaseUrl, counts } = await fixture(context, { interval: 1,
+    events: [{ type: "response.completed", response: { id: "synthetic", output: [], status: "completed" } }] });
+  assert.ok(service instanceof CodexWorkerTransport);
+  const post = service.worker.postMessage.bind(service.worker);
+  service.worker.postMessage = (message, transferList) => {
+    if (message.type === "start") {
+      const options = JSON.parse(new TextDecoder().decode(message.options));
+      options.history.base += 1;
+      const upload = new TextEncoder().encode(JSON.stringify(options));
+      return post({ ...message, options: upload }, [upload.buffer]);
+    }
+    return post(message, transferList);
+  };
+  await assert.rejects(service.request({ apiBaseUrl, accessToken: "synthetic", transport: "sse",
+    body: { model: "events", stream: true, input: [] } }), /history base mismatch/u);
+  assert.equal(Atomics.load(counts, 0), 0);
+  assert.equal(service.acknowledgedHistoryRevision, 0);
+  assert.equal(service.uploadBytes, 0);
+  assert.equal(service.invocations.size, 0);
+});
 
 for (const transport of ["websocket", "sse"]) {
   test(`worker ${transport} preserves one generation through a host stall`, async (context) => {
@@ -100,6 +259,43 @@ test("worker transport health advances independently of output-consumer backpres
   await reader.cancel();
 });
 
+test("worker coalesces routine health snapshots without dropping output", async (context) => {
+  const expected = [
+    ...Array.from({ length: 200 }, (_, index) => ({ type: "response.output_text.delta", delta: String(index) })),
+    { type: "response.completed", response: { id: "synthetic", output: [], status: "completed" } }
+  ];
+  const { service, apiBaseUrl } = await fixture(context, { events: expected, interval: 1 });
+  let statuses = 0;
+  const started = performance.now();
+  const stream = await service.request({ apiBaseUrl, transport: "websocket", accessToken: "synthetic", body: { model: "events", input: [], stream: true }, onTransportStatus() { statuses += 1; } });
+  let received = 0;
+  for await (const event of stream) {
+    assert.ok(event.type);
+    received += 1;
+  }
+  assert.equal(received, expected.length + 1);
+  const elapsedMs = performance.now() - started;
+  assert.ok(statuses <= Math.ceil(elapsedMs / 100) + 12, `received ${statuses} health snapshots for ${received} events in ${elapsedMs}ms`);
+  context.diagnostic(`healthSnapshots=${statuses} outputEvents=${received} elapsedMs=${Math.round(elapsedMs)}`);
+});
+
+test("worker does not publish health IPC when the host has no observer", async (context) => {
+  const { service, apiBaseUrl } = await fixture(context, { events: [{ type: "response.completed", response: { id: "synthetic", output: [], status: "completed" } }] });
+  assert.ok(service instanceof CodexWorkerTransport);
+  let statuses = 0;
+  const observe = /** @param {import('../lib/codex-api/worker-protocol.js').WorkerMessage} message */ (message) => {
+    if (message.type === "transport-status") statuses += 1;
+  };
+  service.worker.on("message", observe);
+  try {
+    const stream = await service.request({ apiBaseUrl, transport: "websocket", accessToken: "synthetic", body: { model: "events", input: [], stream: true } });
+    for await (const event of stream) assert.ok(event.type);
+    assert.equal(statuses, 0);
+  } finally {
+    service.worker.off("message", observe);
+  }
+});
+
 test("worker cancellation discards backlog without another generation", async (context) => {
   const { service, apiBaseUrl, counts } = await fixture(context);
   const abort = new AbortController();
@@ -155,6 +351,63 @@ test("worker cancellation before start never sends a request", async (context) =
   const { service, apiBaseUrl, counts } = await fixture(context);
   await assert.rejects(service.request({ apiBaseUrl, accessToken: "local", body: { model: "events", input: [] }, signal: AbortSignal.abort() }), { name: "AbortError" });
   assert.equal(Atomics.load(counts, 0), 0);
+});
+
+test("worker uploads transfer UTF-8 storage instead of cloning JSON strings", async (context) => {
+  const { service, apiBaseUrl } = await fixture(context, { events: [{ type: "response.completed", response: { id: "transfer-local", output: [], status: "completed" } }] });
+  assert.ok(service instanceof CodexWorkerTransport);
+  const postMessage = service.worker.postMessage.bind(service.worker);
+  /** @type {Uint8Array | undefined} */
+  let upload;
+  service.worker.postMessage = (message, transferList) => {
+    if (message.type === "start") upload = message.options;
+    return postMessage(message, transferList);
+  };
+  const stream = await service.request({ apiBaseUrl, accessToken: "synthetic", body: { model: "events", input: "Unicode 😀 é 漢字" } });
+  assert.ok(upload instanceof Uint8Array);
+  assert.equal(upload.byteLength, 0, "ownership of the upload buffer left the host");
+  for await (const event of stream) {
+    assert.ok(event.type);
+  }
+  assert.equal(service.uploadBytes, 0);
+  assert.equal(service.invocations.size, 0);
+});
+
+test("one-shot terminal consumption does not keep a disposed worker alive", { timeout: 8000 }, async (context) => {
+  const { service, apiBaseUrl } = await fixture(context, { keepOpen: true, events: [{ type: "response.completed", response: { id: "synthetic", output: [], status: "completed" } }] });
+  assert.ok(service instanceof CodexWorkerTransport);
+  context.after(() => service.worker.terminate());
+  const stream = await service.request({ apiBaseUrl, transport: "websocket", accessToken: "synthetic", body: { model: "events", input: [], stream: true } });
+  for await (const event of stream) assert.ok(event.type);
+  assert.ok(service.metrics);
+  assert.equal(service.metrics.cachedSessions, 0);
+  assert.equal(service.metrics.continuationAnchors, 0);
+  assert.ok(service.metrics.workerExternalBytes >= 0);
+  assert.ok(service.metrics.workerArrayBufferBytes >= 0);
+  const exited = once(service.worker, "exit", { signal: AbortSignal.timeout(3000) });
+  service.dispose();
+  await exited;
+});
+
+test("worker upload-post failure releases local admission state without replay", async (context) => {
+  const { service, apiBaseUrl, counts } = await fixture(context);
+  assert.ok(service instanceof CodexWorkerTransport);
+  const postMessage = service.worker.postMessage.bind(service.worker);
+  service.worker.postMessage = (message, transferList) => {
+    if (message.type === "start") throw new Error("synthetic post failure");
+    return postMessage(message, transferList);
+  };
+  await assert.rejects(service.request({ apiBaseUrl, accessToken: "synthetic", body: { model: "events", input: [] } }), /upload failed locally/u);
+  assert.equal(service.uploadBytes, 0);
+  assert.equal(service.invocations.size, 0);
+  assert.equal(Atomics.load(counts, 0), 0);
+  assert.equal(service.history.revision, 0);
+  service.worker.postMessage = postMessage;
+  const stream = await service.request({ apiBaseUrl, transport: "sse", accessToken: "synthetic", body: { model: "events", input: [], stream: true } });
+  for await (const event of stream) assert.ok(event.type);
+  assert.equal(service.history.revision, 1);
+  assert.equal(service.acknowledgedHistoryRevision, 1);
+  assert.equal(Atomics.load(counts, 0), 1);
 });
 
 test("worker rejects oversized uploads before sending a generation", async (context) => {
@@ -298,61 +551,4 @@ test("shared response entry point invalidates worker streams on account changes"
   closeCodexResponseWebSocketSessions();
   await rejected;
   assert.equal(Atomics.load(counts, 0), 1);
-});
-test("worker requests cannot wait indefinitely for dispatch acceptance", async (context) => {
-  const code = `import { parentPort, workerData } from 'node:worker_threads';
-    parentPort.on('message', message => { if (message.type === 'shutdown') parentPort.close(); });
-    parentPort.postMessage({ type: 'ready', version: ${WORKER_PROTOCOL_VERSION}, generation: workerData.generation });`;
-  const service = new CodexWorkerTransport({ url: new URL(`data:text/javascript,${encodeURIComponent(code)}`), requestStartTimeoutMs: 30 });
-  context.after(() => service.dispose());
-  let cancelled = 0;
-  const post = service.worker.postMessage.bind(service.worker);
-  service.worker.postMessage = (message, transferList) => {
-    if (message.type === "cancel") cancelled += 1;
-    return post(message, transferList);
-  };
-  await assert.rejects(service.request({ apiBaseUrl: "https://example.invalid", accessToken: "synthetic",
-    body: { model: "synthetic", input: [], stream: true } }), /did not acknowledge request dispatch within 30ms/u);
-  assert.equal(cancelled, 1);
-  assert.equal(service.invocations.size, 0);
-  assert.equal(service.uploadBytes, 0);
-  assert.equal(service.closed, false, "the deadline must not kill other requests or the worker");
-});
-
-test("accepted queued requests survive the dispatch deadline behind an active generation", async (context) => {
-  const { service, apiBaseUrl, counts } = await fixture(context, { keepOpen: true, interval: 1,
-    events: [{ type: "response.completed", response: { id: "synthetic", output: [], status: "completed" } }] });
-  assert.ok(service instanceof CodexWorkerTransport);
-  const abort = new AbortController();
-  const body = { model: "silent", input: [], stream: true, prompt_cache_key: "synthetic-shared-session" };
-  const first = await service.request({ apiBaseUrl, accessToken: "synthetic", transport: "websocket", body, signal: abort.signal, idleTimeoutMs: 0 });
-  const firstReader = first.getReader();
-  const created = await firstReader.read();
-  assert.equal(created.value?.type, "response.created");
-  service.requestStartTimeoutMs = 30;
-  let outcome = "pending";
-  const second = service.request({ apiBaseUrl, accessToken: "synthetic", transport: "websocket", body: { ...body, model: "events" }, idleTimeoutMs: 0 });
-  void second.then(() => { outcome = "opened"; }, () => { outcome = "rejected"; });
-  await delay(90);
-  assert.equal(outcome, "pending", "accepted queue waiting must not expire as a dispatch failure");
-  assert.equal(Atomics.load(counts, 0), 1, "the queued request must not generate concurrently");
-  abort.abort();
-  await assert.rejects(firstReader.read());
-  const stream = await second;
-  for await (const event of stream) assert.ok(event.type);
-  assert.equal(outcome, "opened");
-  assert.equal(Atomics.load(counts, 0), 2);
-});
-
-test("worker surfaces runaway tool whitespace and releases admission without replay", async (context) => {
-  const { service, apiBaseUrl, counts } = await fixture(context, { interval: 1, events: [
-    { type: "response.function_call_arguments.delta", item_id: "a", output_index: 0, delta: " ".repeat(16_385) }
-  ] });
-  assert.ok(service instanceof CodexWorkerTransport);
-  const stream = await service.request({ apiBaseUrl, accessToken: "synthetic", transport: "websocket",
-    body: { model: "events", input: [], stream: true }, idleTimeoutMs: 0 });
-  await assert.rejects(async () => { for await (const event of stream) assert.ok(event.type); }, /tool arguments stalled/iu);
-  assert.equal(Atomics.load(counts, 0), 1);
-  assert.equal(service.invocations.size, 0);
-  assert.equal(service.uploadBytes, 0);
 });

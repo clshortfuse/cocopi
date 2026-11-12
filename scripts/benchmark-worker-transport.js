@@ -38,7 +38,7 @@ if (workload === undefined) {
       events: pressure ? undefined : [{ type: "response.completed", response: { id: "synthetic-response", output: [], status: "completed" } }]
     }
   });
-  const transport = new CodexWorkerTransport(/** @type {ConstructorParameters<typeof CodexWorkerTransport>[0] & { historySync: boolean }} */ ({ historySync: ipcMode === "delta" }));
+  const transport = new CodexWorkerTransport(/** @type {ConstructorParameters<typeof CodexWorkerTransport>[0] & { historyDelta: boolean }} */ ({ historyDelta: ipcMode === "delta" }));
   const observed = /** @type {typeof transport & { lastPreparationMs?: number, history?: { bytes: number, items: string[] } }} */ (transport);
   const loopDelay = monitorEventLoopDelay({ resolution: 10 });
   /** @type {number[]} */

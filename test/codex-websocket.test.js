@@ -2,13 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { setImmediate } from "node:timers/promises";
 
-import { canonicalCodexJsonString } from "../lib/codex-api/json.js";
 import { buildTextResponseBody } from "../lib/codex-api/response-body.js";
 import {
   CODEX_RESPONSES_WEBSOCKET_BETA_HEADER,
   CodexResponsesWebSocketSession,
   codexContinuationAnchorFromInputItems,
   codexContinuationRequestState,
+  createCodexContinuationInputDigestBuilder,
   codexResponsesWebSocketUrl,
   fetchCodexResponseWebSocketStream,
   responseCancelWebSocketMessage,
@@ -27,6 +27,201 @@ test("reasoning continuation matches normalized empty summaries without conflati
   const visible = codexContinuationAnchorFromInputItems("resp-one", [{ ...opaque, summary: [{ type: "summary_text", text: "Visible." }] }]);
   assert.notEqual(visible.baselineDigest, original.baselineDigest);
 });
+
+test("continuation selection hashes each overlapping input item only once", () => {
+  const session = new CodexResponsesWebSocketSession({
+    apiBaseUrl: "https://example.invalid", accessToken: "synthetic",
+    WebSocketConstructor: fakeWebSocketConstructor()
+  });
+  let reads = 0;
+  const input = Array.from({ length: 4 }, (_, index) => ({
+    role: "user",
+    content: [{ type: "input_text", get text() { reads += 1; return `item-${index}`; } }]
+  }));
+  const valid = codexContinuationAnchorFromInputItems("older-match", input.slice(0, 2));
+  session.recordContinuationAnchors([
+    valid,
+    { responseId: "middle-mismatch", baselineItems: 3, baselineDigest: "synthetic-mismatch" },
+    { responseId: "newest-mismatch", baselineItems: 4, baselineDigest: "synthetic-mismatch" }
+  ]);
+  reads = 0;
+  const prepared = session.prepareRequestBody({ model: "synthetic", input });
+  assert.equal(prepared.previous_response_id, "older-match");
+  assert.deepEqual(prepared.input, input.slice(2));
+  assert.equal(reads, 4, "overlapping prefixes must not repeatedly serialize the same item");
+  session.dispose();
+});
+
+test("continuation selection stays lazy for a newest short match and observes mutations", () => {
+  const session = new CodexResponsesWebSocketSession({
+    apiBaseUrl: "https://example.invalid", accessToken: "synthetic",
+    WebSocketConstructor: fakeWebSocketConstructor()
+  });
+  let reads = 0;
+  let text = "before";
+  const input = Array.from({ length: 5 }, () => ({
+    role: "user", content: [{ type: "input_text", get text() { reads += 1; return text; } }]
+  }));
+  session.recordContinuationAnchors([
+    { responseId: "older-long", baselineItems: 5, baselineDigest: "mismatch" },
+    codexContinuationAnchorFromInputItems("newest-short", input.slice(0, 1))
+  ]);
+  reads = 0;
+  assert.equal(session.prepareRequestBody({ model: "synthetic", input }).previous_response_id, "newest-short");
+  assert.equal(reads, 1);
+  text = "after";
+  reads = 0;
+  assert.equal(session.prepareRequestBody({ model: "synthetic", input }).previous_response_id, undefined);
+  assert.equal(reads, 5, "later longer candidates extend the same request-local scan");
+  session.dispose();
+});
+
+test("streamed continuation output is digested without retained structured clones", async () => {
+  FakeWebSocket.reset();
+  const session = new CodexResponsesWebSocketSession({ apiBaseUrl: "https://example.invalid", accessToken: "synthetic", WebSocketConstructor: fakeWebSocketConstructor() });
+  const opening = session.request({ body: { model: "synthetic", input: [], stream: true } });
+  await nextMicrotask();
+  const socket = FakeWebSocket.single();
+  socket.open();
+  const stream = await opening;
+  const reader = stream.getReader();
+  const item = { type: "message", role: "assistant", content: [{ type: "output_text", text: "synthetic output" }] };
+  const clone = globalThis.structuredClone;
+  let clones = 0;
+  globalThis.structuredClone = (...args) => { clones += 1; return clone(...args); };
+  try {
+    const next = reader.read();
+    socket.message(JSON.stringify({ type: "response.output_item.done", output_index: 0, item }));
+    const received = await next;
+    // A consumer mutating the delivered object must not affect the saved digest.
+    if (received.value?.type === "response.output_item.done" && received.value.item.type === "message") {
+      received.value.item.content = [];
+    }
+    const terminal = reader.read();
+    socket.message(JSON.stringify({ type: "response.completed", response: { id: "synthetic", output: [] } }));
+    await terminal;
+    assert.deepEqual(session.continuationAnchors[0], {
+      ...codexContinuationAnchorFromInputItems("synthetic", [], [item]),
+      requestState: session.continuationAnchors[0].requestState
+    });
+    assert.equal(clones, 0);
+  } finally {
+    globalThis.structuredClone = clone;
+    await reader.cancel();
+    session.dispose();
+  }
+});
+
+test("continuation digest forks keep independent output branches", () => {
+  const input = { role: "user", content: [{ type: "input_text", text: "synthetic" }] };
+  const base = createCodexContinuationInputDigestBuilder([[input]]);
+  const streamed = base.fork();
+  streamed.update({ type: "function_call", call_id: "streamed", name: "synthetic", arguments: "{}" });
+  const terminal = base.fork();
+  terminal.update({ type: "function_call", call_id: "terminal", name: "synthetic", arguments: "{}" });
+  assert.equal(base.items, 1);
+  assert.equal(streamed.items, 2);
+  assert.equal(terminal.items, 2);
+  assert.notEqual(streamed.snapshot().digest, terminal.snapshot().digest);
+  assert.equal(base.snapshot().digest, codexContinuationAnchorFromInputItems("synthetic", [input]).baselineDigest);
+});
+
+test("terminal output remains authoritative over streamed continuation items", async () => {
+  FakeWebSocket.reset();
+  const session = new CodexResponsesWebSocketSession({ apiBaseUrl: "https://example.invalid", accessToken: "synthetic", WebSocketConstructor: fakeWebSocketConstructor() });
+  const opening = session.request({ body: { model: "synthetic", input: [], stream: true } });
+  await nextMicrotask();
+  const socket = FakeWebSocket.single();
+  socket.open();
+  const stream = await opening;
+  const events = collectEvents(stream);
+  socket.message(JSON.stringify({ type: "response.output_item.done", output_index: 0, item: { type: "function_call", call_id: "streamed", name: "synthetic", arguments: "{}" } }));
+  const output = [{ type: "function_call", call_id: "terminal", name: "synthetic", arguments: "{}" }];
+  socket.message(JSON.stringify({ type: "response.completed", response: { id: "synthetic", output } }));
+  await events;
+  assert.deepEqual(session.continuationAnchors[0], {
+    ...codexContinuationAnchorFromInputItems("synthetic", [], output),
+    requestState: session.continuationAnchors[0].requestState
+  });
+  session.dispose();
+});
+
+test("WebSocket wire serialization does not build a canonical input copy", async () => {
+  FakeWebSocket.reset();
+  const content = { type: "input_text", text: "synthetic 😀" };
+  const body = { model: "synthetic", input: [{ role: "user", content: [content] }], stream: true };
+  const session = new CodexResponsesWebSocketSession({ apiBaseUrl: "https://example.invalid", accessToken: "synthetic", WebSocketConstructor: fakeWebSocketConstructor() });
+  const keys = Object.keys;
+  let traversals = 0;
+  Object.keys = (value) => { if (value === content) traversals += 1; return keys(value); };
+  try {
+    const opening = session.request({ body });
+    await nextMicrotask();
+    const socket = FakeWebSocket.single();
+    socket.open();
+    const stream = await opening;
+    assert.deepEqual(JSON.parse(socket.sent[0]), responseCreateWebSocketMessage(body));
+    await stream.cancel();
+    assert.equal(traversals, 0);
+  } finally {
+    Object.keys = keys;
+    session.dispose();
+  }
+});
+
+test("ordinary WebSocket text frames parse in their delivery callback", async () => {
+  FakeWebSocket.reset();
+  const session = new CodexResponsesWebSocketSession({ apiBaseUrl: "https://example.invalid", accessToken: "synthetic", WebSocketConstructor: fakeWebSocketConstructor() });
+  const opening = session.request({ body: { model: "synthetic", input: [], stream: true } });
+  await nextMicrotask();
+  const socket = FakeWebSocket.single();
+  socket.open();
+  const stream = await opening;
+  const json = JSON.stringify({ type: "response.output_text.delta", delta: "synthetic" });
+  const parse = JSON.parse;
+  let parsed = 0;
+  JSON.parse = (...args) => { if (args[0] === json) parsed += 1; return parse(...args); };
+  try {
+    socket.message(json);
+    assert.equal(parsed, 1);
+    const reader = stream.getReader();
+    const result = await reader.read();
+    assert.deepEqual(result.value, { type: "response.output_text.delta", delta: "synthetic" });
+    await reader.cancel();
+  } finally {
+    JSON.parse = parse;
+    session.dispose();
+  }
+});
+
+for (const representation of /** @type {const} */ (["array-buffer", "subarray", "data-view", "blob"])) {
+  test(`WebSocket ${representation} frame conversion preserves payload bytes`, async () => {
+    FakeWebSocket.reset();
+    const session = new CodexResponsesWebSocketSession({ apiBaseUrl: "https://example.invalid", accessToken: "synthetic", WebSocketConstructor: fakeWebSocketConstructor() });
+    const opening = session.request({ body: { model: "synthetic", input: [], stream: true } });
+    await nextMicrotask();
+    FakeWebSocket.single().open();
+    const stream = await opening;
+    const expected = { type: "response.output_text.delta", delta: "Unicode 😀 é 漢字" };
+    const bytes = new TextEncoder().encode(JSON.stringify(expected));
+    const backing = new Uint8Array(bytes.byteLength + 8);
+    backing.fill(0xFF);
+    backing.set(bytes, 4);
+    const representations = {
+      "array-buffer": bytes.buffer,
+      subarray: backing.subarray(4, 4 + bytes.byteLength),
+      "data-view": new DataView(backing.buffer, 4, bytes.byteLength),
+      blob: new Blob([bytes])
+    };
+    const reader = stream.getReader();
+    const received = reader.read();
+    session.handleMessage(new MessageEvent("message", { data: representations[representation] }));
+    const result = await received;
+    assert.deepEqual(result.value, expected);
+    await reader.cancel();
+    session.dispose();
+  });
+}
 
 test("codexResponsesWebSocketUrl converts Responses endpoint URLs", () => {
   assert.equal(codexResponsesWebSocketUrl("https://chatgpt.example.test/backend-api/codex"), "wss://chatgpt.example.test/backend-api/codex/responses");
@@ -425,7 +620,8 @@ test("fetchCodexResponseStreamWithAuthRefresh retries WebSocket connection limit
   const retrySocket = FakeWebSocket.instances[1];
   retrySocket.open();
   await nextMicrotask();
-  assert.equal(retrySocket.sent[0], canonicalCodexJsonString(responseCreateWebSocketMessage(body)));
+  // eslint-disable-next-line unicorn/prefer-structured-clone -- Compare JSON wire semantics, including omission of undefined optional fields.
+  assert.deepEqual(JSON.parse(retrySocket.sent[0]), JSON.parse(JSON.stringify(responseCreateWebSocketMessage(body))));
   retrySocket.message(JSON.stringify({ type: "response.output_text.delta", delta: "retried" }));
   retrySocket.message(JSON.stringify({ type: "response.completed", response: { id: "resp-retried" } }));
 
@@ -694,6 +890,10 @@ test("CodexResponsesWebSocketSession sends incremental input with previous respo
   const secondStream = await secondStreamPromise;
   socket.message(JSON.stringify({ type: "response.completed", response: { id: "resp-two" } }));
   await collectEvents(secondStream);
+
+  assert.equal(session.continuationAnchors.length, 2);
+  assert.ok(session.continuationAnchors[0].requestState);
+  assert.equal(session.continuationAnchors[1].requestState, session.continuationAnchors[0].requestState);
 
   const secondWireMessage = JSON.parse(socket.sent[1]);
   assert.equal(secondWireMessage.type, "response.create");
