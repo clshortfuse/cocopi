@@ -55,8 +55,10 @@ export async function activate(context) {
   }
 }
 
-export function deactivate() {
+export async function deactivate() {
   closeCodexSessions();
+  const { waitForCocopiTokenCacheDebugStorage } = await import("./lib/vscode/token-cache-debug.js");
+  await waitForCocopiTokenCacheDebugStorage();
 }
 
 /**

@@ -26,6 +26,50 @@ const COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY = "cocopi.diagnostics.tokenTracker.v2
 const COCOPI_TOKEN_CACHE_DEBUG_LEGACY_STORAGE_KEY = "cocopi.diagnostics.tokenTracker.v1";
 const COCOPI_RATE_LIMIT_STORAGE_KEY = "cocopi.diagnostics.rateLimits.v1";
 
+test("token persistence parses a repeated timestamp once per snapshot", async (context) => {
+  const recordedAt = "2026-04-27T00:00:00.000Z";
+  const rows = Array.from({ length: 300 }, (_, index) => storedTokenCacheSummary({
+    id: index + 1, recordedAt, hostRequestIndex: index + 1, billedTotalTokens: 10
+  }));
+  const secrets = fakeSecretStorage(new Map([[COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY, JSON.stringify(rows)]]));
+  await initializeCocopiTokenCacheDebugStorage(secrets);
+  await waitForCocopiTokenCacheDebugStorage();
+  const parse = Date.parse;
+  let repeatedParses = 0;
+  context.mock.method(Date, "parse", (/** @type {string} */ value) => {
+    if (value === recordedAt) repeatedParses += 1;
+    return parse(value);
+  });
+  recordCocopiTokenCacheSummary(tokenCacheSummary({ hostRequestIndex: 301, cachedTokens: 0 }));
+  await waitForCocopiTokenCacheDebugStorage();
+  assert.equal(repeatedParses, 1);
+  const stored = JSON.parse(secrets.values.get(COCOPI_TOKEN_CACHE_DEBUG_STORAGE_KEY) ?? "{}");
+  assert.equal(stored.rows.length, 301);
+  assert.equal(stored.rows[1][1], parse(recordedAt));
+});
+
+test("failed token persistence stays pending for an explicit flush without a retry loop", async () => {
+  const secrets = fakeSecretStorage();
+  await initializeCocopiTokenCacheDebugStorage(secrets);
+  clearCocopiTokenCacheDebugSummaries();
+  await waitForCocopiTokenCacheDebugStorage();
+  const store = secrets.store.bind(secrets);
+  let attempts = 0;
+  secrets.store = async (key, value) => {
+    attempts += 1;
+    if (attempts === 1) throw new Error("synthetic storage unavailable");
+    await store(key, value);
+  };
+  recordCocopiTokenCacheSummary(tokenCacheSummary({ sessionId: "pending-flush", hostRequestIndex: 1, cachedTokens: 0 }));
+  await assert.rejects(waitForCocopiTokenCacheDebugStorage(), /synthetic storage unavailable/u);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(attempts, 1, "failed writes must not spin in the background");
+  await waitForCocopiTokenCacheDebugStorage();
+  assert.equal(attempts, 2, "explicit flush must retry the unpersisted snapshot");
+  await initializeCocopiTokenCacheDebugStorage(secrets);
+  assert.equal(readCocopiTokenCacheDebugSummaries()[0].sessionId, "pending-flush");
+});
+
 test("evicted rows survive as hourly usage across storage reload", async () => {
   const secrets = fakeSecretStorage();
   await initializeCocopiTokenCacheDebugStorage(secrets);
