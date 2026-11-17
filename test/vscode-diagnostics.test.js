@@ -757,6 +757,21 @@ test("payload debug level logs small raw error payload text inline", () => {
   assert.ok(logger.debugMessages.some((message) => /Codex error raw payload\./u.test(message) && /debug raw backend error/u.test(message)));
 });
 
+test("payload debug level persists small text deltas in the payload sidecar", (testContext) => {
+  const logDirectory = mkdtempSync(path.join(tmpdir(), "cocopi-diagnostics-"));
+  testContext.after(() => rmSync(logDirectory, { recursive: true, force: true }));
+  const vscode = fakeVscode();
+  const logger = createCocopiLogger(vscode, { logUri: { fsPath: logDirectory } });
+  const event = { type: "response.output_text.delta", delta: "actual incoming text", sequence_number: 42 };
+
+  logCodexResponseEventDiagnostics(logger, "payloads", event);
+
+  const payload = vscode.lines.find((message) => /Codex stream event payload\./u.test(message));
+  assert.ok(payload);
+  assert.match(payload, /payloadStored=true/u);
+  assert.deepEqual(readPayloadSidecarRecord(payload).payload, event);
+});
+
 test("payload debug level spills oversized request payload text to a sidecar file", (testContext) => {
   const logDirectory = mkdtempSync(path.join(tmpdir(), "cocopi-diagnostics-"));
   testContext.after(() => rmSync(logDirectory, { recursive: true, force: true }));
