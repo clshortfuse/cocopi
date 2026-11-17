@@ -8,8 +8,8 @@ import { chooseCodexModel, fetchCodexModelsResponse, listCodexModels, parseModel
 
 const chatgptProCatalogFixture = JSON.parse(await readFile(new URL("fixtures/codex-models/chatgpt-pro-catalog.json", import.meta.url), "utf8"));
 
-test("default client version satisfies the GPT-6 Sol and Luna catalog gate", () => {
-  assert.equal(CODEX_CLIENT_VERSION, "0.159.0");
+test("default client version matches the stable upstream compatibility baseline", () => {
+  assert.equal(CODEX_CLIENT_VERSION, "0.169.0");
 });
 
 test("chatgpt pro catalog fixture uses captured server model ids", () => {

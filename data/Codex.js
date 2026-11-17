@@ -166,6 +166,8 @@
  * @property {string} [output_text]
  * @property {CodexJsonValue[]} [output]
  * @property {Record<string, CodexJsonValue> | null} [error]
+ * @property {{ reason?: string } | null} [incomplete_details]
+ * @property {boolean} [end_turn]
  */
 
 /**
@@ -214,6 +216,16 @@
  * @typedef {object} CodexResponseIncompleteEvent
  * @property {'response.incomplete'} type
  * @property {CodexResponse} [response]
+ */
+
+/**
+ * @typedef {object} CodexResponseErrorEvent
+ * @property {'error'} type
+ * @property {Record<string, CodexJsonValue> | null} [error]
+ * @property {string} [message]
+ * @property {string} [code]
+ * @property {number} [status]
+ * @property {number} [status_code]
  */
 
 /**
@@ -355,7 +367,7 @@
  * @property {CodexResponseFunctionCallOutputItem | CodexResponseReasoningOutputItem | Record<string, CodexJsonValue>} item
  */
 
-/** @typedef {CodexResponseOutputTextDeltaEvent | CodexResponseOutputItemAddedEvent | CodexResponseReasoningSummaryPartAddedEvent | CodexResponseReasoningSummaryTextDeltaEvent | CodexResponseReasoningSummaryTextDoneEvent | CodexResponseReasoningTextDeltaEvent | CodexResponseReasoningTextDoneEvent | CodexResponseReasoningSummaryPartDoneEvent | CodexResponseCompletedEvent | CodexResponseFailedEvent | CodexResponseIncompleteEvent | CodexResponseFunctionCallArgumentsDeltaEvent | CodexResponseFunctionCallArgumentsDoneEvent | CodexResponseOutputItemDoneEvent} CodexResponseStreamEvent */
+/** @typedef {CodexResponseOutputTextDeltaEvent | CodexResponseOutputItemAddedEvent | CodexResponseReasoningSummaryPartAddedEvent | CodexResponseReasoningSummaryTextDeltaEvent | CodexResponseReasoningSummaryTextDoneEvent | CodexResponseReasoningTextDeltaEvent | CodexResponseReasoningTextDoneEvent | CodexResponseReasoningSummaryPartDoneEvent | CodexResponseCompletedEvent | CodexResponseFailedEvent | CodexResponseIncompleteEvent | CodexResponseErrorEvent | CodexResponseFunctionCallArgumentsDeltaEvent | CodexResponseFunctionCallArgumentsDoneEvent | CodexResponseOutputItemDoneEvent} CodexResponseStreamEvent */
 
 /**
  * Codex backend model-catalog response. Codex Rust calls this `ModelsResponse`

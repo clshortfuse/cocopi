@@ -149,7 +149,7 @@ test("terminal output remains authoritative over streamed continuation items", a
 test("WebSocket wire serialization does not build a canonical input copy", async () => {
   FakeWebSocket.reset();
   const content = { type: "input_text", text: "synthetic 😀" };
-  const body = { model: "synthetic", input: [{ role: "user", content: [content] }], stream: true };
+  const body = { input: [{ role: "user", content: [content] }], stream: true, service_tier: /** @type {const} */ ("priority"), model: "synthetic" };
   const session = new CodexResponsesWebSocketSession({ apiBaseUrl: "https://example.invalid", accessToken: "synthetic", WebSocketConstructor: fakeWebSocketConstructor() });
   const keys = Object.keys;
   let traversals = 0;
@@ -161,6 +161,7 @@ test("WebSocket wire serialization does not build a canonical input copy", async
     socket.open();
     const stream = await opening;
     assert.deepEqual(JSON.parse(socket.sent[0]), responseCreateWebSocketMessage(body));
+    assert.ok(socket.sent[0].startsWith('{"type":"response.create","model":"synthetic","service_tier":"priority",'));
     await stream.cancel();
     assert.equal(traversals, 0);
   } finally {
@@ -236,7 +237,6 @@ test("responseCreateWebSocketMessage sends a flattened response.create request",
   assert.deepEqual(responseCreateWebSocketMessage(body), {
     type: "response.create",
     ...webSocketBody,
-    instructions: "You are a helpful coding assistant.",
     generate: true
   });
 });
@@ -248,7 +248,12 @@ test("responseCreateWebSocketMessage preserves explicit instructions", () => {
     instructions: "Follow the user's requirements carefully."
   });
 
-  assert.equal(responseCreateWebSocketMessage(body).instructions, "Follow the user's requirements carefully.");
+  const wire = responseCreateWebSocketMessage(body);
+  assert.equal(Object.hasOwn(wire, "instructions"), false);
+  assert.deepEqual(wire.input, [
+    { role: "developer", content: [{ type: "input_text", text: "Follow the user's requirements carefully." }] },
+    .../** @type {import('../data/Codex.js').CodexResponseInputItem[]} */ (body.input)
+  ]);
 });
 
 test("fetchCodexResponseWebSocketStream connects with Codex headers and streams events", async () => {
@@ -1467,8 +1472,11 @@ test("CodexResponsesWebSocketSession sends full input on the same socket when in
   const secondWireMessage = JSON.parse(socket.sent[1]);
   assert.equal(secondWireMessage.type, "response.create");
   assert.equal(secondWireMessage.previous_response_id, undefined);
-  assert.equal(secondWireMessage.instructions, "Changed instructions.");
-  assert.deepEqual(secondWireMessage.input, fullInput);
+  assert.equal(Object.hasOwn(secondWireMessage, "instructions"), false);
+  assert.deepEqual(secondWireMessage.input, [
+    { role: "developer", content: [{ type: "input_text", text: "Changed instructions." }] },
+    ...fullInput
+  ]);
   assert.deepEqual(decisions, [
     {
       action: "skipped",
@@ -1479,6 +1487,19 @@ test("CodexResponsesWebSocketSession sends full input on the same socket when in
       requestStateChanges: ["instructions.changed"]
     }
   ]);
+  const thirdUserItem = { role: "user", content: [{ type: "input_text", text: "third" }] };
+  const thirdStream = await session.request({ body: buildTextResponseBody({
+    model: "gpt-5-codex",
+    input: [...fullInput, thirdUserItem],
+    instructions: "Changed instructions.",
+    promptCacheKey: "cocopi-language-model"
+  }) });
+  const thirdWireMessage = JSON.parse(socket.sent[2]);
+  assert.equal(thirdWireMessage.previous_response_id, "resp-two");
+  assert.equal(Object.hasOwn(thirdWireMessage, "instructions"), false);
+  assert.deepEqual(thirdWireMessage.input, [thirdUserItem], "unchanged instructions must not be repeated in incremental input");
+  socket.message(JSON.stringify({ type: "response.completed", response: { id: "resp-three" } }));
+  await collectEvents(thirdStream);
   assert.equal(FakeWebSocket.instances.length, 1);
   session.dispose();
 });

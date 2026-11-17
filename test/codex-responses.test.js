@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import { CODEX_ORIGINATOR } from "../lib/auth/oauth.js";
-import { buildTextResponseBody } from "../lib/codex-api/response-body.js";
+import { buildTextResponseBody, codexResponseBodyForWire } from "../lib/codex-api/response-body.js";
 import { SseParseError, sseEventStream } from "../lib/codex-api/sse.js";
+import { decodeWorkerError, encodeWorkerError } from "../lib/codex-api/worker-protocol.js";
 import {
   CodexResponseStreamError,
   collectCodexResponseFromEvents,
@@ -93,6 +94,25 @@ test("buildTextResponseBody omits instructions unless explicitly configured", ()
   assert.equal("instructions" in buildTextResponseBody({ model: "gpt-5-codex", input: "say hi" }), false);
 });
 
+test("wire instructions lead input without mutating logical replay or losing tool output", () => {
+  const input = [{ type: /** @type {const} */ ("function_call_output"), call_id: "call-one", output: "result" }];
+  const body = buildTextResponseBody({ model: "test", input, instructions: "Follow host instructions." });
+  const wire = codexResponseBodyForWire(body);
+  assert.equal(Object.hasOwn(wire, "instructions"), false);
+  assert.deepEqual(wire.input, [
+    { role: "developer", content: [{ type: "input_text", text: "Follow host instructions." }] },
+    ...input
+  ]);
+  assert.deepEqual(body.input, input);
+  assert.equal(body.instructions, "Follow host instructions.");
+  assert.deepEqual(codexResponseBodyForWire(wire), wire);
+  assert.deepEqual(codexResponseBodyForWire(body, false).input, input);
+  assert.deepEqual(codexResponseBodyForWire({ model: "test", input: "hello", instructions: "Base" }).input, [
+    { role: "developer", content: [{ type: "input_text", text: "Base" }] },
+    { role: "user", content: [{ type: "input_text", text: "hello" }] }
+  ]);
+});
+
 test("fetchCodexResponseStream posts to Codex Responses endpoint", async (context) => {
   /** @type {Array<{ url: string, options: RequestInit & { headers: Record<string, string>, body?: string | null } }>} */
   const calls = [];
@@ -113,6 +133,7 @@ test("fetchCodexResponseStream posts to Codex Responses endpoint", async (contex
     body: buildTextResponseBody({
       model: "gpt-5-codex",
       input: "Tell me the current datetime in ISO 8601 format. Return only the datetime string.",
+      instructions: "Follow the host.",
       serviceTier: "priority"
     })
   }));
@@ -129,8 +150,27 @@ test("fetchCodexResponseStream posts to Codex Responses endpoint", async (contex
   assert.equal(calls[0].options.headers.session_id, undefined);
   assert.equal(calls[0].options.headers.conversation_id, undefined);
   const body = JSON.parse(String(calls[0].options.body));
+  assert.ok(String(calls[0].options.body).startsWith('{"model":"gpt-5-codex","stream":true,"service_tier":"priority",'));
   assert.equal(body.model, "gpt-5-codex");
-  assert.equal(body.input[0].content[0].text, "Tell me the current datetime in ISO 8601 format. Return only the datetime string.");
+  assert.equal(Object.hasOwn(body, "instructions"), false);
+  assert.deepEqual(body.input[0], { role: "developer", content: [{ type: "input_text", text: "Follow the host." }] });
+  assert.equal(body.input[1].content[0].text, "Tell me the current datetime in ISO 8601 format. Return only the datetime string.");
+});
+
+test("HTTP routing fields precede input regardless of logical field insertion order", async () => {
+  const body = { input: [{ role: "user", content: "synthetic" }], service_tier: /** @type {const} */ ("priority"), stream: true, model: "test" };
+  let serialized = "";
+  const events = await fetchCodexResponseStream({
+    apiBaseUrl: "https://example.invalid", accessToken: "synthetic", body,
+    fetch: async (_url, options) => {
+      serialized = String(options?.body);
+      return Response.json({ id: "complete", status: "completed" });
+    }
+  });
+  await collectCodexResponseFromEvents(events);
+  assert.deepEqual(Object.keys(JSON.parse(serialized)).slice(0, 3), ["model", "stream", "service_tier"]);
+  assert.deepEqual(JSON.parse(serialized), body);
+  assert.deepEqual(Object.keys(body), ["input", "service_tier", "stream", "model"]);
 });
 
 test("fetchCodexResponseStream uses prompt cache key as stable request identity", async (context) => {
@@ -348,6 +388,121 @@ test("collectCodexResponseFromEvents reports incomplete terminal events", async 
     collectCodexResponseFromEvents(readableEventsFromArray([{ type: "response.incomplete", response: { id: "resp-test" } }])),
     CodexResponseStreamError
   );
+});
+
+test("terminal stream errors retain provider codes and structured retry advice through worker delivery", async () => {
+  for (const code of ["rate_limit_exceeded", "slow_down"]) {
+    await assert.rejects(collectCodexResponseFromEvents(readableEventsFromArray([{
+      type: "response.failed",
+      response: { error: { code, message: "Try again.", headers: { "Retry-After": "7" } } }
+    }])), (error) => {
+      assert.ok(error instanceof CodexResponseStreamError);
+      const restored = decodeWorkerError(encodeWorkerError(error));
+      assert.ok(restored instanceof CodexResponseStreamError);
+      assert.equal(restored.providerCode, code);
+      assert.equal(restored.failureKind, "rate-limit");
+      assert.equal(restored.retryAfter, 7000);
+      return true;
+    });
+
+  }
+});
+
+test("stream retry advice prefers headers and only rate limits parse delay text", (context) => {
+  const now = 1_700_000_000_000;
+  context.mock.method(Date, "now", () => now);
+  /** @type {[string, string, Record<string, string | number> | undefined, number | undefined][]} */
+  const scenarios = [
+    ["slow_down", "Try again in 1.25 seconds", undefined, 1250],
+    ["rate_limit_exceeded", "Try again in 250 ms", undefined, 250],
+    ["rate_limit_exceeded", "Try again in 1.9ms", undefined, 1],
+    ["rate_limit_exceeded", "Try again in 1s", { "Retry-After": " 7 " }, 7000],
+    ["slow_down", "Try again in 1s", { "retry-after": 3 }, 3000],
+    ["slow_down", "Try again in 1s", { "retry-after": new Date(now + 6000).toUTCString() }, 6000],
+    ["slow_down", "Try again in 1s", { "retry-after": "invalid" }, 1000],
+    ["slow_down", "Try again in 1s", { "retry-after": "0" }, 0],
+    ["slow_down", "Try again in -5s", undefined, undefined],
+    ["insufficient_quota", "Try again in 2 seconds", undefined, undefined],
+    ["content_policy_violation", "Try again in 2 seconds", undefined, undefined],
+    ["server_is_overloaded", "Try again in 2 seconds", undefined, undefined]
+  ];
+  for (const [code, message, headers, expected] of scenarios) {
+    const error = new CodexResponseStreamError("fixture", { event: {
+      type: "response.failed", error: { code, message, ...(headers ? { headers } : {}) }
+    } });
+    assert.equal(error.retryAfter, expected, String(code));
+  }
+});
+
+test("capacity failures retain structured advice without becoming quota denials", () => {
+  for (const code of ["policy_capacity_unavailable", "server_is_overloaded"]) {
+    const error = new CodexResponseStreamError("fixture", {
+      event: { type: "response.failed", error: { code, headers: { "retry-after": "4" } } }
+    });
+    const restored = decodeWorkerError(encodeWorkerError(error));
+    assert.ok(restored instanceof CodexResponseStreamError);
+    assert.equal(restored.failureKind, "capacity");
+    assert.equal(restored.retryAfter, 4000);
+  }
+});
+
+test("incomplete errors retain reason, partial output, and usage instead of promoting partial text", async () => {
+  const response = { id: "partial", incomplete_details: { reason: "max_output_tokens" },
+    output: [{ type: "message", status: "incomplete" }], usage: { output_tokens: 50 } };
+  await assert.rejects(collectCodexResponseFromEvents(readableEventsFromArray([
+    { type: "response.output_text.delta", delta: "unfinished" },
+    { type: "response.incomplete", response }
+  ])), (error) => {
+    assert.ok(error instanceof CodexResponseStreamError);
+    assert.equal(error.failureKind, "terminal");
+    assert.match(error.message, /reason=max_output_tokens/u);
+    assert.deepEqual(error.event, { type: "response.incomplete", response });
+    return true;
+  });
+});
+
+test("a stream ending after text without terminal confirmation is not successful", async () => {
+  await assert.rejects(collectCodexResponseFromEvents(readableEventsFromArray([
+    { type: "response.output_text.delta", delta: "unfinished" }
+  ])), /without a terminal response/u);
+});
+
+test("top-level provider error events stop the stream before any later completion", async () => {
+  for (const event of [
+    { type: /** @type {const} */ ("error"), error: { code: "budget_reached", message: "Session budget reached." } },
+    { type: /** @type {const} */ ("error"), code: "budget_reached", message: "Session budget reached." }
+  ]) {
+    await assert.rejects(collectCodexResponseFromEvents(readableEventsFromArray([
+      event, { type: "response.completed", response: { id: "must-not-succeed" } }
+    ])), (error) => {
+      assert.ok(error instanceof CodexResponseStreamError);
+      assert.equal(error.providerCode, "budget_reached");
+      assert.equal(error.failureKind, "terminal");
+      assert.match(error.message, /Session budget reached/u);
+      return true;
+    });
+  }
+});
+
+test("failed and incomplete JSON responses are not converted into successful completion", async () => {
+  for (const status of [/** @type {const} */ ("failed"), /** @type {const} */ ("incomplete")]) {
+    const events = await fetchCodexResponseStream({
+      apiBaseUrl: "https://example.invalid", accessToken: "synthetic", body: { model: "test", input: "test" },
+      fetch: async () => Response.json({ status, error: { code: "budget_reached" } })
+    });
+
+    await assert.rejects(collectCodexResponseFromEvents(events), CodexResponseStreamError);
+  }
+});
+
+test("cancelled and unfinished JSON responses cannot become successful completion", async () => {
+  for (const status of ["cancelled", "queued", "in_progress"]) {
+    const events = await fetchCodexResponseStream({
+      apiBaseUrl: "https://example.invalid", accessToken: "synthetic", body: { model: "test", input: "test" },
+      fetch: async () => Response.json({ status, output_text: "not a completed answer" })
+    });
+    await assert.rejects(collectCodexResponseFromEvents(events), new RegExp(`non-completed status: ${status}`, "u"));
+  }
 });
 
 test("collectCodexResponseFromEvents rejects multiple completed responses", async () => {

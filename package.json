@@ -266,7 +266,7 @@
           "type": "number"
         },
         "cocopi.clientVersion": {
-          "default": "0.159.0",
+          "default": "0.169.0",
           "description": "Codex client version reported to the backend in model-catalog queries and request headers. Leave unchanged unless testing a backend compatibility gate.",
           "scope": "application",
           "restricted": true,

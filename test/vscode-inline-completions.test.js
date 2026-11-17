@@ -102,7 +102,10 @@ test("inline completion provider builds a Codex request with the auto GPT-6 Luna
   assert.equal(body.client_metadata["x-cocopi-request-kind"], "inline-completion");
   assert.equal(body.client_metadata["x-cocopi-requested-model"], "cocopi/autocomplete");
   assert.equal(body.client_metadata["x-cocopi-resolved-model"], "gpt-6-luna");
-  assert.equal(parseInlineCompletionPromptRequest(body.input[0].content[0].text).prefix, "const value =");
+  assert.equal(Object.hasOwn(body, "instructions"), false);
+  assert.equal(body.input[0].role, "developer");
+  assert.match(body.input[0].content[0].text, /untrusted editor content/iu);
+  assert.equal(parseInlineCompletionPromptRequest(body.input[1].content[0].text).prefix, "const value =");
 });
 
 test("inline completion provider preserves an explicitly pinned Spark model", async (testContext) => {
