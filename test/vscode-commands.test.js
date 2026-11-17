@@ -550,6 +550,21 @@ test("Cocopi status action opens the dashboard webview", async (testContext) => 
   assert.match(vscode.panels[0].webview.html, /Codex target<\/span><strong>gpt-5\.3-codex-spark<\/strong>/u);
 });
 
+test("SDK profile preview action does not rerender the dashboard", async (testContext) => {
+  const vscode = fakeVscode();
+  const context = fakeContext();
+  registerCocopiCommands(context, vscode);
+  testContext.after(() => {
+    for (const subscription of context.subscriptions) subscription.dispose();
+  });
+  await vscode.commands.callbacks.get(COCOPI_COMMANDS.status)?.();
+  const panel = vscode.panels[0];
+  const sentinel = "dashboard should remain unchanged";
+  panel.webview.html = sentinel;
+  await panel.receiveMessage({ type: "command", command: COCOPI_COMMANDS.previewSdkAgentProfile });
+  assert.equal(panel.webview.html, sentinel);
+});
+
 test("utility route controls use the catalog model default and disable tuning for Auto", async (testContext) => {
   testContext.mock.method(globalThis, "fetch", async (url) => {
     if (/\/models\?/u.test(String(url))) {
