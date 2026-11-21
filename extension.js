@@ -49,6 +49,10 @@ export async function activate(context) {
     const { activateCocopiOptionalFeaturesWithVscode } = await import("./lib/vscode/activate.js");
     if (logger) {
       activateCocopiOptionalFeaturesWithVscode(context, vscode, { logger });
+      const { syncGoalkeeperSettings } = await import("./lib/vscode/goalkeeper-settings.js");
+      const goalkeeper = syncGoalkeeperSettings(vscode.workspace, logger);
+      context.subscriptions.push(goalkeeper.subscription);
+      await goalkeeper.ready;
     }
   } catch (error) {
     reportBootstrapFailure(logger, "Cocopi optional features could not be loaded; fail-closed provider remains active.", error instanceof Error ? error : String(error));

@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "hooks": {
+    "userPromptSubmitted": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/protocol.mjs\" submitted", "timeoutSec": 5 }],
+    "userPromptTransformed": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/protocol.mjs\" prompt", "timeoutSec": 5 }],
+    "agentStop": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/protocol.mjs\" stop", "timeoutSec": 25 }]
+  }
+}

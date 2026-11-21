@@ -73,6 +73,16 @@ For testing, set `cocopi.debugLevel` to `events` or `payloads` and open the **Co
 
 Diagnostics are intended for troubleshooting extension behavior. They are stored locally, redact credentials, and can be disabled with `cocopi.issueTracking`.
 
+## Cocopi Goalkeeper
+
+Goalkeeper stands in for you in a Copilot chat. `/goalkeeper <goal>` delegates the follow-up; it does not change the agent's permissions. When you send a normal message, including by steering an active turn, you take over. Goalkeeper stops scheduling follow-ups without cancelling the agent's current work. To hand control back, start a new `/goalkeeper` goal.
+
+In a Copilot session, use **Chat: Install Plugin from Source** and select `plugins/goalkeeper`. Start with `/goalkeeper <goal>`. While the agent is working, **Steer with** `/goalkeeper off` to dismiss Goalkeeper without stopping the current turn. If the chat is idle, send `/goalkeeper off` normally. A normal user message also dismisses the goal; only an explicit `/goalkeeper <goal>` starts a new delegation. A `<goal>` marker from the agent does not enable Goalkeeper.
+
+Goalkeeper normally uses Copilot's background shell wake-ups. If a pending reply ends without an armed watcher, the Stop hook requests one recovery turn to arm it. It requires Node.js and an available background shell tool. End replies with a final standalone `<goal>complete</goal>` or `<goal>pending</goal>`, or use a final `<goal>` block to request user input. For an existing background task, `<goal wait="120" shell="123">Waiting for tests.</goal>` schedules a check-in in seconds, capped at five minutes. Use the actual shell ID to cancel the check-in when that command completes; omit `shell` if the ID is unknown. A newer wait replaces the previous check-in automatically; the agent does not need to cancel the old watcher first.
+
+Use `cocopi.goalkeeper.prependInstructions` and `cocopi.goalkeeper.appendInstructions` to customize the goal instructions. Goals and settings are stored locally under `$COPILOT_HOME/cocopi-goalkeeper` (default `~/.copilot/cocopi-goalkeeper`).
+
 ## Commands
 
 | Command | Description |

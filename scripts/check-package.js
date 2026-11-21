@@ -36,6 +36,7 @@ const PACKAGE_FILES = [
   "lib",
   "media",
   "node_modules/ws",
+  "plugins/goalkeeper",
   "types"
 ];
 const PACKAGE_KEYWORDS = [

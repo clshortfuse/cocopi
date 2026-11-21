@@ -85,6 +85,18 @@
     },
     "configuration": {
       "properties": {
+        "cocopi.goalkeeper.prependInstructions": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "description": "Text to place before Cocopi Goalkeeper's goal instructions."
+        },
+        "cocopi.goalkeeper.appendInstructions": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "description": "Text to place after Cocopi Goalkeeper's goal instructions."
+        },
         "cocopi.subagents": {
           "type": "object",
           "scope": "application",
@@ -543,6 +555,7 @@
     "lib",
     "media",
     "node_modules/ws",
+    "plugins/goalkeeper",
     "types"
   ],
   "galleryBanner": {
